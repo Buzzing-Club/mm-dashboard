@@ -47,6 +47,8 @@ type RiskStatus =
   | "negrisk_group_protection"
   | "paused";
 
+type BoardId = "macro" | "experience" | "risk";
+
 type Market = {
   id: string;
   event: string;
@@ -446,6 +448,32 @@ const filterOptions = [
 
 const timeframes = ["15m", "1h", "4h"];
 
+const boardOptions: Array<{
+  id: BoardId;
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    id: "macro",
+    title: "宏观业务指标",
+    subtitle: "交易规模、用户规模、PnL、刷量占比",
+    icon: <BarChart3 size={16} />,
+  },
+  {
+    id: "experience",
+    title: "用户体验指标",
+    subtitle: "闪单状态、流动性、滑点、点差、盘口斜率",
+    icon: <Layers3 size={16} />,
+  },
+  {
+    id: "risk",
+    title: "市场风控指标",
+    subtitle: "策略状态、库存、预算、数据延迟、暂停原因",
+    icon: <ShieldAlert size={16} />,
+  },
+];
+
 function currency(value: number) {
   const abs = Math.abs(value);
   if (abs >= 1000000) return `$${(value / 1000000).toFixed(2)}M`;
@@ -476,10 +504,15 @@ export default function Home() {
   const [filter, setFilter] = useState("attention");
   const [timeframe, setTimeframe] = useState("1h");
   const [query, setQuery] = useState("");
-  const [now, setNow] = useState(new Date());
+  const [liveClock, setLiveClock] = useState("--:--:--");
+  const [activeBoard, setActiveBoard] = useState<BoardId>("macro");
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    const updateClock = () => {
+      setLiveClock(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+    };
+    updateClock();
+    const timer = window.setInterval(updateClock, 1000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -518,16 +551,45 @@ export default function Home() {
     const net = markets.reduce((sum, marketItem) => sum + (marketItem.netVolume ?? 0), 0);
     const pnl = markets.reduce((sum, marketItem) => sum + marketItem.pnl, 0);
     const alerts = markets.filter((marketItem) => statusMeta[marketItem.riskStatus].tone !== "ok").length;
+    const washKnown = markets.filter((marketItem) => marketItem.washRatio !== null);
+    const avgWash =
+      washKnown.reduce((sum, marketItem) => sum + (marketItem.washRatio ?? 0), 0) /
+      Math.max(1, washKnown.length);
+    const avgSlippage =
+      markets.reduce((sum, marketItem) => sum + (marketItem.avgSlippage ?? 0), 0) /
+      Math.max(1, markets.filter((marketItem) => marketItem.avgSlippage !== null).length);
+    const avgSpread =
+      markets.reduce((sum, marketItem) => sum + marketItem.spread, 0) / Math.max(1, markets.length);
+    const liquidity = markets.reduce((sum, marketItem) => sum + marketItem.liquidity, 0);
+    const stale = markets.filter((marketItem) => marketItem.staleSeconds > 60).length;
+    const paused = markets.filter((marketItem) => marketItem.status === "paused").length;
+    const avgRiskUsed =
+      markets.reduce(
+        (sum, marketItem) =>
+          sum + Math.min(100, (Math.abs(marketItem.worstCasePnl) / marketItem.maxLossBudget) * 100),
+        0,
+      ) / Math.max(1, markets.length);
 
-    return { gross, net, pnl, alerts, traders: markets.reduce((sum, marketItem) => sum + marketItem.traderCount, 0) };
+    return {
+      gross,
+      net,
+      pnl,
+      alerts,
+      avgWash,
+      avgSlippage,
+      avgSpread,
+      liquidity,
+      stale,
+      paused,
+      avgRiskUsed,
+      traders: markets.reduce((sum, marketItem) => sum + marketItem.traderCount, 0),
+    };
   }, []);
 
   const bidMax = maxQuantity(visibleMarket.bidLevels);
   const askMax = maxQuantity(visibleMarket.askLevels);
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
-  const liveClock = now.toLocaleTimeString("zh-CN", { hour12: false });
-
   return (
     <main className="terminal-shell">
       <section className="topbar">
@@ -555,11 +617,48 @@ export default function Home() {
       </section>
 
       <section className="kpi-grid" aria-label="Realtime macro metrics">
-        <MetricCard icon={<BarChart3 size={17} />} label="Gross Volume" value={currency(totals.gross)} delta="+18.4%" tone="ok" />
-        <MetricCard icon={<Activity size={17} />} label="Net Volume" value={currency(totals.net)} delta="+12.1%" tone="ok" />
-        <MetricCard icon={<WalletCards size={17} />} label="Traders" value={totals.traders.toLocaleString()} delta="+64" tone="ok" />
-        <MetricCard icon={<LineChart size={17} />} label="Current PnL" value={signedCurrency(totals.pnl)} delta="-0.8%" tone={totals.pnl >= 0 ? "ok" : "bad"} />
-        <MetricCard icon={<ShieldAlert size={17} />} label="Risk Alerts" value={String(totals.alerts)} delta="3 stale" tone="bad" />
+        {activeBoard === "macro" && (
+          <>
+            <MetricCard icon={<BarChart3 size={17} />} label="Gross Volume" value={currency(totals.gross)} delta="+18.4%" tone="ok" />
+            <MetricCard icon={<Activity size={17} />} label="Net Volume" value={currency(totals.net)} delta="+12.1%" tone="ok" />
+            <MetricCard icon={<WalletCards size={17} />} label="Traders" value={totals.traders.toLocaleString()} delta="+64" tone="ok" />
+            <MetricCard icon={<LineChart size={17} />} label="Current PnL" value={signedCurrency(totals.pnl)} delta="-0.8%" tone={totals.pnl >= 0 ? "ok" : "bad"} />
+            <MetricCard icon={<TimerReset size={17} />} label="Wash Ratio" value={pct(totals.avgWash)} delta="avg" tone={totals.avgWash < 0.2 ? "ok" : "warn"} />
+          </>
+        )}
+        {activeBoard === "experience" && (
+          <>
+            <MetricCard icon={<Layers3 size={17} />} label="Liquidity" value={`${totals.liquidity.toLocaleString()} sh`} delta="+7.2%" tone="ok" />
+            <MetricCard icon={<TimerReset size={17} />} label="Avg Slippage" value={`${totals.avgSlippage.toFixed(1)}%`} delta="-0.4%" tone={totals.avgSlippage < 4 ? "ok" : "bad"} />
+            <MetricCard icon={<Activity size={17} />} label="Avg Spread" value={`${(totals.avgSpread * 100).toFixed(1)}c`} delta="+0.7c" tone={totals.avgSpread < 0.06 ? "ok" : "warn"} />
+            <MetricCard icon={<Gauge size={17} />} label="Ask K / Bid K" value={`${visibleMarket.askSlope?.toFixed(0) ?? "--"} / ${visibleMarket.bidSlope?.toFixed(0) ?? "--"}`} delta="selected" tone={visibleMarket.askSlope && visibleMarket.bidSlope ? "ok" : "bad"} />
+            <MetricCard icon={<Database size={17} />} label="Book Health" value={visibleMarket.bidLevels.length ? "2-sided" : "missing"} delta={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
+          </>
+        )}
+        {activeBoard === "risk" && (
+          <>
+            <MetricCard icon={<ShieldAlert size={17} />} label="Risk Alerts" value={String(totals.alerts)} delta={`${totals.stale} stale`} tone="bad" />
+            <MetricCard icon={<Pause size={17} />} label="Paused" value={String(totals.paused)} delta="markets" tone={totals.paused ? "bad" : "ok"} />
+            <MetricCard icon={<Gauge size={17} />} label="Avg Budget Used" value={`${totals.avgRiskUsed.toFixed(0)}%`} delta="worst pnl" tone={totals.avgRiskUsed > 80 ? "bad" : "warn"} />
+            <MetricCard icon={<Activity size={17} />} label="Selected q" value={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} delta={statusMeta[visibleMarket.quoteMode].short} tone={Math.abs(visibleMarket.inventory) >= 64 ? "bad" : "warn"} />
+            <MetricCard icon={<Database size={17} />} label="Runtime Delay" value={`${visibleMarket.staleSeconds}s`} delta="strategy" tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
+          </>
+        )}
+      </section>
+
+      <section className="board-switcher" aria-label="Dashboard categories">
+        {boardOptions.map((board) => (
+          <button
+            key={board.id}
+            className={activeBoard === board.id ? "active" : ""}
+            type="button"
+            onClick={() => setActiveBoard(board.id)}
+          >
+            <span>{board.icon}</span>
+            <strong>{board.title}</strong>
+            <small>{board.subtitle}</small>
+          </button>
+        ))}
       </section>
 
       <section className="workspace">
@@ -658,145 +757,403 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="detail-grid">
-            <div className="panel risk-panel">
-              <div className="panel-title">
-                <span><Gauge size={16} /> 风控状态</span>
-                <small>{visibleMarket.staleSeconds}s stale</small>
-              </div>
-              <div className="risk-state">
-                <div className={`risk-icon ${statusMeta[visibleMarket.riskStatus].tone}`}>
-                  {statusMeta[visibleMarket.riskStatus].tone === "ok" ? <CircleDot size={18} /> : <AlertTriangle size={18} />}
-                </div>
-                <div>
-                  <strong>{statusMeta[visibleMarket.quoteMode].label}</strong>
-                  <p>{visibleMarket.riskReason}</p>
-                </div>
-              </div>
-              <div className="meter-stack">
-                <Meter label="Inventory / q_max" value={inventoryUsed} figure={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} />
-                <Meter label="Worst PnL / budget" value={lossUsed} figure={`${visibleMarket.worstCasePnl.toFixed(1)} / -${visibleMarket.maxLossBudget}`} tone={lossUsed > 85 ? "bad" : "warn"} />
-              </div>
-            </div>
+          {activeBoard === "macro" && (
+            <MacroBoard visibleMarket={visibleMarket} markets={filteredMarkets} timeframe={timeframe} setTimeframe={setTimeframe} />
+          )}
 
-            <div className="panel micro-panel">
-              <div className="panel-title">
-                <span><Layers3 size={16} /> 盘口质量</span>
-                <small>V = 10 shares</small>
-              </div>
-              <div className="micro-grid">
-                <TinyStat label="Ask K" value={visibleMarket.askSlope?.toFixed(1) ?? "insufficient"} tone={visibleMarket.askSlope ? "ok" : "bad"} />
-                <TinyStat label="Bid K" value={visibleMarket.bidSlope?.toFixed(1) ?? "insufficient"} tone={visibleMarket.bidSlope ? "ok" : "bad"} />
-                <TinyStat label="Avg Slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : `${visibleMarket.avgSlippage.toFixed(1)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
-                <TinyStat label="Wash Ratio" value={pct(visibleMarket.washRatio)} tone={(visibleMarket.washRatio ?? 1) < 0.2 ? "ok" : "warn"} />
-              </div>
-            </div>
+          {activeBoard === "experience" && (
+            <ExperienceBoard
+              visibleMarket={visibleMarket}
+              bidMax={bidMax}
+              askMax={askMax}
+              timeframe={timeframe}
+              setTimeframe={setTimeframe}
+            />
+          )}
 
-            <div className="panel source-panel">
-              <div className="panel-title">
-                <span><Database size={16} /> 数据源</span>
-                <small>≤60s</small>
-              </div>
-              <div className="source-list">
-                <SourceRow label="Backend metrics" value="12s" tone="ok" />
-                <SourceRow label="Strategy runtime" value={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
-                <SourceRow label="Order snapshot" value={visibleMarket.bidLevels.length ? "18s" : "missing"} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
-                <SourceRow label="Robot tags" value={visibleMarket.washRatio === null ? "unknown" : "ready"} tone={visibleMarket.washRatio === null ? "warn" : "ok"} />
-              </div>
-            </div>
-          </div>
-
-          <div className="chart-toolbar">
-            <div className="section-label">Live Microstructure</div>
-            <div className="timeframe-tabs">
-              {timeframes.map((item) => (
-                <button key={item} className={timeframe === item ? "active" : ""} type="button" onClick={() => setTimeframe(item)}>
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="analytics-grid">
-            <div className="panel chart-panel wide">
-              <div className="panel-title">
-                <span><LineChart size={16} /> Volume / PnL / Spread</span>
-                <small>{timeframe}</small>
-              </div>
-              <div className="chart-frame">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={visibleMarket.series}>
-                    <CartesianGrid stroke="#242833" vertical={false} />
-                    <XAxis dataKey="time" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                    <YAxis yAxisId="left" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                    <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Area yAxisId="left" type="monotone" dataKey="volume" fill="#1f7a5f55" stroke="#20d49b" strokeWidth={2} />
-                    <Line yAxisId="right" type="monotone" dataKey="pnl" stroke="#d7f75b" strokeWidth={2} dot={false} />
-                    <Line yAxisId="right" type="monotone" dataKey="spread" stroke="#ffb020" strokeWidth={2} dot={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="panel chart-panel">
-              <div className="panel-title">
-                <span><TimerReset size={16} /> Slippage Dist</span>
-                <small>true trades</small>
-              </div>
-              <div className="chart-frame compact-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={visibleMarket.slippageBuckets}>
-                    <CartesianGrid stroke="#242833" vertical={false} />
-                    <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                    <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                      {visibleMarket.slippageBuckets.map((entry) => (
-                        <Cell
-                          key={entry.bucket}
-                          fill={entry.tone === "good" ? "#20d49b" : entry.tone === "warn" ? "#ffb020" : "#ff5c6c"}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          <div className="bottom-grid">
-            <div className="panel orderbook-panel">
-              <div className="panel-title">
-                <span><Activity size={16} /> Order Book</span>
-                <small>{visibleMarket.liquidity ? `${visibleMarket.liquidity} shares` : "empty"}</small>
-              </div>
-              <div className="book-grid">
-                <OrderSide title="Bids" side="bid" levels={visibleMarket.bidLevels} max={bidMax} />
-                <OrderSide title="Asks" side="ask" levels={visibleMarket.askLevels} max={askMax} />
-              </div>
-            </div>
-
-            <div className="panel event-panel">
-              <div className="panel-title">
-                <span><Pause size={16} /> Strategy Events</span>
-                <small>{visibleMarket.endInMinutes}m to end</small>
-              </div>
-              <div className="event-list">
-                {visibleMarket.events.map((eventItem) => (
-                  <div key={`${eventItem.time}-${eventItem.type}`} className="event-row">
-                    <span className={`event-dot ${eventItem.severity}`} />
-                    <time>{eventItem.time}</time>
-                    <strong>{eventItem.type}</strong>
-                    <p>{eventItem.detail}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          {activeBoard === "risk" && (
+            <RiskBoard
+              visibleMarket={visibleMarket}
+              markets={filteredMarkets}
+              inventoryUsed={inventoryUsed}
+              lossUsed={lossUsed}
+            />
+          )}
         </section>
       </section>
     </main>
+  );
+}
+
+function MacroBoard({
+  visibleMarket,
+  markets,
+  timeframe,
+  setTimeframe,
+}: {
+  visibleMarket: Market;
+  markets: Market[];
+  timeframe: string;
+  setTimeframe: (value: string) => void;
+}) {
+  return (
+    <>
+      <div className="subboard-header">
+        <div>
+          <p className="section-label">Sub Dashboard 01</p>
+          <h3>宏观业务指标</h3>
+        </div>
+        <span>后端统计 · 60s refresh · 双边交易量口径</span>
+      </div>
+
+      <div className="detail-grid macro-detail-grid">
+        <div className="panel">
+          <div className="panel-title">
+            <span><BarChart3 size={16} /> 交易规模与用户规模</span>
+            <small>selected market</small>
+          </div>
+          <div className="micro-grid">
+            <TinyStat label="Gross Volume" value={currency(visibleMarket.grossVolume)} tone="ok" />
+            <TinyStat label="Net Volume" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
+            <TinyStat label="Trader Count" value={visibleMarket.traderCount.toLocaleString()} tone="ok" />
+            <TinyStat label="Wash / Total" value={pct(visibleMarket.washRatio)} tone={(visibleMarket.washRatio ?? 1) < 0.2 ? "ok" : "warn"} />
+          </div>
+        </div>
+
+        <div className="panel pnl-tile">
+          <div className="panel-title">
+            <span><LineChart size={16} /> 当前市场 PnL</span>
+            <small>backend / strategy</small>
+          </div>
+          <strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong>
+          <p>Worst case {signedCurrency(visibleMarket.worstCasePnl)} · budget -{currency(visibleMarket.maxLossBudget)}</p>
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <span><Database size={16} /> 指标状态</span>
+            <small>empty-state aware</small>
+          </div>
+          <div className="source-list">
+            <SourceRow label="gross_volume" value="ready" tone="ok" />
+            <SourceRow label="net_volume" value={visibleMarket.netVolume === null ? "unknown" : "ready"} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
+            <SourceRow label="trader_count" value="ready" tone="ok" />
+            <SourceRow label="wash_volume_ratio" value={visibleMarket.washRatio === null ? "unknown" : "ready"} tone={visibleMarket.washRatio === null ? "warn" : "ok"} />
+          </div>
+        </div>
+      </div>
+
+      <BoardChartToolbar title="Business Trend" timeframe={timeframe} setTimeframe={setTimeframe} />
+
+      <div className="analytics-grid">
+        <div className="panel chart-panel wide">
+          <div className="panel-title">
+            <span><LineChart size={16} /> Volume / PnL / Wash</span>
+            <small>{timeframe}</small>
+          </div>
+          <div className="chart-frame">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={visibleMarket.series}>
+                <CartesianGrid stroke="#242833" vertical={false} />
+                <XAxis dataKey="time" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <YAxis yAxisId="left" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area yAxisId="left" type="monotone" dataKey="volume" fill="#1f7a5f55" stroke="#20d49b" strokeWidth={2} />
+                <Line yAxisId="right" type="monotone" dataKey="pnl" stroke="#d7f75b" strokeWidth={2} dot={false} />
+                <Line yAxisId="right" type="monotone" dataKey="wash" stroke="#4cc9f0" strokeWidth={2} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="panel table-panel">
+          <div className="panel-title">
+            <span><Activity size={16} /> Market Ranking</span>
+            <small>filtered scope</small>
+          </div>
+          <MarketMetricTable markets={markets} mode="macro" />
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ExperienceBoard({
+  visibleMarket,
+  bidMax,
+  askMax,
+  timeframe,
+  setTimeframe,
+}: {
+  visibleMarket: Market;
+  bidMax: number;
+  askMax: number;
+  timeframe: string;
+  setTimeframe: (value: string) => void;
+}) {
+  return (
+    <>
+      <div className="subboard-header">
+        <div>
+          <p className="section-label">Sub Dashboard 02</p>
+          <h3>用户体验指标</h3>
+        </div>
+        <span>撮合/后端/策略端 · 剔除刷量交易 · V=10 shares</span>
+      </div>
+
+      <div className="detail-grid experience-detail-grid">
+        <div className="panel">
+          <div className="panel-title">
+            <span><Gauge size={16} /> 闪单参数监控</span>
+            <small>K line / book sync</small>
+          </div>
+          <div className="micro-grid">
+            <TinyStat label="Brush Status" value={visibleMarket.washRatio === null ? "unknown" : "configured"} tone={visibleMarket.washRatio === null ? "warn" : "ok"} />
+            <TinyStat label="K / Book Drift" value={visibleMarket.staleSeconds > 60 ? "stale" : "0.8c"} tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
+            <TinyStat label="Initial Liquidity" value={`${Math.round(visibleMarket.liquidity * 0.72)} sh`} tone={visibleMarket.liquidity ? "ok" : "bad"} />
+            <TinyStat label="Current Liquidity" value={`${visibleMarket.liquidity} sh`} tone={visibleMarket.liquidity > 500 ? "ok" : "bad"} />
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <span><Layers3 size={16} /> 单市场成交平均滑点</span>
+            <small>true trades</small>
+          </div>
+          <div className="micro-grid">
+            <TinyStat label="Avg Slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : `${visibleMarket.avgSlippage.toFixed(1)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
+            <TinyStat label="Spread Now" value={visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "missing"} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
+            <TinyStat label="Ask K" value={visibleMarket.askSlope?.toFixed(1) ?? "insufficient"} tone={visibleMarket.askSlope ? "ok" : "bad"} />
+            <TinyStat label="Bid K" value={visibleMarket.bidSlope?.toFixed(1) ?? "insufficient"} tone={visibleMarket.bidSlope ? "ok" : "bad"} />
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <span><Database size={16} /> 异常原因</span>
+            <small>not zero-filled</small>
+          </div>
+          <div className="source-list">
+            <SourceRow label="avg_trade_slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : "ready"} tone={visibleMarket.avgSlippage === null ? "warn" : "ok"} />
+            <SourceRow label="ask_impact_slope" value={visibleMarket.askSlope === null ? "insufficient_ask_depth" : "ready"} tone={visibleMarket.askSlope === null ? "bad" : "ok"} />
+            <SourceRow label="bid_impact_slope" value={visibleMarket.bidSlope === null ? "insufficient_bid_depth" : "ready"} tone={visibleMarket.bidSlope === null ? "bad" : "ok"} />
+            <SourceRow label="orderbook_history" value={visibleMarket.bidLevels.length ? "ready" : "orderbook_missing"} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
+          </div>
+        </div>
+      </div>
+
+      <BoardChartToolbar title="Liquidity / Slippage" timeframe={timeframe} setTimeframe={setTimeframe} />
+
+      <div className="analytics-grid">
+        <div className="panel chart-panel wide">
+          <div className="panel-title">
+            <span><LineChart size={16} /> Spread / Impact Slope</span>
+            <small>{timeframe}</small>
+          </div>
+          <div className="chart-frame">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={visibleMarket.series}>
+                <CartesianGrid stroke="#242833" vertical={false} />
+                <XAxis dataKey="time" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <YAxis yAxisId="left" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area yAxisId="left" type="monotone" dataKey="askSlope" fill="#4cc9f033" stroke="#4cc9f0" strokeWidth={2} />
+                <Line yAxisId="left" type="monotone" dataKey="bidSlope" stroke="#20d49b" strokeWidth={2} dot={false} />
+                <Line yAxisId="right" type="monotone" dataKey="spread" stroke="#ffb020" strokeWidth={2} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="panel chart-panel">
+          <div className="panel-title">
+            <span><TimerReset size={16} /> Slippage Dist</span>
+            <small>filled orders</small>
+          </div>
+          <div className="chart-frame compact-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={visibleMarket.slippageBuckets}>
+                <CartesianGrid stroke="#242833" vertical={false} />
+                <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                  {visibleMarket.slippageBuckets.map((entry) => (
+                    <Cell
+                      key={entry.bucket}
+                      fill={entry.tone === "good" ? "#20d49b" : entry.tone === "warn" ? "#ffb020" : "#ff5c6c"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="bottom-grid single-bottom">
+        <div className="panel orderbook-panel">
+          <div className="panel-title">
+            <span><Activity size={16} /> Order Book History Snapshot</span>
+            <small>{visibleMarket.liquidity ? `${visibleMarket.liquidity} shares` : "empty"}</small>
+          </div>
+          <div className="book-grid">
+            <OrderSide title="Bids" side="bid" levels={visibleMarket.bidLevels} max={bidMax} />
+            <OrderSide title="Asks" side="ask" levels={visibleMarket.askLevels} max={askMax} />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function RiskBoard({
+  visibleMarket,
+  markets,
+  inventoryUsed,
+  lossUsed,
+}: {
+  visibleMarket: Market;
+  markets: Market[];
+  inventoryUsed: number;
+  lossUsed: number;
+}) {
+  return (
+    <>
+      <div className="subboard-header">
+        <div>
+          <p className="section-label">Sub Dashboard 03</p>
+          <h3>市场风控指标</h3>
+        </div>
+        <span>策略端状态 · 2 tick / 60s freshness · 只展示不下发参数</span>
+      </div>
+
+      <div className="detail-grid risk-detail-grid">
+        <div className="panel risk-panel">
+          <div className="panel-title">
+            <span><Gauge size={16} /> 市场风控状态监控</span>
+            <small>{visibleMarket.staleSeconds}s stale</small>
+          </div>
+          <div className="risk-state">
+            <div className={`risk-icon ${statusMeta[visibleMarket.riskStatus].tone}`}>
+              {statusMeta[visibleMarket.riskStatus].tone === "ok" ? <CircleDot size={18} /> : <AlertTriangle size={18} />}
+            </div>
+            <div>
+              <strong>{statusMeta[visibleMarket.quoteMode].label}</strong>
+              <p>{visibleMarket.riskReason}</p>
+            </div>
+          </div>
+          <div className="meter-stack">
+            <Meter label="Inventory / q_max" value={inventoryUsed} figure={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} />
+            <Meter label="Worst PnL / budget" value={lossUsed} figure={`${visibleMarket.worstCasePnl.toFixed(1)} / -${visibleMarket.maxLossBudget}`} tone={lossUsed > 85 ? "bad" : "warn"} />
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <span><ShieldAlert size={16} /> 当前摆单策略提示</span>
+            <small>strategy runtime</small>
+          </div>
+          <div className="source-list">
+            <SourceRow label="risk_status" value={statusMeta[visibleMarket.riskStatus].short} tone={statusMeta[visibleMarket.riskStatus].tone === "ok" ? "ok" : statusMeta[visibleMarket.riskStatus].tone === "muted" ? "warn" : statusMeta[visibleMarket.riskStatus].tone} />
+            <SourceRow label="quote_mode" value={statusMeta[visibleMarket.quoteMode].short} tone={statusMeta[visibleMarket.quoteMode].tone === "ok" ? "ok" : statusMeta[visibleMarket.quoteMode].tone === "muted" ? "warn" : statusMeta[visibleMarket.quoteMode].tone} />
+            <SourceRow label="reduce_only_line" value={`${visibleMarket.qMax * 0.8} shares`} tone={Math.abs(visibleMarket.inventory) >= visibleMarket.qMax * 0.8 ? "bad" : "ok"} />
+            <SourceRow label="endgame_window" value={`${visibleMarket.endInMinutes}m`} tone={visibleMarket.endInMinutes < 15 ? "warn" : "ok"} />
+          </div>
+        </div>
+
+        <div className="panel source-panel">
+          <div className="panel-title">
+            <span><Database size={16} /> 数据与依赖状态</span>
+            <small>heartbeat</small>
+          </div>
+          <div className="source-list">
+            <SourceRow label="Backend metrics" value="12s" tone="ok" />
+            <SourceRow label="Strategy runtime" value={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
+            <SourceRow label="Order snapshot" value={visibleMarket.bidLevels.length ? "18s" : "missing"} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
+            <SourceRow label="Runtime health" value={visibleMarket.status} tone={visibleMarket.status === "live" ? "ok" : visibleMarket.status === "degraded" ? "warn" : "bad"} />
+          </div>
+        </div>
+      </div>
+
+      <div className="bottom-grid">
+        <div className="panel table-panel">
+          <div className="panel-title">
+            <span><ShieldAlert size={16} /> Risk Queue</span>
+            <small>filtered scope</small>
+          </div>
+          <MarketMetricTable markets={markets} mode="risk" />
+        </div>
+
+        <div className="panel event-panel">
+          <div className="panel-title">
+            <span><Pause size={16} /> Strategy Events</span>
+            <small>{visibleMarket.endInMinutes}m to end</small>
+          </div>
+          <div className="event-list">
+            {visibleMarket.events.map((eventItem) => (
+              <div key={`${eventItem.time}-${eventItem.type}`} className="event-row">
+                <span className={`event-dot ${eventItem.severity}`} />
+                <time>{eventItem.time}</time>
+                <strong>{eventItem.type}</strong>
+                <p>{eventItem.detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function BoardChartToolbar({
+  title,
+  timeframe,
+  setTimeframe,
+}: {
+  title: string;
+  timeframe: string;
+  setTimeframe: (value: string) => void;
+}) {
+  return (
+    <div className="chart-toolbar">
+      <div className="section-label">{title}</div>
+      <div className="timeframe-tabs">
+        {timeframes.map((item) => (
+          <button key={item} className={timeframe === item ? "active" : ""} type="button" onClick={() => setTimeframe(item)}>
+            {item}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MarketMetricTable({ markets: rows, mode }: { markets: Market[]; mode: "macro" | "risk" }) {
+  return (
+    <div className="metric-table">
+      <div className="metric-table-head">
+        <span>Market</span>
+        <span>{mode === "macro" ? "Volume" : "Risk"}</span>
+        <span>{mode === "macro" ? "Traders" : "Inv"}</span>
+        <span>{mode === "macro" ? "PnL" : "Worst"}</span>
+      </div>
+      {rows.map((marketItem) => (
+        <div key={`${mode}-${marketItem.id}`} className="metric-table-row">
+          <span>
+            <strong>{marketItem.event}</strong>
+            <small>{marketItem.id}</small>
+          </span>
+          <span>{mode === "macro" ? currency(marketItem.grossVolume) : statusMeta[marketItem.riskStatus].short}</span>
+          <span>{mode === "macro" ? marketItem.traderCount.toLocaleString() : `${marketItem.inventory}/${marketItem.qMax}`}</span>
+          <span className={(mode === "macro" ? marketItem.pnl : marketItem.worstCasePnl) >= 0 ? "positive" : "negative"}>
+            {mode === "macro" ? signedCurrency(marketItem.pnl) : signedCurrency(marketItem.worstCasePnl)}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
