@@ -2,6 +2,20 @@
 
 ## 2026-08-28
 
+### Rework flash-order parameter monitoring
+
+- Read the liquidity flash-order bot document and replaced the placeholder flash metrics with document-backed parameters:
+  - `Tier-1 Freq`
+  - `Mid Insert Freq`
+  - `L1 Distance`
+  - `Max Live Pairs`
+- Split liquidity monitoring into a separate `流动性变化` panel with initial liquidity, current liquidity, absolute change, and percentage lift.
+- Changed the user-experience detail area to a 2x2 panel layout so flash-order parameters and liquidity impact are easier to compare.
+
+Verification:
+
+- `npm run build` passed.
+
 ### Remove ambiguous KPI delta hints
 
 - Removed the arrow-and-text hint row from top KPI cards.

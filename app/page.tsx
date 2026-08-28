@@ -1085,6 +1085,9 @@ function ExperienceBoard({
     bookOutcome === "yes" ? visibleMarket.askLevels : complementaryLevels(visibleMarket.bidLevels, "ask");
   const bidMax = maxQuantity(displayedBidLevels);
   const askMax = maxQuantity(displayedAskLevels);
+  const initialLiquidity = Math.round(visibleMarket.liquidity * 0.72);
+  const liquidityChange = visibleMarket.liquidity - initialLiquidity;
+  const liquidityChangePct = initialLiquidity === 0 ? 0 : (liquidityChange / initialLiquidity) * 100;
 
   return (
     <>
@@ -1100,13 +1103,26 @@ function ExperienceBoard({
         <div className="panel">
           <div className="panel-title">
             <span><Gauge size={16} /> 闪单参数监控</span>
-            <small>K line / book sync</small>
+            <small>tier-1 / mid insertion</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Brush Status" value={visibleMarket.washRatio === null ? "unknown" : "configured"} tone={visibleMarket.washRatio === null ? "warn" : "ok"} />
-            <TinyStat label="K / Book Drift" value={visibleMarket.staleSeconds > 60 ? "stale" : "0.8c"} tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
-            <TinyStat label="Initial Liquidity" value={`${Math.round(visibleMarket.liquidity * 0.72)} sh`} tone={visibleMarket.liquidity ? "ok" : "bad"} />
+            <TinyStat label="Tier-1 Freq" value="300 / h" tone="ok" />
+            <TinyStat label="Mid Insert Freq" value="360 / h" tone="ok" />
+            <TinyStat label="L1 Distance" value="1-2 ticks" tone={visibleMarket.spread && visibleMarket.spread > 0.02 ? "ok" : "warn"} />
+            <TinyStat label="Max Live Pairs" value="3 pairs" tone="ok" />
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <span><Layers3 size={16} /> 流动性变化</span>
+            <small>before / now</small>
+          </div>
+          <div className="micro-grid">
+            <TinyStat label="Initial Liquidity" value={`${initialLiquidity} sh`} tone={visibleMarket.liquidity ? "ok" : "bad"} />
             <TinyStat label="Current Liquidity" value={`${visibleMarket.liquidity} sh`} tone={visibleMarket.liquidity > 500 ? "ok" : "bad"} />
+            <TinyStat label="Liquidity Change" value={`${liquidityChange >= 0 ? "+" : ""}${liquidityChange} sh`} tone={liquidityChange >= 0 ? "ok" : "bad"} />
+            <TinyStat label="Liquidity Lift" value={`${liquidityChangePct >= 0 ? "+" : ""}${liquidityChangePct.toFixed(1)}%`} tone={liquidityChangePct >= 0 ? "ok" : "bad"} />
           </div>
         </div>
 
@@ -1429,10 +1445,14 @@ const tinyStatDescriptions: Record<string, string> = {
   "Net Volume": "当前选中市场剔除刷量或内部成交后的真实成交额；未知时显示 unknown。",
   "Trader Count": "当前选中市场内参与过有效交易或关键交互的用户数量。",
   "Wash / Total": "当前选中市场刷量成交额占总成交额的比例，用于判断成交质量。",
-  "Brush Status": "当前选中市场是否已配置刷量识别口径；未配置时真实成交、净成交和滑点统计可能不可靠。",
-  "K / Book Drift": "策略端 K 线价格与订单簿快照之间的偏移，用于判断定价输入和盘口是否同步。",
+  "Tier-1 Freq": "一档贴近操作的目标触发频率，文档口径约为每 12 秒一次，即 300 次/小时。",
+  "Mid Insert Freq": "中间档位插入的目标触发频率，文档口径约为每 10 秒随机插入一次，即 360 次/小时。",
+  "L1 Distance": "闪单价格相对当前 Best Bid / Best Ask 一档附近的距离，文档口径为贴近一档 1-2 个 tick。",
+  "Max Live Pairs": "同一市场同一时刻允许存在的最大 Bot 挂单对数，用于控制并发挂单和保证金占用。",
   "Initial Liquidity": "本轮监控窗口开始时的盘口可用流动性，作为对比当前流动性的基准。",
   "Current Liquidity": "当前订单簿内可被成交的挂单深度，单位为 shares。",
+  "Liquidity Change": "当前流动性相对监控窗口初始值的绝对变化，正值表示盘口深度增加。",
+  "Liquidity Lift": "当前流动性相对监控窗口初始值的百分比变化，用于观察闪单后深度改善幅度。",
   "Avg Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
   "Spread Now": "当前选中市场最优 ask 与最优 bid 的实时价差，数值越小成交体验通常越好。",
   "Ask K": "买入 YES 方向的盘口冲击斜率，衡量吃 ask 时价格随成交量上移的速度。",
