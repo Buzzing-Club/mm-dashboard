@@ -5,7 +5,7 @@
 ### Align risk timeline events on one axis
 
 - Kept every risk timeline event dot on the same horizontal axis.
-- Preserved staggered labels below the axis so adjacent event descriptions remain readable.
+- Aligned every Chinese status label on one row below the axis and removed the time/detail subtext from the timeline.
 
 Verification:
 

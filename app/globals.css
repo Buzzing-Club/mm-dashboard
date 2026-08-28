@@ -750,7 +750,7 @@ h3 {
 .risk-timeline {
   position: relative;
   overflow: hidden;
-  min-height: 184px;
+  min-height: 112px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #0b0d11;
@@ -784,25 +784,10 @@ h3 {
 
 .risk-timeline-label {
   position: absolute;
-  top: 28px;
+  top: 26px;
   left: 0;
-  width: 100%;
-}
-
-.risk-timeline-node.lane-1 .risk-timeline-label {
-  top: 64px;
-}
-
-.risk-timeline-node.lane-2 .risk-timeline-label {
-  top: 100px;
-}
-
-.risk-timeline-node time {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--muted);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
+  width: max-content;
+  max-width: 176px;
 }
 
 .risk-timeline-dot {
@@ -832,23 +817,14 @@ h3 {
   color: var(--red);
 }
 
-.risk-timeline-node strong,
-.risk-timeline-node p {
+.risk-timeline-node strong {
   display: block;
   overflow: hidden;
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.risk-timeline-node strong {
-  color: var(--foreground);
-  font-size: 12px;
-}
-
-.risk-timeline-node p {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .meter-stack {

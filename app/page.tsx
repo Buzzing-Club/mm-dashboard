@@ -1554,7 +1554,6 @@ function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; s
   const start = timestamp(startAt);
   const end = timestamp(endAt);
   const duration = Math.max(1, end - start);
-  const lanes = 3;
 
   return (
     <div className="risk-timeline-wrap">
@@ -1570,15 +1569,13 @@ function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; s
         {events.map((eventItem, index) => (
           <div
             key={`${eventItem.time}-${eventItem.type}-${index}`}
-            className={`risk-timeline-node lane-${index % lanes} ${eventItem.severity}`}
+            className={`risk-timeline-node ${eventItem.severity}`}
             style={{ left: `${Math.min(88, Math.max(8, (((eventItem.ts ?? start) - start) / duration) * 100))}%` }}
             title={`${getRiskEventLabel(eventItem)} · ${eventItem.detail}`}
           >
             <span className="risk-timeline-dot" />
             <div className="risk-timeline-label">
-              <time>{eventItem.time}</time>
               <strong>{getRiskEventLabel(eventItem)}</strong>
-              <p>{eventItem.detail}</p>
             </div>
           </div>
         ))}
