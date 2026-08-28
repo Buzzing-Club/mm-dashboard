@@ -78,7 +78,6 @@ button {
 .feed-pill,
 .title-line,
 .panel-title,
-.metric-card small,
 .rail-header,
 .quote-box,
 .segmented,
@@ -332,13 +331,6 @@ h3 {
   font-family: var(--font-geist-mono), monospace;
   font-size: 24px;
   line-height: 1.1;
-}
-
-.metric-card small {
-  gap: 3px;
-  margin-top: 7px;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 12px;
 }
 
 .positive {

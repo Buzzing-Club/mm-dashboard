@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
   BarChart3,
   Bell,
   CircleDot,
@@ -754,22 +752,6 @@ export default function Home() {
 
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
-  const latestPoint = visibleMarket.series.at(-1);
-  const previousPoint = visibleMarket.series.at(-2);
-  const volumeDelta =
-    latestPoint && previousPoint
-      ? `${latestPoint.volume - previousPoint.volume >= 0 ? "+" : ""}${latestPoint.volume - previousPoint.volume}`
-      : "tick";
-  const pnlDelta =
-    latestPoint && previousPoint ? signedCurrency(latestPoint.pnl - previousPoint.pnl) : "tick";
-  const spreadDelta =
-    latestPoint && previousPoint
-      ? `${latestPoint.spread - previousPoint.spread >= 0 ? "+" : ""}${(latestPoint.spread - previousPoint.spread).toFixed(1)}c`
-      : "tick";
-  const washDelta =
-    latestPoint && previousPoint
-      ? `${latestPoint.wash - previousPoint.wash >= 0 ? "+" : ""}${latestPoint.wash - previousPoint.wash}p`
-      : "tick";
   const selectedTone = statusMeta[visibleMarket.riskStatus].tone;
   const selectedRiskTone = selectedTone === "ok" ? "ok" : selectedTone === "warn" ? "warn" : "bad";
   return (
@@ -859,29 +841,29 @@ export default function Home() {
         <section className="kpi-grid" aria-label="Realtime dashboard metrics">
           {activeBoard === "macro" && (
             <>
-              <MetricCard icon={<BarChart3 size={17} />} label="Market Gross" value={currency(visibleMarket.grossVolume)} delta={volumeDelta} tone="ok" />
-              <MetricCard icon={<Activity size={17} />} label="Market Net" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} delta="selected" tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
-              <MetricCard icon={<WalletCards size={17} />} label="Market Traders" value={visibleMarket.traderCount.toLocaleString()} delta={`${visibleMarket.endInMinutes}m`} tone="ok" />
-              <MetricCard icon={<LineChart size={17} />} label="Market PnL" value={signedCurrency(visibleMarket.pnl)} delta={pnlDelta} tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
-              <MetricCard icon={<TimerReset size={17} />} label="Wash Ratio" value={pct(visibleMarket.washRatio)} delta={washDelta} tone={(visibleMarket.washRatio ?? 1) < 0.2 ? "ok" : "warn"} />
+              <MetricCard icon={<BarChart3 size={17} />} label="Market Gross" value={currency(visibleMarket.grossVolume)} tone="ok" />
+              <MetricCard icon={<Activity size={17} />} label="Market Net" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
+              <MetricCard icon={<WalletCards size={17} />} label="Market Traders" value={visibleMarket.traderCount.toLocaleString()} tone="ok" />
+              <MetricCard icon={<LineChart size={17} />} label="Market PnL" value={signedCurrency(visibleMarket.pnl)} tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+              <MetricCard icon={<TimerReset size={17} />} label="Wash Ratio" value={pct(visibleMarket.washRatio)} tone={(visibleMarket.washRatio ?? 1) < 0.2 ? "ok" : "warn"} />
             </>
           )}
           {activeBoard === "experience" && (
             <>
-              <MetricCard icon={<Layers3 size={17} />} label="Market Liquidity" value={`${visibleMarket.liquidity.toLocaleString()} sh`} delta={visibleMarket.bidLevels.length ? "2-sided" : "empty"} tone={visibleMarket.liquidity > 0 ? "ok" : "bad"} />
-              <MetricCard icon={<TimerReset size={17} />} label="Trade Slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : `${visibleMarket.avgSlippage.toFixed(1)}%`} delta="market" tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
-              <MetricCard icon={<Activity size={17} />} label="Spread Now" value={visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "missing"} delta={spreadDelta} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
-              <MetricCard icon={<Gauge size={17} />} label="Ask K / Bid K" value={`${visibleMarket.askSlope?.toFixed(0) ?? "--"} / ${visibleMarket.bidSlope?.toFixed(0) ?? "--"}`} delta="market" tone={visibleMarket.askSlope && visibleMarket.bidSlope ? "ok" : "bad"} />
-              <MetricCard icon={<Database size={17} />} label="Book Health" value={visibleMarket.bidLevels.length ? "2-sided" : "missing"} delta={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
+              <MetricCard icon={<Layers3 size={17} />} label="Market Liquidity" value={`${visibleMarket.liquidity.toLocaleString()} sh`} tone={visibleMarket.liquidity > 0 ? "ok" : "bad"} />
+              <MetricCard icon={<TimerReset size={17} />} label="Trade Slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : `${visibleMarket.avgSlippage.toFixed(1)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
+              <MetricCard icon={<Activity size={17} />} label="Spread Now" value={visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "missing"} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
+              <MetricCard icon={<Gauge size={17} />} label="Ask K / Bid K" value={`${visibleMarket.askSlope?.toFixed(0) ?? "--"} / ${visibleMarket.bidSlope?.toFixed(0) ?? "--"}`} tone={visibleMarket.askSlope && visibleMarket.bidSlope ? "ok" : "bad"} />
+              <MetricCard icon={<Database size={17} />} label="Book Health" value={visibleMarket.bidLevels.length ? "2-sided" : "missing"} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
             </>
           )}
           {activeBoard === "risk" && (
             <>
-              <MetricCard icon={<ShieldAlert size={17} />} label="Risk Status" value={statusMeta[visibleMarket.riskStatus].short} delta="market" tone={selectedRiskTone} />
-              <MetricCard icon={<Pause size={17} />} label="Quote Mode" value={statusMeta[visibleMarket.quoteMode].short} delta={visibleMarket.status} tone={selectedRiskTone} />
-              <MetricCard icon={<Gauge size={17} />} label="Budget Used" value={`${lossUsed.toFixed(0)}%`} delta="worst pnl" tone={lossUsed > 85 ? "bad" : "warn"} />
-              <MetricCard icon={<Activity size={17} />} label="Inventory q" value={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} delta={statusMeta[visibleMarket.quoteMode].short} tone={Math.abs(visibleMarket.inventory) >= 64 ? "bad" : "warn"} />
-              <MetricCard icon={<Database size={17} />} label="Runtime Delay" value={`${visibleMarket.staleSeconds}s`} delta="strategy" tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
+              <MetricCard icon={<ShieldAlert size={17} />} label="Risk Status" value={statusMeta[visibleMarket.riskStatus].short} tone={selectedRiskTone} />
+              <MetricCard icon={<Pause size={17} />} label="Quote Mode" value={statusMeta[visibleMarket.quoteMode].short} tone={selectedRiskTone} />
+              <MetricCard icon={<Gauge size={17} />} label="Budget Used" value={`${lossUsed.toFixed(0)}%`} tone={lossUsed > 85 ? "bad" : "warn"} />
+              <MetricCard icon={<Activity size={17} />} label="Inventory q" value={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} tone={Math.abs(visibleMarket.inventory) >= 64 ? "bad" : "warn"} />
+              <MetricCard icon={<Database size={17} />} label="Runtime Delay" value={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
             </>
           )}
         </section>
@@ -1403,13 +1385,11 @@ function MetricCard({
   icon,
   label,
   value,
-  delta,
   tone,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  delta: string;
   tone: "ok" | "warn" | "bad";
 }) {
   const description = metricDescriptions[label];
@@ -1426,10 +1406,6 @@ function MetricCard({
         {label}
       </span>
       <strong>{value}</strong>
-      <small className={tone === "bad" ? "negative" : "positive"}>
-        {tone === "bad" ? <ArrowDownRight size={13} /> : <ArrowUpRight size={13} />}
-        {delta}
-      </small>
     </div>
   );
 }

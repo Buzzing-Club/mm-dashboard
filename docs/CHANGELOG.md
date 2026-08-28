@@ -2,6 +2,16 @@
 
 ## 2026-08-28
 
+### Remove ambiguous KPI delta hints
+
+- Removed the arrow-and-text hint row from top KPI cards.
+- Kept each KPI card focused on icon, metric label, value, and the existing Chinese hover definition.
+- Removed unused delta calculations and arrow icons from the dashboard code.
+
+Verification:
+
+- `npm run build` passed.
+
 ### Add Chinese hover definitions to detail metrics
 
 - Added Chinese hover tooltips for the small detail metric labels in the macro and user-experience panels.
