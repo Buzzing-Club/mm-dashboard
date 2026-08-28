@@ -190,21 +190,21 @@ h3 {
 .board-switcher {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin: 10px 0 12px;
+  gap: 14px;
+  margin: 12px 0 14px;
 }
 
 .board-switcher button {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 1fr);
   grid-template-rows: auto auto;
   align-items: center;
-  min-height: 68px;
-  gap: 2px 9px;
+  min-height: 82px;
+  gap: 4px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(16, 18, 22, 0.86);
-  padding: 10px;
+  padding: 14px;
   text-align: left;
   cursor: pointer;
 }
@@ -223,10 +223,10 @@ h3 {
   display: grid;
   grid-row: 1 / 3;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 38px;
+  height: 38px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 7px;
   color: var(--cyan);
 }
 
@@ -238,12 +238,12 @@ h3 {
 }
 
 .board-switcher strong {
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .board-switcher small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .panel,
@@ -301,6 +301,25 @@ h3 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   overscroll-behavior: contain;
   scrollbar-color: var(--line-strong) transparent;
+}
+
+.scope-divider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0 10px;
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.scope-divider i {
+  display: block;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(52, 59, 71, 0.15), var(--line-strong), rgba(52, 59, 71, 0.15));
 }
 
 .rail-header {
@@ -1348,12 +1367,28 @@ h3 {
   }
 
   .board-switcher {
-    margin: 8px 0 10px;
+    gap: 12px;
+    margin: 10px 0 12px;
   }
 
   .board-switcher button {
-    min-height: 58px;
-    padding: 8px;
+    grid-template-columns: 36px minmax(0, 1fr);
+    min-height: 78px;
+    gap: 3px 11px;
+    padding: 12px;
+  }
+
+  .board-switcher span {
+    width: 36px;
+    height: 36px;
+  }
+
+  .board-switcher strong {
+    font-size: 15px;
+  }
+
+  .board-switcher small {
+    font-size: 13px;
   }
 }
 

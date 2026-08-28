@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Expand board switcher and add scope divider
+
+- Enlarged the three sub-dashboard switcher cards with roomier spacing and larger title/subtitle text.
+- Added a lightweight divider between the market-wide filter/list area and the selected-market detail area.
+- Updated the macro board subtitle to match the current PnL-focused metric grid.
+
+Verification:
+
+- `npm run lint` passed.
+- `npm run build` passed.
+
 ### Rework macro board layout
 
 - Moved current market PnL into the metric grid, replacing the `Wash / Total` tile.

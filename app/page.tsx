@@ -822,7 +822,7 @@ const boardOptions: Array<{
   {
     id: "macro",
     title: "宏观业务指标",
-    subtitle: "交易规模、用户规模、PnL、刷量占比",
+    subtitle: "交易规模、用户规模、PnL、业务趋势",
     icon: <BarChart3 size={16} />,
   },
   {
@@ -952,6 +952,12 @@ export default function Home() {
         setQuery={setQuery}
         setActiveId={setActiveId}
       />
+
+      <div className="scope-divider" aria-label="市场筛选与单市场信息分割">
+        <span>总体市场筛选</span>
+        <i />
+        <span>单市场信息</span>
+      </div>
 
       <section className="market-main">
         <div className="detail-header">
