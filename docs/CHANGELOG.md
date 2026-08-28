@@ -2,6 +2,16 @@
 
 ## 2026-08-28
 
+### Align risk timeline events on one axis
+
+- Kept every risk timeline event dot on the same horizontal axis.
+- Preserved staggered labels below the axis so adjacent event descriptions remain readable.
+
+Verification:
+
+- `npm run lint` passed.
+- `npm run build` passed.
+
 ### Distribute mock events by market phase
 
 - Changed mock market windows so `startAt` is derived from elapsed runtime instead of being forced near refresh time.

@@ -1574,10 +1574,12 @@ function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; s
             style={{ left: `${Math.min(88, Math.max(8, (((eventItem.ts ?? start) - start) / duration) * 100))}%` }}
             title={`${getRiskEventLabel(eventItem)} · ${eventItem.detail}`}
           >
-            <time>{eventItem.time}</time>
             <span className="risk-timeline-dot" />
-            <strong>{getRiskEventLabel(eventItem)}</strong>
-            <p>{eventItem.detail}</p>
+            <div className="risk-timeline-label">
+              <time>{eventItem.time}</time>
+              <strong>{getRiskEventLabel(eventItem)}</strong>
+              <p>{eventItem.detail}</p>
+            </div>
           </div>
         ))}
       </div>
