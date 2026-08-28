@@ -92,6 +92,14 @@ type Market = {
 };
 
 type RiskEvent = Market["events"][number];
+type LiquidityHistoryPoint = {
+  time: string;
+  availableLiquidity: number;
+  initialBaseline: number;
+  liquidityDelta: number | null;
+  liquidityDirection: "increase" | "decrease" | null;
+  liquidityReason: string | null;
+};
 
 const statusMeta: Record<
   RiskStatus,
@@ -608,6 +616,101 @@ function toSourceTone(tone: "ok" | "warn" | "bad" | "muted"): "ok" | "warn" | "b
   return tone === "muted" ? "warn" : tone;
 }
 
+function getLiquidityChangeReason(market: Market, delta: number, index: number) {
+  if (delta > 0) {
+    if (market.riskStatus === "normal_quote") {
+      return index % 2 === 0 ? "盘口双边稳定，恢复一档与中间档闪单深度" : "成交滑点低于阈值，补回被动侧挂单量";
+    }
+    if (market.riskStatus === "inventory_adjusted_quote") {
+      return "库存压力回落，策略补回去风险侧流动性";
+    }
+    if (market.riskStatus === "negrisk_group_protection") {
+      return "组级保护未继续扩大，恢复部分安全 bucket 深度";
+    }
+    if (market.riskStatus === "budget_limited") {
+      return "预算占用下降，恢复非风险侧 quote size";
+    }
+    if (market.riskStatus === "data_delay") {
+      return "数据新鲜度恢复，重新打开部分挂单档位";
+    }
+    if (market.riskStatus === "endgame_quote") {
+      return "临期成交压力缓解，小幅补回近端流动性";
+    }
+    if (market.riskStatus === "reduce_only") {
+      return "风险侧成交后库存下降，补充只减风险方向挂单";
+    }
+    return "策略健康检查通过，恢复部分市场深度";
+  }
+
+  if (market.riskStatus === "orderbook_missing") {
+    return "盘口快照缺失或未收敛，撤掉策略挂单";
+  }
+  if (market.riskStatus === "negrisk_group_protection") {
+    return "组级损失保护触发，削减相关 bucket 深度";
+  }
+  if (market.riskStatus === "budget_limited") {
+    return "最坏情形 PnL 接近预算，减少风险侧挂单";
+  }
+  if (market.riskStatus === "data_delay") {
+    return "fair value 超过 freshness 目标，撤掉远端档位";
+  }
+  if (market.riskStatus === "endgame_quote") {
+    return "进入临期窗口，降低 quote size 并收紧档位";
+  }
+  if (market.riskStatus === "reduce_only") {
+    return "库存接近 reduce-only 阈值，撤掉会增加风险的一侧";
+  }
+  if (market.riskStatus === "inventory_adjusted_quote") {
+    return "库存偏离目标，削减累积库存方向的挂单";
+  }
+
+  return "滑点或价差短时恶化，策略减少中间档闪单";
+}
+
+function buildLiquidityHistory(market: Market): LiquidityHistoryPoint[] {
+  const initialLiquidity = market.liquidity
+    ? Math.round(market.liquidity * 0.72)
+    : Math.max(140, Math.round(market.grossVolume / 64));
+  const liquidityChange = market.liquidity - initialLiquidity;
+  const stressed = statusMeta[market.riskStatus].tone !== "ok";
+  const points = market.series;
+
+  return points.map((point, index) => {
+    const lastIndex = Math.max(1, points.length - 1);
+    const progress = index / lastIndex;
+    const stressPulse = stressed && index > 0 && index < lastIndex && index % 2 === 0
+      ? Math.max(8, Math.round(Math.max(market.liquidity, initialLiquidity) * 0.08))
+      : 0;
+    const wiggle = index === 0 || index === lastIndex
+      ? 0
+      : ((index % 3) - 1) * Math.max(1, Math.round(Math.max(market.liquidity, initialLiquidity) * 0.015));
+    const directionalShock = liquidityChange >= 0 ? -stressPulse : stressPulse;
+    const availableLiquidity = Math.max(0, Math.round(initialLiquidity + liquidityChange * progress + wiggle + directionalShock));
+    const previousPoint = index === 0 ? null : points[index - 1];
+    const previousProgress = index === 0 ? 0 : (index - 1) / lastIndex;
+    const previousStressPulse = stressed && index - 1 > 0 && index - 1 < lastIndex && (index - 1) % 2 === 0
+      ? Math.max(8, Math.round(Math.max(market.liquidity, initialLiquidity) * 0.08))
+      : 0;
+    const previousWiggle = index <= 1 || index - 1 === lastIndex
+      ? 0
+      : (((index - 1) % 3) - 1) * Math.max(1, Math.round(Math.max(market.liquidity, initialLiquidity) * 0.015));
+    const previousShock = liquidityChange >= 0 ? -previousStressPulse : previousStressPulse;
+    const previousLiquidity = previousPoint
+      ? Math.max(0, Math.round(initialLiquidity + liquidityChange * previousProgress + previousWiggle + previousShock))
+      : availableLiquidity;
+    const liquidityDelta = index === 0 ? null : availableLiquidity - previousLiquidity;
+
+    return {
+      time: point.time,
+      availableLiquidity,
+      initialBaseline: initialLiquidity,
+      liquidityDelta,
+      liquidityDirection: liquidityDelta === null || liquidityDelta === 0 ? null : liquidityDelta > 0 ? "increase" : "decrease",
+      liquidityReason: liquidityDelta === null || liquidityDelta === 0 ? null : getLiquidityChangeReason(market, liquidityDelta, index),
+    };
+  });
+}
+
 function getRiskTimelineEvents(market: Market) {
   const noisyEventTypes = new Set(["catalog", "fill", "heartbeat"]);
   const statusEvents = market.events.filter((eventItem) => !noisyEventTypes.has(eventItem.type));
@@ -1112,19 +1215,8 @@ function ExperienceBoard({
     bookOutcome === "yes" ? visibleMarket.askLevels : complementaryLevels(visibleMarket.bidLevels, "ask");
   const bidMax = maxQuantity(displayedBidLevels);
   const askMax = maxQuantity(displayedAskLevels);
-  const initialLiquidity = Math.round(visibleMarket.liquidity * 0.72);
-  const liquidityChange = visibleMarket.liquidity - initialLiquidity;
-  const liquidityHistory = visibleMarket.series.map((point, index, points) => {
-    const lastIndex = Math.max(1, points.length - 1);
-    const progress = index / lastIndex;
-    const wiggle = index === 0 || index === points.length - 1 ? 0 : ((index % 3) - 1) * Math.max(1, Math.round(visibleMarket.liquidity * 0.015));
-
-    return {
-      time: point.time,
-      availableLiquidity: Math.max(0, Math.round(initialLiquidity + liquidityChange * progress + wiggle)),
-      initialBaseline: initialLiquidity,
-    };
-  });
+  const liquidityHistory = buildLiquidityHistory(visibleMarket);
+  const liquidityEvents = liquidityHistory.filter((point) => point.liquidityReason);
 
   return (
     <>
@@ -1196,10 +1288,19 @@ function ExperienceBoard({
                 <XAxis dataKey="time" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="availableLiquidity" name="Liquidity" fill="#20d49b33" stroke="#20d49b" strokeWidth={2} />
+                <Area type="monotone" dataKey="availableLiquidity" name="Liquidity" fill="#20d49b33" stroke="#20d49b" strokeWidth={2} dot={<LiquidityEventDot />} />
                 <Line type="monotone" dataKey="initialBaseline" name="Initial Baseline" stroke="#4cc9f0" strokeDasharray="4 4" strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
+          </div>
+          <div className="liquidity-event-strip" aria-label="流动性变化原因">
+            {liquidityEvents.slice(-4).map((point) => (
+              <div key={`${point.time}-${point.liquidityDelta}`} className={`liquidity-event-pill ${point.liquidityDirection ?? ""}`}>
+                <time>{point.time}</time>
+                <strong>{point.liquidityDelta && point.liquidityDelta > 0 ? "+" : ""}{point.liquidityDelta} sh</strong>
+                <span>{point.liquidityReason}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -1524,18 +1625,52 @@ function OrderSide({
   );
 }
 
-function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
+function LiquidityEventDot(props: { cx?: number; cy?: number; payload?: LiquidityHistoryPoint }) {
+  const { cx, cy, payload } = props;
+  if (typeof cx !== "number" || typeof cy !== "number" || !payload?.liquidityReason) return null;
+
+  const color = payload.liquidityDirection === "increase" ? "#20d49b" : "#ff5c6c";
+
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={6} fill="#080a0d" stroke={color} strokeWidth={2} />
+      <circle cx={cx} cy={cy} r={2.5} fill={color} />
+    </g>
+  );
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    name: string;
+    value: number | string;
+    color?: string;
+    payload?: Partial<LiquidityHistoryPoint>;
+  }>;
+  label?: string;
+}) {
   if (!active || !payload?.length) return null;
+  const liquidityPoint = payload.find((item) => item.payload?.liquidityReason)?.payload;
 
   return (
     <div className="chart-tooltip">
       <strong>{label}</strong>
       {payload.map((item) => (
         <span key={item.name}>
-          <i style={{ background: item.color }} />
-          {item.name}: {Number(item.value).toFixed(1)}
+          <i style={{ background: item.color ?? "#7e8796" }} />
+          {item.name}: {typeof item.value === "number" ? item.value.toFixed(1) : item.value}
         </span>
       ))}
+      {liquidityPoint?.liquidityReason ? (
+        <p className={liquidityPoint.liquidityDirection === "increase" ? "positive" : "negative"}>
+          {liquidityPoint.liquidityDelta && liquidityPoint.liquidityDelta > 0 ? "+" : ""}
+          {liquidityPoint.liquidityDelta} sh · {liquidityPoint.liquidityReason}
+        </p>
+      ) : null}
     </div>
   );
 }

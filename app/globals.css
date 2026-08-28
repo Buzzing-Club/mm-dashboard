@@ -1139,6 +1139,71 @@ h3 {
   border-radius: 50%;
 }
 
+.chart-tooltip p {
+  max-width: 320px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(52, 59, 71, 0.72);
+  line-height: 1.45;
+}
+
+.liquidity-event-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.liquidity-event-pill {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b0d11;
+  padding: 8px;
+}
+
+.liquidity-event-pill.increase {
+  border-color: rgba(32, 212, 155, 0.26);
+}
+
+.liquidity-event-pill.decrease {
+  border-color: rgba(255, 92, 108, 0.3);
+}
+
+.liquidity-event-pill time,
+.liquidity-event-pill strong {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
+.liquidity-event-pill time {
+  color: var(--muted);
+}
+
+.liquidity-event-pill strong {
+  display: block;
+  margin-top: 3px;
+}
+
+.liquidity-event-pill.increase strong {
+  color: var(--green);
+}
+
+.liquidity-event-pill.decrease strong {
+  color: var(--red);
+}
+
+.liquidity-event-pill span {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .book-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1408,6 +1473,10 @@ h3 {
 
   .event-row {
     grid-template-columns: 10px 66px minmax(0, 1fr);
+  }
+
+  .liquidity-event-strip {
+    grid-template-columns: 1fr;
   }
 
   .event-row p {

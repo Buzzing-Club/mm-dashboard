@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Add liquidity change strategy markers
+
+- Added event dots to the liquidity history chart for every liquidity increase/decrease point.
+- Added hover detail and a compact event strip showing the share delta and strategy reason behind each liquidity change.
+- Generated strategy reasons from the selected market's current risk/quote state so increases and decreases explain different causes.
+
+Verification:
+
+- `npx next build` passed.
+- `npm run build` passed.
+
 ### Clarify risk timeline labels
 
 - Replaced generic `risk` timeline titles with specific risk names inferred from the event detail.
