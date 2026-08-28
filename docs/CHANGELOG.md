@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Rework risk dependency row
+
+- Removed the redundant `Risk Snapshot` panel from the risk board.
+- Moved `数据与依赖状态` into the lower row beside `Strategy Events`.
+- Expanded the strategy hint panel across the row so the risk board reads as current state first, then dependencies/events.
+
+Verification:
+
+- `npm run lint` passed.
+- `npm run build` passed.
+
 ### Expand board switcher and add scope divider
 
 - Enlarged the three sub-dashboard switcher cards with roomier spacing and larger title/subtitle text.

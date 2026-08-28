@@ -1339,7 +1339,7 @@ function RiskBoard({
           </div>
         </div>
 
-        <div className="panel">
+        <div className="panel strategy-hint-panel">
           <div className="panel-title">
             <span><ShieldAlert size={16} /> 当前摆单策略提示</span>
             <small>strategy runtime</small>
@@ -1351,7 +1351,9 @@ function RiskBoard({
             <SourceRow label="endgame_window" value={`${visibleMarket.endInMinutes}m`} tone={visibleMarket.endInMinutes < 15 ? "warn" : "ok"} />
           </div>
         </div>
+      </div>
 
+      <div className="bottom-grid">
         <div className="panel source-panel">
           <div className="panel-title">
             <span><Database size={16} /> 数据与依赖状态</span>
@@ -1363,16 +1365,6 @@ function RiskBoard({
             <SourceRow label="Order snapshot" value={visibleMarket.bidLevels.length ? "18s" : "missing"} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
             <SourceRow label="Runtime health" value={visibleMarket.status} tone={visibleMarket.status === "live" ? "ok" : visibleMarket.status === "degraded" ? "warn" : "bad"} />
           </div>
-        </div>
-      </div>
-
-      <div className="bottom-grid">
-        <div className="panel table-panel">
-          <div className="panel-title">
-            <span><ShieldAlert size={16} /> Risk Snapshot</span>
-            <small>selected market</small>
-          </div>
-          <MarketMetricTable markets={[visibleMarket]} mode="risk" />
         </div>
 
         <div className="panel event-panel">
@@ -1440,32 +1432,6 @@ function BoardChartToolbar({
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-function MarketMetricTable({ markets: rows, mode }: { markets: Market[]; mode: "macro" | "risk" }) {
-  return (
-    <div className="metric-table">
-      <div className="metric-table-head">
-        <span>Market</span>
-        <span>{mode === "macro" ? "Volume" : "Risk"}</span>
-        <span>{mode === "macro" ? "Traders" : "Inv"}</span>
-        <span>{mode === "macro" ? "PnL" : "Worst"}</span>
-      </div>
-      {rows.map((marketItem) => (
-        <div key={`${mode}-${marketItem.id}`} className="metric-table-row">
-          <span>
-            <strong>{marketItem.event}</strong>
-            <small>{marketItem.id}</small>
-          </span>
-          <span>{mode === "macro" ? currency(marketItem.grossVolume) : statusMeta[marketItem.riskStatus].short}</span>
-          <span>{mode === "macro" ? marketItem.traderCount.toLocaleString() : `${marketItem.inventory}/${marketItem.qMax}`}</span>
-          <span className={(mode === "macro" ? marketItem.pnl : marketItem.worstCasePnl) >= 0 ? "positive" : "negative"}>
-            {mode === "macro" ? signedCurrency(marketItem.pnl) : signedCurrency(marketItem.worstCasePnl)}
-          </span>
-        </div>
-      ))}
     </div>
   );
 }
