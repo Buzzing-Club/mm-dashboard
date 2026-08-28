@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Prepare mock dashboard for Vercel preview
+
+- Documented that mock market data is committed with the source and does not require backend environment variables.
+- Added a Vercel build command for standard Next.js preview deployment.
+- Excluded unused starter Cloudflare example files from Next.js type checking while preserving the existing Sites build path.
+
+Verification:
+
+- `npx next build` passed.
+- `npm run build` passed.
+
 ### Add risk status timeline
 
 - Added an event-driven timeline to the risk status monitor so historical state changes sit beside the current risk status.

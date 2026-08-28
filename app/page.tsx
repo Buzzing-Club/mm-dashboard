@@ -585,6 +585,10 @@ function getRiskEventLabel(type: string) {
   return riskEventTypeLabels[type] ?? type;
 }
 
+function toSourceTone(tone: "ok" | "warn" | "bad" | "muted"): "ok" | "warn" | "bad" {
+  return tone === "muted" ? "warn" : tone;
+}
+
 function getRiskTimelineEvents(market: Market) {
   const noisyEventTypes = new Set(["catalog", "fill", "heartbeat"]);
   const statusEvents = market.events.filter((eventItem) => !noisyEventTypes.has(eventItem.type));
@@ -1253,8 +1257,8 @@ function RiskBoard({
             <small>strategy runtime</small>
           </div>
           <div className="source-list">
-            <SourceRow label="risk_status" value={statusMeta[visibleMarket.riskStatus].short} tone={statusMeta[visibleMarket.riskStatus].tone === "ok" ? "ok" : statusMeta[visibleMarket.riskStatus].tone === "muted" ? "warn" : statusMeta[visibleMarket.riskStatus].tone} />
-            <SourceRow label="quote_mode" value={statusMeta[visibleMarket.quoteMode].short} tone={statusMeta[visibleMarket.quoteMode].tone === "ok" ? "ok" : statusMeta[visibleMarket.quoteMode].tone === "muted" ? "warn" : statusMeta[visibleMarket.quoteMode].tone} />
+            <SourceRow label="risk_status" value={statusMeta[visibleMarket.riskStatus].short} tone={toSourceTone(statusMeta[visibleMarket.riskStatus].tone)} />
+            <SourceRow label="quote_mode" value={statusMeta[visibleMarket.quoteMode].short} tone={toSourceTone(statusMeta[visibleMarket.quoteMode].tone)} />
             <SourceRow label="reduce_only_line" value={`${visibleMarket.qMax * 0.8} shares`} tone={Math.abs(visibleMarket.inventory) >= visibleMarket.qMax * 0.8 ? "bad" : "ok"} />
             <SourceRow label="endgame_window" value={`${visibleMarket.endInMinutes}m`} tone={visibleMarket.endInMinutes < 15 ? "warn" : "ok"} />
           </div>

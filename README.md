@@ -44,3 +44,17 @@ http://localhost:3000/
 ```bash
 npm run build
 ```
+
+## Vercel 预览发布
+
+当前 mock 数据已经随源码提交，主要在 `app/page.tsx` 的 `manualMarkets`、`prodMarketSeeds` 和 `makeProdMarket` 里，不依赖后端环境变量。
+
+从 Vercel 导入 GitHub 仓库时使用：
+
+- Repository: `Buzzing-Club/mm-dashboard`
+- Framework Preset: `Next.js`
+- Build Command: `npx next build`
+- Install Command: `npm install`
+- Node.js: `22.x`
+
+暂时不需要配置环境变量。后续接真实 API 时，再把 mock 数据替换为后端/策略端请求。
