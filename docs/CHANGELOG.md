@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Show all strategy events on risk timeline
+
+- Updated the risk status timeline to include every strategy event instead of filtering out catalog, heartbeat, or fill events.
+- Added three-lane positioning for closely timed events so labels remain visible on the lifecycle axis.
+- Added Chinese timeline labels for catalog sync, strategy heartbeat, and fill events.
+
+Verification:
+
+- `npm run lint` passed.
+- `npm run build` passed.
+
 ### Anchor timelines to market lifecycle
 
 - Added stable mock `startAt` / `endAt` windows for every market.

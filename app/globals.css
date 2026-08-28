@@ -750,7 +750,7 @@ h3 {
 .risk-timeline {
   position: relative;
   overflow: hidden;
-  min-height: 116px;
+  min-height: 178px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #0b0d11;
@@ -781,6 +781,14 @@ h3 {
   width: min(176px, 32%);
   min-width: 0;
   padding: 36px 10px 0 0;
+}
+
+.risk-timeline-node.lane-1 {
+  top: 72px;
+}
+
+.risk-timeline-node.lane-2 {
+  top: 120px;
 }
 
 .risk-timeline-node time {

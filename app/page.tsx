@@ -673,6 +673,9 @@ function riskReasonFor(status: RiskStatus) {
 const riskEventTypeLabels: Record<string, string> = {
   normal: "正常摆单",
   requote: "重新定价",
+  catalog: "市场目录同步",
+  heartbeat: "策略心跳",
+  fill: "成交回报",
   inventory: "库存倾斜",
   skew: "库存倾斜",
   reduce: "只减风险",
@@ -814,11 +817,9 @@ function buildLiquidityHistory(market: Market): LiquidityHistoryPoint[] {
 }
 
 function getRiskTimelineEvents(market: Market) {
-  const noisyEventTypes = new Set(["catalog", "fill", "heartbeat"]);
-  const statusEvents = market.events.filter((eventItem) => !noisyEventTypes.has(eventItem.type));
-
-  if (statusEvents.length) {
-    return statusEvents.slice(0, 6).reverse();
+  if (market.events.length) {
+    return [...market.events]
+      .sort((a, b) => (a.ts ?? timestamp(market.startAt)) - (b.ts ?? timestamp(market.startAt)));
   }
 
   const tone = statusMeta[market.riskStatus].tone;
@@ -1521,6 +1522,7 @@ function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; s
   const start = timestamp(startAt);
   const end = timestamp(endAt);
   const duration = Math.max(1, end - start);
+  const lanes = 3;
 
   return (
     <div className="risk-timeline-wrap">
@@ -1536,7 +1538,7 @@ function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; s
         {events.map((eventItem, index) => (
           <div
             key={`${eventItem.time}-${eventItem.type}-${index}`}
-            className={`risk-timeline-node ${eventItem.severity}`}
+            className={`risk-timeline-node lane-${index % lanes} ${eventItem.severity}`}
             style={{ left: `${Math.min(88, Math.max(8, (((eventItem.ts ?? start) - start) / duration) * 100))}%` }}
             title={`${getRiskEventLabel(eventItem)} · ${eventItem.detail}`}
           >
