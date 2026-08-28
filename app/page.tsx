@@ -1381,6 +1381,24 @@ function MarketMetricTable({ markets: rows, mode }: { markets: Market[]; mode: "
   );
 }
 
+const metricDescriptions: Record<string, string> = {
+  "Market Gross": "当前选中市场的累计双边成交额，包含所有可计入市场交易规模的成交。",
+  "Market Net": "当前选中市场剔除刷量或内部成交后的真实成交额；未知时显示 unknown。",
+  "Market Traders": "当前选中市场内参与过有效交易或关键交互的用户数量。",
+  "Market PnL": "当前选中市场的实时做市盈亏，按当前持仓、现金流和估值口径计算。",
+  "Wash Ratio": "当前选中市场刷量成交额占总成交额的比例，用于判断交易质量。",
+  "Market Liquidity": "当前选中市场盘口可用流动性，表示当前可被成交的挂单深度。",
+  "Trade Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
+  "Spread Now": "当前选中市场最优 ask 与最优 bid 的价差，数值越小成交体验通常越好。",
+  "Ask K / Bid K": "当前选中市场买入侧和卖出侧盘口冲击斜率，用于衡量吃单对价格的影响。",
+  "Book Health": "当前选中市场订单簿是否有双边有效盘口；missing 表示无法确认挂单状态。",
+  "Risk Status": "当前选中市场的综合风控状态，由库存、预算、盘口、临期和数据新鲜度共同决定。",
+  "Quote Mode": "当前选中市场实际采用的摆单模式，例如正常、库存倾斜、只减风险或暂停。",
+  "Budget Used": "当前选中市场最坏情况亏损相对风控预算的占用比例。",
+  "Inventory q": "当前选中市场做市账户持仓相对 q_max 的库存敞口。",
+  "Runtime Delay": "当前选中市场策略端最近一次计算或心跳距离现在的延迟。",
+};
+
 function MetricCard({
   icon,
   label,
@@ -1394,10 +1412,19 @@ function MetricCard({
   delta: string;
   tone: "ok" | "warn" | "bad";
 }) {
+  const description = metricDescriptions[label];
+
   return (
     <div className="metric-card">
       <div className="metric-icon">{icon}</div>
-      <span>{label}</span>
+      <span
+        className={description ? "metric-label has-tooltip" : "metric-label"}
+        data-tooltip={description}
+        tabIndex={description ? 0 : undefined}
+        title={description}
+      >
+        {label}
+      </span>
       <strong>{value}</strong>
       <small className={tone === "bad" ? "negative" : "positive"}>
         {tone === "bad" ? <ArrowDownRight size={13} /> : <ArrowUpRight size={13} />}

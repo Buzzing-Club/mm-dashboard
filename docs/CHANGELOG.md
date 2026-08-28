@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Add Chinese hover definitions to KPI cards
+
+- Added Chinese hover tooltips for top KPI labels across macro, user-experience, and risk subboards.
+- Covered `Market Gross`, `Market Net`, `Market Traders`, `Market PnL`, `Wash Ratio`, `Market Liquidity`, `Trade Slippage`, `Spread Now`, `Ask K / Bid K`, `Book Health`, `Risk Status`, `Quote Mode`, `Budget Used`, `Inventory q`, and `Runtime Delay`.
+- Kept the same hover and keyboard-focus behavior as the parameter explanations.
+
+Verification:
+
+- `npm run build` passed.
+- Browser hover smoke check confirmed the KPI label tooltip renders.
+
 ### Add YES / NO order book switching
 
 - Added a compact `YES / NO` switch to the Order Book History Snapshot panel.
