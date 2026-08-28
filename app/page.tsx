@@ -616,172 +616,203 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="kpi-grid" aria-label="Realtime macro metrics">
-        {activeBoard === "macro" && (
-          <>
-            <MetricCard icon={<BarChart3 size={17} />} label="Gross Volume" value={currency(totals.gross)} delta="+18.4%" tone="ok" />
-            <MetricCard icon={<Activity size={17} />} label="Net Volume" value={currency(totals.net)} delta="+12.1%" tone="ok" />
-            <MetricCard icon={<WalletCards size={17} />} label="Traders" value={totals.traders.toLocaleString()} delta="+64" tone="ok" />
-            <MetricCard icon={<LineChart size={17} />} label="Current PnL" value={signedCurrency(totals.pnl)} delta="-0.8%" tone={totals.pnl >= 0 ? "ok" : "bad"} />
-            <MetricCard icon={<TimerReset size={17} />} label="Wash Ratio" value={pct(totals.avgWash)} delta="avg" tone={totals.avgWash < 0.2 ? "ok" : "warn"} />
-          </>
-        )}
-        {activeBoard === "experience" && (
-          <>
-            <MetricCard icon={<Layers3 size={17} />} label="Liquidity" value={`${totals.liquidity.toLocaleString()} sh`} delta="+7.2%" tone="ok" />
-            <MetricCard icon={<TimerReset size={17} />} label="Avg Slippage" value={`${totals.avgSlippage.toFixed(1)}%`} delta="-0.4%" tone={totals.avgSlippage < 4 ? "ok" : "bad"} />
-            <MetricCard icon={<Activity size={17} />} label="Avg Spread" value={`${(totals.avgSpread * 100).toFixed(1)}c`} delta="+0.7c" tone={totals.avgSpread < 0.06 ? "ok" : "warn"} />
-            <MetricCard icon={<Gauge size={17} />} label="Ask K / Bid K" value={`${visibleMarket.askSlope?.toFixed(0) ?? "--"} / ${visibleMarket.bidSlope?.toFixed(0) ?? "--"}`} delta="selected" tone={visibleMarket.askSlope && visibleMarket.bidSlope ? "ok" : "bad"} />
-            <MetricCard icon={<Database size={17} />} label="Book Health" value={visibleMarket.bidLevels.length ? "2-sided" : "missing"} delta={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
-          </>
-        )}
-        {activeBoard === "risk" && (
-          <>
-            <MetricCard icon={<ShieldAlert size={17} />} label="Risk Alerts" value={String(totals.alerts)} delta={`${totals.stale} stale`} tone="bad" />
-            <MetricCard icon={<Pause size={17} />} label="Paused" value={String(totals.paused)} delta="markets" tone={totals.paused ? "bad" : "ok"} />
-            <MetricCard icon={<Gauge size={17} />} label="Avg Budget Used" value={`${totals.avgRiskUsed.toFixed(0)}%`} delta="worst pnl" tone={totals.avgRiskUsed > 80 ? "bad" : "warn"} />
-            <MetricCard icon={<Activity size={17} />} label="Selected q" value={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} delta={statusMeta[visibleMarket.quoteMode].short} tone={Math.abs(visibleMarket.inventory) >= 64 ? "bad" : "warn"} />
-            <MetricCard icon={<Database size={17} />} label="Runtime Delay" value={`${visibleMarket.staleSeconds}s`} delta="strategy" tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
-          </>
-        )}
-      </section>
+      <MarketOverview
+        filteredMarkets={filteredMarkets}
+        marketCount={markets.length}
+        visibleMarket={visibleMarket}
+        filter={filter}
+        setFilter={setFilter}
+        query={query}
+        setQuery={setQuery}
+        setActiveId={setActiveId}
+      />
 
-      <section className="board-switcher" aria-label="Dashboard categories">
-        {boardOptions.map((board) => (
-          <button
-            key={board.id}
-            className={activeBoard === board.id ? "active" : ""}
-            type="button"
-            onClick={() => setActiveBoard(board.id)}
-          >
-            <span>{board.icon}</span>
-            <strong>{board.title}</strong>
-            <small>{board.subtitle}</small>
-          </button>
-        ))}
-      </section>
-
-      <section className="workspace">
-        <aside className="market-rail">
-          <div className="rail-header">
-            <div>
-              <p className="section-label">Markets</p>
-              <strong>{filteredMarkets.length} / {markets.length}</strong>
+      <section className="market-main">
+        <div className="detail-header">
+          <div>
+            <div className="title-line">
+              <h2>{visibleMarket.event}</h2>
+              <span className={`state-chip ${statusMeta[visibleMarket.riskStatus].tone}`}>
+                {statusMeta[visibleMarket.riskStatus].label}
+              </span>
             </div>
-            <button className="icon-button compact" type="button" title="筛选">
-              <SlidersHorizontal size={15} />
+            <p>{visibleMarket.market} · {visibleMarket.category} · {visibleMarket.id}</p>
+          </div>
+
+          <div className="quote-box">
+            <div>
+              <span>Bid</span>
+              <strong className="bid">{price(visibleMarket.bestBid)}</strong>
+            </div>
+            <div>
+              <span>Mid</span>
+              <strong>{price(visibleMarket.mid)}</strong>
+            </div>
+            <div>
+              <span>Ask</span>
+              <strong className="ask">{price(visibleMarket.bestAsk)}</strong>
+            </div>
+            <div>
+              <span>Spr</span>
+              <strong>{visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "--"}</strong>
+            </div>
+          </div>
+        </div>
+
+        <section className="board-switcher" aria-label="Dashboard categories">
+          {boardOptions.map((board) => (
+            <button
+              key={board.id}
+              className={activeBoard === board.id ? "active" : ""}
+              type="button"
+              onClick={() => setActiveBoard(board.id)}
+            >
+              <span>{board.icon}</span>
+              <strong>{board.title}</strong>
+              <small>{board.subtitle}</small>
             </button>
-          </div>
+          ))}
+        </section>
 
-          <div className="search-box">
-            <Search size={15} />
-            <input
-              aria-label="Search markets"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="market / event / id"
-            />
-          </div>
-
-          <div className="segmented">
-            {filterOptions.map((option) => (
-              <button
-                key={option.id}
-                className={filter === option.id ? "active" : ""}
-                type="button"
-                onClick={() => setFilter(option.id)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="market-list">
-            {filteredMarkets.map((marketItem) => {
-              const meta = statusMeta[marketItem.riskStatus];
-              return (
-                <button
-                  key={marketItem.id}
-                  className={`market-row ${visibleMarket.id === marketItem.id ? "selected" : ""}`}
-                  type="button"
-                  onClick={() => setActiveId(marketItem.id)}
-                >
-                  <div className="market-row-top">
-                    <span className={`status-dot ${meta.tone}`} />
-                    <strong>{marketItem.event}</strong>
-                    <small className={`state-chip ${meta.tone}`}>{meta.short}</small>
-                  </div>
-                  <p>{marketItem.market}</p>
-                  <div className="market-row-metrics">
-                    <span>{currency(marketItem.grossVolume)}</span>
-                    <span className={marketItem.pnl >= 0 ? "positive" : "negative"}>
-                      {signedCurrency(marketItem.pnl)}
-                    </span>
-                    <span>{marketItem.staleSeconds}s</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </aside>
-
-        <section className="market-main">
-          <div className="detail-header">
-            <div>
-              <div className="title-line">
-                <h2>{visibleMarket.event}</h2>
-                <span className={`state-chip ${statusMeta[visibleMarket.riskStatus].tone}`}>
-                  {statusMeta[visibleMarket.riskStatus].label}
-                </span>
-              </div>
-              <p>{visibleMarket.market} · {visibleMarket.category} · {visibleMarket.id}</p>
-            </div>
-
-            <div className="quote-box">
-              <div>
-                <span>Bid</span>
-                <strong className="bid">{price(visibleMarket.bestBid)}</strong>
-              </div>
-              <div>
-                <span>Mid</span>
-                <strong>{price(visibleMarket.mid)}</strong>
-              </div>
-              <div>
-                <span>Ask</span>
-                <strong className="ask">{price(visibleMarket.bestAsk)}</strong>
-              </div>
-              <div>
-                <span>Spr</span>
-                <strong>{visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "--"}</strong>
-              </div>
-            </div>
-          </div>
-
+        <section className="kpi-grid" aria-label="Realtime dashboard metrics">
           {activeBoard === "macro" && (
-            <MacroBoard visibleMarket={visibleMarket} markets={filteredMarkets} timeframe={timeframe} setTimeframe={setTimeframe} />
+            <>
+              <MetricCard icon={<BarChart3 size={17} />} label="Gross Volume" value={currency(totals.gross)} delta="+18.4%" tone="ok" />
+              <MetricCard icon={<Activity size={17} />} label="Net Volume" value={currency(totals.net)} delta="+12.1%" tone="ok" />
+              <MetricCard icon={<WalletCards size={17} />} label="Traders" value={totals.traders.toLocaleString()} delta="+64" tone="ok" />
+              <MetricCard icon={<LineChart size={17} />} label="Current PnL" value={signedCurrency(totals.pnl)} delta="-0.8%" tone={totals.pnl >= 0 ? "ok" : "bad"} />
+              <MetricCard icon={<TimerReset size={17} />} label="Wash Ratio" value={pct(totals.avgWash)} delta="avg" tone={totals.avgWash < 0.2 ? "ok" : "warn"} />
+            </>
           )}
-
           {activeBoard === "experience" && (
-            <ExperienceBoard
-              visibleMarket={visibleMarket}
-              bidMax={bidMax}
-              askMax={askMax}
-              timeframe={timeframe}
-              setTimeframe={setTimeframe}
-            />
+            <>
+              <MetricCard icon={<Layers3 size={17} />} label="Liquidity" value={`${totals.liquidity.toLocaleString()} sh`} delta="+7.2%" tone="ok" />
+              <MetricCard icon={<TimerReset size={17} />} label="Avg Slippage" value={`${totals.avgSlippage.toFixed(1)}%`} delta="-0.4%" tone={totals.avgSlippage < 4 ? "ok" : "bad"} />
+              <MetricCard icon={<Activity size={17} />} label="Avg Spread" value={`${(totals.avgSpread * 100).toFixed(1)}c`} delta="+0.7c" tone={totals.avgSpread < 0.06 ? "ok" : "warn"} />
+              <MetricCard icon={<Gauge size={17} />} label="Ask K / Bid K" value={`${visibleMarket.askSlope?.toFixed(0) ?? "--"} / ${visibleMarket.bidSlope?.toFixed(0) ?? "--"}`} delta="selected" tone={visibleMarket.askSlope && visibleMarket.bidSlope ? "ok" : "bad"} />
+              <MetricCard icon={<Database size={17} />} label="Book Health" value={visibleMarket.bidLevels.length ? "2-sided" : "missing"} delta={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
+            </>
           )}
-
           {activeBoard === "risk" && (
-            <RiskBoard
-              visibleMarket={visibleMarket}
-              markets={filteredMarkets}
-              inventoryUsed={inventoryUsed}
-              lossUsed={lossUsed}
-            />
+            <>
+              <MetricCard icon={<ShieldAlert size={17} />} label="Risk Alerts" value={String(totals.alerts)} delta={`${totals.stale} stale`} tone="bad" />
+              <MetricCard icon={<Pause size={17} />} label="Paused" value={String(totals.paused)} delta="markets" tone={totals.paused ? "bad" : "ok"} />
+              <MetricCard icon={<Gauge size={17} />} label="Avg Budget Used" value={`${totals.avgRiskUsed.toFixed(0)}%`} delta="worst pnl" tone={totals.avgRiskUsed > 80 ? "bad" : "warn"} />
+              <MetricCard icon={<Activity size={17} />} label="Selected q" value={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} delta={statusMeta[visibleMarket.quoteMode].short} tone={Math.abs(visibleMarket.inventory) >= 64 ? "bad" : "warn"} />
+              <MetricCard icon={<Database size={17} />} label="Runtime Delay" value={`${visibleMarket.staleSeconds}s`} delta="strategy" tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
+            </>
           )}
         </section>
+
+        {activeBoard === "macro" && (
+          <MacroBoard visibleMarket={visibleMarket} markets={filteredMarkets} timeframe={timeframe} setTimeframe={setTimeframe} />
+        )}
+
+        {activeBoard === "experience" && (
+          <ExperienceBoard
+            visibleMarket={visibleMarket}
+            bidMax={bidMax}
+            askMax={askMax}
+            timeframe={timeframe}
+            setTimeframe={setTimeframe}
+          />
+        )}
+
+        {activeBoard === "risk" && (
+          <RiskBoard
+            visibleMarket={visibleMarket}
+            markets={filteredMarkets}
+            inventoryUsed={inventoryUsed}
+            lossUsed={lossUsed}
+          />
+        )}
       </section>
     </main>
+  );
+}
+
+function MarketOverview({
+  filteredMarkets,
+  marketCount,
+  visibleMarket,
+  filter,
+  setFilter,
+  query,
+  setQuery,
+  setActiveId,
+}: {
+  filteredMarkets: Market[];
+  marketCount: number;
+  visibleMarket: Market;
+  filter: string;
+  setFilter: (value: string) => void;
+  query: string;
+  setQuery: (value: string) => void;
+  setActiveId: (value: string) => void;
+}) {
+  return (
+    <section className="market-rail market-overview">
+      <div className="rail-header">
+        <div>
+          <p className="section-label">Market Overview</p>
+          <strong>{filteredMarkets.length} / {marketCount}</strong>
+        </div>
+        <button className="icon-button compact" type="button" title="筛选">
+          <SlidersHorizontal size={15} />
+        </button>
+      </div>
+
+      <div className="search-box">
+        <Search size={15} />
+        <input
+          aria-label="Search markets"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="market / event / id"
+        />
+      </div>
+
+      <div className="segmented">
+        {filterOptions.map((option) => (
+          <button
+            key={option.id}
+            className={filter === option.id ? "active" : ""}
+            type="button"
+            onClick={() => setFilter(option.id)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="market-list">
+        {filteredMarkets.map((marketItem) => {
+          const meta = statusMeta[marketItem.riskStatus];
+          return (
+            <button
+              key={marketItem.id}
+              className={`market-row ${visibleMarket.id === marketItem.id ? "selected" : ""}`}
+              type="button"
+              onClick={() => setActiveId(marketItem.id)}
+            >
+              <div className="market-row-top">
+                <span className={`status-dot ${meta.tone}`} />
+                <strong>{marketItem.event}</strong>
+                <small className={`state-chip ${meta.tone}`}>{meta.short}</small>
+              </div>
+              <p>{marketItem.market}</p>
+              <div className="market-row-metrics">
+                <span>{currency(marketItem.grossVolume)}</span>
+                <span className={marketItem.pnl >= 0 ? "positive" : "negative"}>
+                  {signedCurrency(marketItem.pnl)}
+                </span>
+                <span>{marketItem.staleSeconds}s</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

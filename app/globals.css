@@ -200,7 +200,7 @@ h3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 12px;
+  margin: 10px 0 12px;
 }
 
 .board-switcher button {
@@ -325,6 +325,19 @@ h3 {
 .market-rail {
   min-height: calc(100vh - 200px);
   padding: 12px;
+}
+
+.market-overview {
+  min-height: 0;
+  margin: 12px 0;
+}
+
+.market-overview .rail-header {
+  min-height: 34px;
+}
+
+.market-overview .market-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .rail-header {
@@ -1074,6 +1087,7 @@ h3 {
 
   .kpi-grid,
   .market-list,
+  .market-overview .market-list,
   .book-grid,
   .micro-grid {
     grid-template-columns: 1fr;

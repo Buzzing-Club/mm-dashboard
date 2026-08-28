@@ -2,6 +2,20 @@
 
 ## 2026-08-28
 
+### Move market overview to the top of the workflow
+
+- Reordered the page to match the intended operator flow:
+  - First scan the market overview to find markets with market-making issues.
+  - Search or select a specific market.
+  - Then inspect that market's macro, user-experience, and risk metrics.
+- Moved the market overview from the left sidebar into a full-width header section.
+- Moved the three metric-category switcher below the selected-market header.
+- Kept the existing visual style, cards, filters, and metric displays mostly unchanged.
+
+Verification:
+
+- `npm run build` passed.
+
 ### Split realtime dashboard into three metric subboards
 
 - Kept the quant-trading terminal visual direction from the first prototype.
