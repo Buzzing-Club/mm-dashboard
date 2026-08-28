@@ -75,8 +75,11 @@ type Market = {
   avgSlippage: number | null;
   staleSeconds: number;
   liquidity: number;
+  startAt: string;
+  endAt: string;
   endInMinutes: number;
   series: Array<{
+    ts?: number;
     time: string;
     volume: number;
     pnl: number;
@@ -88,11 +91,12 @@ type Market = {
   slippageBuckets: Array<{ bucket: string; count: number; tone: "good" | "warn" | "bad" }>;
   bidLevels: Array<{ price: number; quantity: number }>;
   askLevels: Array<{ price: number; quantity: number }>;
-  events: Array<{ time: string; type: string; detail: string; severity: "ok" | "warn" | "bad" }>;
+  events: Array<{ ts?: number; time: string; type: string; detail: string; severity: "ok" | "warn" | "bad" }>;
 };
 
 type RiskEvent = Market["events"][number];
 type LiquidityHistoryPoint = {
+  ts: number;
   time: string;
   availableLiquidity: number;
   initialBaseline: number;
@@ -115,6 +119,98 @@ const statusMeta: Record<
   negrisk_group_protection: { label: "组级保护", tone: "bad", short: "NEGRISK" },
   paused: { label: "暂停摆单", tone: "muted", short: "PAUSED" },
 };
+
+const MOCK_OBSERVATION_AT = Date.parse("2026-08-28T18:59:30+08:00");
+const MINUTE_MS = 60 * 1000;
+
+function marketWindow(endInMinutes: number, durationMinutes = 240) {
+  const endMs = MOCK_OBSERVATION_AT + endInMinutes * MINUTE_MS;
+  const startMs = Math.min(MOCK_OBSERVATION_AT - 45 * MINUTE_MS, endMs - durationMinutes * MINUTE_MS);
+
+  return {
+    startAt: new Date(startMs).toISOString(),
+    endAt: new Date(endMs).toISOString(),
+  };
+}
+
+function defaultMarketDuration(endInMinutes: number, index: number) {
+  if (endInMinutes <= 360) return 360;
+  if (endInMinutes <= 1440) return 720;
+  if (endInMinutes <= 14400) return 1440 + (index % 3) * 360;
+  if (endInMinutes <= 60000) return 10080;
+  return 43200 + (index % 4) * 10080;
+}
+
+function timestamp(value: string) {
+  return new Date(value).getTime();
+}
+
+function clampTimestamp(value: number, start: number, end: number) {
+  return Math.min(end, Math.max(start, value));
+}
+
+function formatAxisTime(value: number, startAt: string, endAt: string) {
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  const sameDay = start.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) === end.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
+  const formatter = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: sameDay ? undefined : "2-digit",
+    day: sameDay ? undefined : "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  return formatter.format(new Date(value)).replace(/\//g, "-");
+}
+
+function lifecyclePoints(startAt: string, endAt: string, count: number) {
+  const start = timestamp(startAt);
+  const end = timestamp(endAt);
+  const lastIndex = Math.max(1, count - 1);
+
+  return Array.from({ length: count }, (_, index) => {
+    const ts = Math.round(start + ((end - start) * index) / lastIndex);
+    return {
+      ts,
+      time: formatAxisTime(ts, startAt, endAt),
+    };
+  });
+}
+
+function axisTicks(startAt: string, endAt: string, count = 5) {
+  return lifecyclePoints(startAt, endAt, count).map((point) => point.ts);
+}
+
+function retimeEvents(market: Market) {
+  const start = timestamp(market.startAt);
+  const end = timestamp(market.endAt);
+  const observedAt = clampTimestamp(MOCK_OBSERVATION_AT, start, end);
+  const offsets = [0, 45, 135, 270, 420, 600];
+
+  return market.events.map((eventItem, index) => {
+    const ts = clampTimestamp(observedAt - (offsets[index] ?? index * 120) * 1000, start, end);
+    return {
+      ...eventItem,
+      ts,
+      time: formatAxisTime(ts, market.startAt, market.endAt),
+    };
+  });
+}
+
+function retimeMarket(market: Market) {
+  const points = lifecyclePoints(market.startAt, market.endAt, market.series.length);
+
+  return {
+    ...market,
+    series: market.series.map((point, index) => ({
+      ...point,
+      ...points[index],
+    })),
+    events: retimeEvents(market),
+  };
+}
 
 const manualMarkets: Market[] = [
   {
@@ -145,6 +241,7 @@ const manualMarkets: Market[] = [
     avgSlippage: 1.8,
     staleSeconds: 12,
     liquidity: 1420,
+    ...marketWindow(4, 240),
     endInMinutes: 4,
     series: [
       { time: "18:25", volume: 42, pnl: 520, spread: 4.1, wash: 14, bidSlope: 92, askSlope: 101 },
@@ -216,6 +313,7 @@ const manualMarkets: Market[] = [
     avgSlippage: 4.6,
     staleSeconds: 41,
     liquidity: 610,
+    ...marketWindow(132, 360),
     endInMinutes: 132,
     series: [
       { time: "18:25", volume: 8, pnl: 4, spread: 5.2, wash: 4, bidSlope: 72, askSlope: 88 },
@@ -287,6 +385,7 @@ const manualMarkets: Market[] = [
     avgSlippage: 2.9,
     staleSeconds: 18,
     liquidity: 870,
+    ...marketWindow(13, 240),
     endInMinutes: 13,
     series: [
       { time: "18:25", volume: 18, pnl: 220, spread: 4.2, wash: 19, bidSlope: 98, askSlope: 102 },
@@ -358,6 +457,7 @@ const manualMarkets: Market[] = [
     avgSlippage: null,
     staleSeconds: 96,
     liquidity: 0,
+    ...marketWindow(18420, 10080),
     endInMinutes: 18420,
     series: [
       { time: "18:25", volume: 2, pnl: -2, spread: 8.0, wash: 0, bidSlope: 40, askSlope: 46 },
@@ -411,6 +511,7 @@ const manualMarkets: Market[] = [
     avgSlippage: 7.7,
     staleSeconds: 74,
     liquidity: 280,
+    ...marketWindow(9, 240),
     endInMinutes: 9,
     series: [
       { time: "18:25", volume: 6, pnl: -11, spread: 5.9, wash: 11, bidSlope: 65, askSlope: 69 },
@@ -701,6 +802,7 @@ function buildLiquidityHistory(market: Market): LiquidityHistoryPoint[] {
     const liquidityDelta = index === 0 ? null : availableLiquidity - previousLiquidity;
 
     return {
+      ts: point.ts ?? timestamp(market.startAt),
       time: point.time,
       availableLiquidity,
       initialBaseline: initialLiquidity,
@@ -720,9 +822,13 @@ function getRiskTimelineEvents(market: Market) {
   }
 
   const tone = statusMeta[market.riskStatus].tone;
+  const start = timestamp(market.startAt);
+  const end = timestamp(market.endAt);
+  const ts = clampTimestamp(MOCK_OBSERVATION_AT, start, end);
 
   return [{
-    time: "now",
+    ts,
+    time: formatAxisTime(ts, market.startAt, market.endAt),
     type: statusMeta[market.riskStatus].short.toLowerCase(),
     detail: market.riskReason,
     severity: tone === "bad" ? "bad" : tone === "warn" ? "warn" : "ok",
@@ -731,6 +837,7 @@ function getRiskTimelineEvents(market: Market) {
 
 function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
   const tone = statusMeta[seed.riskStatus].tone;
+  const window = marketWindow(seed.endInMinutes, defaultMarketDuration(seed.endInMinutes, index));
   const status = seed.riskStatus === "orderbook_missing" || seed.riskStatus === "paused"
     ? "paused"
     : tone === "ok"
@@ -786,6 +893,7 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
     avgSlippage,
     staleSeconds: seed.staleSeconds,
     liquidity,
+    ...window,
     endInMinutes: seed.endInMinutes,
     series,
     slippageBuckets: buildSlippageBuckets(avgSlippage),
@@ -799,7 +907,8 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
   };
 }
 
-const markets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))];
+const markets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))]
+  .map((marketItem) => retimeMarket(marketItem));
 
 const filterOptions = [
   { id: "all", label: "全部", tag: null },
@@ -1151,7 +1260,17 @@ function MacroBoard({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={visibleMarket.series}>
                 <CartesianGrid stroke="#242833" vertical={false} />
-                <XAxis dataKey="time" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <XAxis
+                  dataKey="ts"
+                  type="number"
+                  domain={[timestamp(visibleMarket.startAt), timestamp(visibleMarket.endAt)]}
+                  ticks={axisTicks(visibleMarket.startAt, visibleMarket.endAt)}
+                  tickFormatter={(value) => formatAxisTime(Number(value), visibleMarket.startAt, visibleMarket.endAt)}
+                  tickLine={false}
+                  axisLine={false}
+                  stroke="#798191"
+                  fontSize={11}
+                />
                 <YAxis yAxisId="left" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
@@ -1253,7 +1372,17 @@ function ExperienceBoard({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={liquidityHistory}>
                 <CartesianGrid stroke="#242833" vertical={false} />
-                <XAxis dataKey="time" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <XAxis
+                  dataKey="ts"
+                  type="number"
+                  domain={[timestamp(visibleMarket.startAt), timestamp(visibleMarket.endAt)]}
+                  ticks={axisTicks(visibleMarket.startAt, visibleMarket.endAt)}
+                  tickFormatter={(value) => formatAxisTime(Number(value), visibleMarket.startAt, visibleMarket.endAt)}
+                  tickLine={false}
+                  axisLine={false}
+                  stroke="#798191"
+                  fontSize={11}
+                />
                 <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="availableLiquidity" name="Liquidity" fill="#20d49b33" stroke="#20d49b" strokeWidth={2} dot={<LiquidityEventDot />} />
@@ -1332,7 +1461,7 @@ function RiskBoard({
               <p>{visibleMarket.riskReason}</p>
             </div>
           </div>
-          <RiskStatusTimeline events={timelineEvents} />
+          <RiskStatusTimeline events={timelineEvents} startAt={visibleMarket.startAt} endAt={visibleMarket.endAt} />
           <div className="meter-stack">
             <Meter label="Inventory / q_max" value={inventoryUsed} figure={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} />
             <Meter label="Worst PnL / budget" value={lossUsed} figure={`${visibleMarket.worstCasePnl.toFixed(1)} / -${visibleMarket.maxLossBudget}`} tone={lossUsed > 85 ? "bad" : "warn"} />
@@ -1388,7 +1517,11 @@ function RiskBoard({
   );
 }
 
-function RiskStatusTimeline({ events }: { events: RiskEvent[] }) {
+function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; startAt: string; endAt: string }) {
+  const start = timestamp(startAt);
+  const end = timestamp(endAt);
+  const duration = Math.max(1, end - start);
+
   return (
     <div className="risk-timeline-wrap">
       <div className="risk-timeline-header">
@@ -1396,10 +1529,15 @@ function RiskStatusTimeline({ events }: { events: RiskEvent[] }) {
         <small>events</small>
       </div>
       <div className="risk-timeline" aria-label="风控状态变化时间轴">
+        <div className="risk-timeline-boundary">
+          <span>{formatAxisTime(start, startAt, endAt)}</span>
+          <span>{formatAxisTime(end, startAt, endAt)}</span>
+        </div>
         {events.map((eventItem, index) => (
           <div
             key={`${eventItem.time}-${eventItem.type}-${index}`}
             className={`risk-timeline-node ${eventItem.severity}`}
+            style={{ left: `${Math.min(88, Math.max(8, (((eventItem.ts ?? start) - start) / duration) * 100))}%` }}
             title={`${getRiskEventLabel(eventItem)} · ${eventItem.detail}`}
           >
             <time>{eventItem.time}</time>
@@ -1570,16 +1708,17 @@ function ChartTooltip({
     name: string;
     value: number | string;
     color?: string;
-    payload?: Partial<LiquidityHistoryPoint>;
+    payload?: Partial<LiquidityHistoryPoint & { time: string }>;
   }>;
-  label?: string;
+  label?: string | number;
 }) {
   if (!active || !payload?.length) return null;
   const liquidityPoint = payload.find((item) => item.payload?.liquidityReason)?.payload;
+  const displayLabel = payload[0]?.payload?.time ?? label;
 
   return (
     <div className="chart-tooltip">
-      <strong>{label}</strong>
+      <strong>{displayLabel}</strong>
       {payload.map((item) => (
         <span key={item.name}>
           <i style={{ background: item.color ?? "#7e8796" }} />

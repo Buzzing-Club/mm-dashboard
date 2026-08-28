@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Anchor timelines to market lifecycle
+
+- Added stable mock `startAt` / `endAt` windows for every market.
+- Rebased business trend and liquidity-history X axes to the selected market's lifecycle instead of a fixed refresh-time window.
+- Positioned risk status timeline events against the same start/end interval and removed the fallback `now` label.
+
+Verification:
+
+- `npm run lint` passed.
+- `npm run build` passed.
+
 ### Rework risk dependency row
 
 - Removed the redundant `Risk Snapshot` panel from the risk board.

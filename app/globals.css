@@ -749,30 +749,38 @@ h3 {
 
 .risk-timeline {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
-  gap: 0;
   overflow: hidden;
+  min-height: 116px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #0b0d11;
-  padding: 12px 12px 10px;
+  padding: 14px 18px 12px;
 }
 
 .risk-timeline::before {
   position: absolute;
-  top: 36px;
-  right: 22px;
-  left: 22px;
+  top: 44px;
+  right: 20px;
+  left: 20px;
   height: 1px;
   background: rgba(126, 135, 150, 0.32);
   content: "";
 }
 
+.risk-timeline-boundary {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
 .risk-timeline-node {
-  position: relative;
+  position: absolute;
+  top: 24px;
+  width: min(176px, 32%);
   min-width: 0;
-  padding: 28px 10px 0 0;
+  padding: 36px 10px 0 0;
 }
 
 .risk-timeline-node time {
@@ -785,7 +793,7 @@ h3 {
 
 .risk-timeline-dot {
   position: absolute;
-  top: 19px;
+  top: 16px;
   left: 1px;
   z-index: 1;
   width: 10px;
