@@ -579,6 +579,10 @@ h3 {
   grid-template-columns: minmax(280px, 1.05fr) minmax(260px, 0.8fr) minmax(240px, 0.75fr);
 }
 
+.risk-panel {
+  grid-column: 1 / -1;
+}
+
 .single-bottom {
   grid-template-columns: 1fr;
 }
@@ -800,6 +804,108 @@ h3 {
 .risk-icon.muted {
   background: rgba(126, 135, 150, 0.14);
   color: var(--text-soft);
+}
+
+.risk-timeline-wrap {
+  margin-top: 10px;
+}
+
+.risk-timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.risk-timeline-header small {
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
+.risk-timeline {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b0d11;
+  padding: 12px 12px 10px;
+}
+
+.risk-timeline::before {
+  position: absolute;
+  top: 36px;
+  right: 22px;
+  left: 22px;
+  height: 1px;
+  background: rgba(126, 135, 150, 0.32);
+  content: "";
+}
+
+.risk-timeline-node {
+  position: relative;
+  min-width: 0;
+  padding: 28px 10px 0 0;
+}
+
+.risk-timeline-node time {
+  position: absolute;
+  top: 0;
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
+.risk-timeline-dot {
+  position: absolute;
+  top: 19px;
+  left: 1px;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #0b0d11;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+.risk-timeline-node.ok .risk-timeline-dot {
+  background: var(--green);
+  color: var(--green);
+}
+
+.risk-timeline-node.warn .risk-timeline-dot {
+  background: var(--amber);
+  color: var(--amber);
+}
+
+.risk-timeline-node.bad .risk-timeline-dot {
+  background: var(--red);
+  color: var(--red);
+}
+
+.risk-timeline-node strong,
+.risk-timeline-node p {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-timeline-node strong {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.risk-timeline-node p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .meter-stack {

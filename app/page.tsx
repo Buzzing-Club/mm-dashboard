@@ -91,6 +91,8 @@ type Market = {
   events: Array<{ time: string; type: string; detail: string; severity: "ok" | "warn" | "bad" }>;
 };
 
+type RiskEvent = Market["events"][number];
+
 const statusMeta: Record<
   RiskStatus,
   { label: string; tone: "ok" | "warn" | "bad" | "muted"; short: string }
@@ -557,6 +559,48 @@ function riskReasonFor(status: RiskStatus) {
     paused: "operator or runtime pause is active",
   };
   return reasons[status];
+}
+
+const riskEventTypeLabels: Record<string, string> = {
+  normal: "正常摆单",
+  requote: "重新定价",
+  risk: "风险触发",
+  inventory: "库存倾斜",
+  skew: "库存倾斜",
+  reduce: "只减风险",
+  endgame: "临期保护",
+  budget: "预算保护",
+  book: "盘口缺失",
+  snapshot: "盘口快照异常",
+  cancel: "撤单保护",
+  pause: "暂停摆单",
+  paused: "暂停摆单",
+  data: "数据延迟",
+  stale: "数据延迟",
+  negrisk: "组级保护",
+  depth: "深度收紧",
+};
+
+function getRiskEventLabel(type: string) {
+  return riskEventTypeLabels[type] ?? type;
+}
+
+function getRiskTimelineEvents(market: Market) {
+  const noisyEventTypes = new Set(["catalog", "fill", "heartbeat"]);
+  const statusEvents = market.events.filter((eventItem) => !noisyEventTypes.has(eventItem.type));
+
+  if (statusEvents.length) {
+    return statusEvents.slice(0, 6).reverse();
+  }
+
+  const tone = statusMeta[market.riskStatus].tone;
+
+  return [{
+    time: "now",
+    type: statusMeta[market.riskStatus].short.toLowerCase(),
+    detail: market.riskReason,
+    severity: tone === "bad" ? "bad" : tone === "warn" ? "warn" : "ok",
+  } satisfies RiskEvent];
 }
 
 function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
@@ -1177,6 +1221,8 @@ function RiskBoard({
   inventoryUsed: number;
   lossUsed: number;
 }) {
+  const timelineEvents = getRiskTimelineEvents(visibleMarket);
+
   return (
     <>
       <div className="detail-grid risk-detail-grid">
@@ -1194,6 +1240,7 @@ function RiskBoard({
               <p>{visibleMarket.riskReason}</p>
             </div>
           </div>
+          <RiskStatusTimeline events={timelineEvents} />
           <div className="meter-stack">
             <Meter label="Inventory / q_max" value={inventoryUsed} figure={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} />
             <Meter label="Worst PnL / budget" value={lossUsed} figure={`${visibleMarket.worstCasePnl.toFixed(1)} / -${visibleMarket.maxLossBudget}`} tone={lossUsed > 85 ? "bad" : "warn"} />
@@ -1254,6 +1301,31 @@ function RiskBoard({
         </div>
       </div>
     </>
+  );
+}
+
+function RiskStatusTimeline({ events }: { events: RiskEvent[] }) {
+  return (
+    <div className="risk-timeline-wrap">
+      <div className="risk-timeline-header">
+        <span>状态变化时间轴</span>
+        <small>events</small>
+      </div>
+      <div className="risk-timeline" aria-label="风控状态变化时间轴">
+        {events.map((eventItem, index) => (
+          <div
+            key={`${eventItem.time}-${eventItem.type}-${index}`}
+            className={`risk-timeline-node ${eventItem.severity}`}
+            title={`${getRiskEventLabel(eventItem.type)} · ${eventItem.detail}`}
+          >
+            <time>{eventItem.time}</time>
+            <span className="risk-timeline-dot" />
+            <strong>{getRiskEventLabel(eventItem.type)}</strong>
+            <p>{eventItem.detail}</p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

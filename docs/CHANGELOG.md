@@ -2,6 +2,16 @@
 
 ## 2026-08-28
 
+### Add risk status timeline
+
+- Added an event-driven timeline to the risk status monitor so historical state changes sit beside the current risk status.
+- Built the timeline from each selected market's `events`, filtering heartbeat/fill/catalog noise from the visual timeline while keeping the full event feed below.
+- Expanded the risk-state panel across the row so the timeline has enough room to scan.
+
+Verification:
+
+- `npm run build` passed.
+
 ### Add PnL detail hover definitions
 
 - Added Chinese hover definitions for the macro PnL detail labels:
