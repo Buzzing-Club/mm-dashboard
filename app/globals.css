@@ -337,7 +337,12 @@ h3 {
 }
 
 .market-overview .market-list {
+  max-height: calc(112px * 3 + 8px * 2);
+  overflow-y: auto;
+  padding-right: 4px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  overscroll-behavior: contain;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 .rail-header {
@@ -426,6 +431,7 @@ h3 {
 
 .market-row {
   width: 100%;
+  min-height: 112px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #0d0f13;
@@ -1096,6 +1102,10 @@ h3 {
   .segmented {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .market-overview .market-list {
+    max-height: calc(112px * 3 + 8px * 2);
   }
 
   .detail-header {

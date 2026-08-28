@@ -2,6 +2,18 @@
 
 ## 2026-08-28
 
+### Limit Market Overview to three visible rows
+
+- Capped the Market Overview list to three visible rows.
+- Kept the market cards in a two-column desktop grid, so desktop shows up to six cards before scrolling.
+- Kept the mobile layout as a single-column list, so mobile shows up to three cards before scrolling.
+- Added internal scrolling to the list so the expanded prod-sized market set no longer pushes the selected-market boards down the page.
+
+Verification:
+
+- `npm run build` passed.
+- Browser smoke check confirmed the overview list is 3 rows tall and scrollable when more markets are visible.
+
 ### Scope all subboard metrics to the selected market
 
 - Changed the macro, user-experience, and risk KPI strips from all-market aggregate values to selected-market values.
