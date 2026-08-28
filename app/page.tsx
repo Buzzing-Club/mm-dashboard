@@ -977,19 +977,6 @@ function MacroBoard({
           <strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong>
           <p>Worst case {signedCurrency(visibleMarket.worstCasePnl)} · budget -{currency(visibleMarket.maxLossBudget)}</p>
         </div>
-
-        <div className="panel">
-          <div className="panel-title">
-            <span><Database size={16} /> 指标状态</span>
-            <small>empty-state aware</small>
-          </div>
-          <div className="source-list">
-            <SourceRow label="gross_volume" value="ready" tone="ok" />
-            <SourceRow label="net_volume" value={visibleMarket.netVolume === null ? "unknown" : "ready"} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
-            <SourceRow label="trader_count" value="ready" tone="ok" />
-            <SourceRow label="wash_volume_ratio" value={visibleMarket.washRatio === null ? "unknown" : "ready"} tone={visibleMarket.washRatio === null ? "warn" : "ok"} />
-          </div>
-        </div>
       </div>
 
       <BoardChartToolbar title="Business Trend" timeframe={timeframe} setTimeframe={setTimeframe} />
@@ -1365,10 +1352,6 @@ function TinyStat({ label, value, tone }: { label: string; value: string; tone: 
 }
 
 const parameterDescriptions: Record<string, string> = {
-  gross_volume: "当前市场的累计双边成交额，用于观察这个市场本身的交易规模。",
-  net_volume: "当前市场剔除刷量或内部成交后的真实交易量；未知时不填 0，避免误导。",
-  trader_count: "当前市场内发生过有效交易或交互的用户数量。",
-  wash_volume_ratio: "当前市场刷量成交额占总成交额的比例，用于判断成交质量。",
   avg_trade_slippage: "当前市场真实成交相对成交前盘口中间价的平均滑点。",
   ask_impact_slope: "当前市场买入 YES 方向的盘口冲击斜率，数值越低说明 ask 侧越容易被吃穿。",
   bid_impact_slope: "当前市场卖出 YES 方向的盘口冲击斜率，数值越低说明 bid 侧越容易被吃穿。",

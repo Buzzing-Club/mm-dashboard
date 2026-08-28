@@ -2,6 +2,16 @@
 
 ## 2026-08-28
 
+### Remove macro metric readiness panel
+
+- Removed the macro board `指标状态` panel because its `ready` checks duplicated the visible macro metrics.
+- Kept the macro metric value cards and their Chinese hover definitions.
+- Removed the now-unused macro readiness parameter descriptions.
+
+Verification:
+
+- `npm run build` passed.
+
 ### Remove duplicate subboard summary layers
 
 - Removed the top KPI card strip that repeated metrics already shown in the subboard detail panels.
