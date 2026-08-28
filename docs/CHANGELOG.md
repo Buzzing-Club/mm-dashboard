@@ -2,6 +2,28 @@
 
 ## 2026-08-28
 
+### Expand market overview with prod open-market samples
+
+- Checked MM Prod in read-only mode and confirmed:
+  - 187 total discovered markets.
+  - 41 currently open and accepting markets.
+  - 35 open markets currently marked `in_config`.
+  - 0 currently open NegRisk markets in the runtime catalog.
+- Expanded the mock Market Overview list to 41 markets, matching the current prod open-market count.
+- Added prod-derived market samples across weather, economy, politics, sports, and media.
+- Kept the first five representative markets as richer detail-board examples, then generated realistic mock metrics for the remaining prod market samples.
+
+Verification:
+
+- `npm run build` passed.
+- Browser smoke check passed:
+  - `全部`: 41 / 41
+  - `Weather`: 7 / 41
+  - `Economy`: 8 / 41
+  - `Politics`: 12 / 41
+  - `Sports`: 11 / 41
+  - `Media`: 4 / 41
+
 ### Align overview filters with prod market labels
 
 - Checked the MM Prod environment (`ubuntu@52.63.52.18`) in read-only mode.

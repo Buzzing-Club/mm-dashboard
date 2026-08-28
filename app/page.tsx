@@ -108,7 +108,7 @@ const statusMeta: Record<
   paused: { label: "暂停摆单", tone: "muted", short: "PAUSED" },
 };
 
-const markets: Market[] = [
+const manualMarkets: Market[] = [
   {
     id: "BSP-USDPHP-FRI",
     event: "BSP USD/PHP Reference Rate",
@@ -443,6 +443,195 @@ const markets: Market[] = [
     ],
   },
 ];
+
+type ProdMarketSeed = {
+  id: string;
+  event: string;
+  market: string;
+  category: string;
+  tags: string[];
+  riskStatus: RiskStatus;
+  volume: number;
+  pnl: number;
+  inventory: number;
+  staleSeconds: number;
+  traders: number;
+  endInMinutes: number;
+};
+
+const prodMarketSeeds: ProdMarketSeed[] = [
+  { id: "FREYA-BAN-S18", event: "Freya most banned hero in S18 regular season?", market: "Freya most banned hero in S18 regular season?", category: "Sports · Esports", tags: ["Sports", "Esports", "Games"], riskStatus: "normal_quote", volume: 18640, pnl: 74, inventory: -12, staleSeconds: 14, traders: 58, endInMinutes: 18420 },
+  { id: "TOP-PICKED-HERO-S18", event: "Top picked hero chosen 80+ times in S18 regular season?", market: "Top picked hero chosen 80+ times in S18 regular season?", category: "Sports · Esports", tags: ["Sports", "Esports", "Games"], riskStatus: "inventory_adjusted_quote", volume: 20420, pnl: 122, inventory: 39, staleSeconds: 21, traders: 63, endInMinutes: 18420 },
+  { id: "HERO-BANNED-100-S18", event: "Any hero banned 100+ times in S18 regular season?", market: "Any hero banned 100+ times in S18 regular season?", category: "Sports · Esports", tags: ["Sports", "Esports", "Games"], riskStatus: "data_delay", volume: 19280, pnl: -16, inventory: 25, staleSeconds: 69, traders: 52, endInMinutes: 18420 },
+  { id: "REVERSE-SWEEPS-S18", event: "At least 8 reverse sweeps in S18 regular season?", market: "At least 8 reverse sweeps in S18 regular season?", category: "Sports · Esports", tags: ["Sports", "Esports", "Games"], riskStatus: "normal_quote", volume: 16750, pnl: 48, inventory: 8, staleSeconds: 17, traders: 41, endInMinutes: 18420 },
+  { id: "FALCONS-ABOVE-TLPH", event: "Falcons above TLPH in S18 regular season?", market: "Falcons above TLPH in S18 regular season?", category: "Sports · Esports", tags: ["Sports", "Esports", "Games"], riskStatus: "inventory_adjusted_quote", volume: 22110, pnl: -8, inventory: -44, staleSeconds: 26, traders: 68, endInMinutes: 18420 },
+  { id: "HB-9859-REPORT", event: "HB 9859 report by Sep. 16?", market: "HB 9859 report by Sep. 16?", category: "Politics · Legislation", tags: ["Politics", "Government", "Philippines"], riskStatus: "normal_quote", volume: 9270, pnl: 34, inventory: 11, staleSeconds: 19, traders: 33, endInMinutes: 27360 },
+  { id: "ANGELICA-CONTENTASIA", event: "Angelica Panganiban wins ContentAsia Gold?", market: "Angelica Panganiban wins ContentAsia Gold?", category: "Media · Awards", tags: ["Media", "Entertainment", "Philippines"], riskStatus: "normal_quote", volume: 11640, pnl: 46, inventory: -9, staleSeconds: 16, traders: 36, endInMinutes: 10220 },
+  { id: "DAGUPAN-CALAMITY-LIFTED", event: "Will the state of calamity in Dagupan City be lifted on August 31?", market: "Will the state of calamity in Dagupan City be lifted on August 31?", category: "Weather · Government", tags: ["Weather", "Government", "Philippines"], riskStatus: "endgame_quote", volume: 14180, pnl: -21, inventory: 51, staleSeconds: 34, traders: 42, endInMinutes: 4260 },
+  { id: "BSP-HIKES-25BP", event: "BSP hikes over 25bp in August?", market: "BSP hikes over 25bp in August?", category: "Economy · Rates", tags: ["Economy", "Rates", "Philippines"], riskStatus: "normal_quote", volume: 28760, pnl: 188, inventory: -18, staleSeconds: 12, traders: 74, endInMinutes: 5180 },
+  { id: "EALA-USOPEN-R16", event: "Eala to Reach US Open Round of 16?", market: "Eala to Reach US Open Round of 16?", category: "Sports · Tennis", tags: ["Sports", "Tennis", "Philippines"], riskStatus: "reduce_only", volume: 34720, pnl: -42, inventory: 66, staleSeconds: 29, traders: 91, endInMinutes: 9440 },
+  { id: "SABALENKA-USOPEN-2026", event: "Sabalenka Wins 2026 US Open?", market: "Sabalenka Wins 2026 US Open?", category: "Sports · Tennis", tags: ["Sports", "Tennis"], riskStatus: "normal_quote", volume: 31380, pnl: 96, inventory: -16, staleSeconds: 18, traders: 86, endInMinutes: 9440 },
+  { id: "AYUNGIN-DFA-2026", event: "China-Philippines Ayungin Shoal confrontation reported by DFA in 2026?", market: "China-Philippines Ayungin Shoal confrontation reported by DFA in 2026?", category: "Politics · Geopolitics", tags: ["Politics", "Geopolitics", "Philippines"], riskStatus: "budget_limited", volume: 17860, pnl: -28, inventory: 62, staleSeconds: 55, traders: 49, endInMinutes: 126840 },
+  { id: "CHINA-DAILY-APOLOGY", event: "China Daily issues apology or correction over disputed Philippines video?", market: "China Daily issues apology or correction over disputed Philippines video?", category: "Politics · Media", tags: ["Politics", "Media", "Geopolitics"], riskStatus: "normal_quote", volume: 13210, pnl: 57, inventory: 7, staleSeconds: 24, traders: 38, endInMinutes: 104940 },
+  { id: "RUBIO-WANG-MANILA", event: "Rubio and Wang Yi hold a meeting in Manila?", market: "Rubio and Wang Yi hold a meeting in Manila?", category: "Politics · Geopolitics", tags: ["Politics", "Geopolitics", "Philippines"], riskStatus: "data_delay", volume: 15580, pnl: -11, inventory: 23, staleSeconds: 73, traders: 44, endInMinutes: 52920 },
+  { id: "TROPICAL-CYCLONE-200KPH", event: "Tropical Cyclone in the Philippines reaches 200+ km/h in 2026?", market: "Tropical Cyclone in the Philippines reaches 200+ km/h in 2026?", category: "Weather · Cyclone", tags: ["Weather", "Cyclone", "Philippines"], riskStatus: "normal_quote", volume: 16840, pnl: 63, inventory: -14, staleSeconds: 20, traders: 47, endInMinutes: 180440 },
+  { id: "CAYETANO-NBI-SUBPOENA", event: "Cayetano responds to NBI subpoena?", market: "Cayetano responds to NBI subpoena?", category: "Politics · Legal", tags: ["Politics", "Government", "Philippines"], riskStatus: "inventory_adjusted_quote", volume: 11970, pnl: 22, inventory: -37, staleSeconds: 22, traders: 35, endInMinutes: 18840 },
+  { id: "NCR-WAGE-HIKE", event: "NCR minimum wage hike suspended or blocked?", market: "NCR minimum wage hike suspended or blocked?", category: "Economy · Labor", tags: ["Economy", "Labor", "Philippines"], riskStatus: "normal_quote", volume: 22450, pnl: 118, inventory: 13, staleSeconds: 15, traders: 61, endInMinutes: 46820 },
+  { id: "PH-ITBPM-EMPLOYMENT", event: "Philippines IT-BPM employment increases", market: "Philippines IT-BPM employment increases", category: "Economy · Labor", tags: ["Economy", "Labor", "Philippines"], riskStatus: "data_delay", volume: 18720, pnl: -18, inventory: 33, staleSeconds: 82, traders: 54, endInMinutes: 104960 },
+  { id: "MERALCO-ELECTRICITY-RATE", event: "Meralco Electricity Rate", market: "Meralco Electricity Rate", category: "Economy · Utilities", tags: ["Economy", "Energy", "Philippines"], riskStatus: "normal_quote", volume: 24680, pnl: 161, inventory: -21, staleSeconds: 18, traders: 66, endInMinutes: 37240 },
+  { id: "MARCOS-CABINET-OUT", event: "Will another Marcos Cabinet secretary be out by the end of 2026?", market: "Will another Marcos Cabinet secretary be out by the end of 2026?", category: "Politics · Government", tags: ["Politics", "Government", "Philippines"], riskStatus: "reduce_only", volume: 25940, pnl: -35, inventory: 68, staleSeconds: 31, traders: 72, endInMinutes: 180860 },
+  { id: "PACQUIAO-MAYWEATHER-2027", event: "Pacquiao vs. Mayweather rematch held in January 2027?", market: "Pacquiao vs. Mayweather rematch held in January 2027?", category: "Sports · Boxing", tags: ["Sports", "Boxing", "Philippines"], riskStatus: "normal_quote", volume: 29480, pnl: 142, inventory: -25, staleSeconds: 13, traders: 81, endInMinutes: 219420 },
+  { id: "ODYSSEY-PH-BOXOFFICE", event: "The Odyssey becomes the No. 1 Philippine box office film of 2026", market: "The Odyssey becomes the No. 1 Philippine box office film of 2026", category: "Media · Box Office", tags: ["Media", "Entertainment", "Philippines"], riskStatus: "normal_quote", volume: 17360, pnl: 68, inventory: 10, staleSeconds: 20, traders: 46, endInMinutes: 126200 },
+  { id: "SARA-APPROVAL-SEPT", event: "Sara Duterte's approval rating higher in the September survey?", market: "Sara Duterte's approval rating higher in the September survey?", category: "Politics · Polling", tags: ["Politics", "Polling", "Philippines"], riskStatus: "inventory_adjusted_quote", volume: 23880, pnl: -5, inventory: 42, staleSeconds: 28, traders: 70, endInMinutes: 48740 },
+  { id: "TRUMP-PH-2026", event: "Trump visits the Philippines in 2026", market: "Trump visits the Philippines in 2026", category: "Politics · Geopolitics", tags: ["Politics", "Geopolitics", "Philippines"], riskStatus: "normal_quote", volume: 19670, pnl: 89, inventory: -17, staleSeconds: 22, traders: 58, endInMinutes: 181420 },
+  { id: "SEVERE-TYPHOON-PH-AUG", event: "Severe Typhoon makes landfall in the Philippines in August?", market: "Severe Typhoon makes landfall in the Philippines in August?", category: "Weather · Typhoon", tags: ["Weather", "Typhoon", "Philippines"], riskStatus: "budget_limited", volume: 33120, pnl: -47, inventory: 64, staleSeconds: 48, traders: 94, endInMinutes: 5120 },
+  { id: "MINORS-SOCIAL-MEDIA-LAW", event: "Philippines passes national law regulating minors' social media use", market: "Philippines passes national law regulating minors' social media use", category: "Politics · Legislation", tags: ["Politics", "Government", "Philippines"], riskStatus: "normal_quote", volume: 16430, pnl: 54, inventory: 9, staleSeconds: 17, traders: 43, endInMinutes: 127600 },
+  { id: "BBM-SWS-SATISFACTION", event: "BBM SWS Net Satisfaction up/down", market: "BBM SWS Net Satisfaction up/down", category: "Politics · Polling", tags: ["Politics", "Polling", "Philippines"], riskStatus: "normal_quote", volume: 21230, pnl: 97, inventory: -12, staleSeconds: 19, traders: 62, endInMinutes: 49360 },
+  { id: "RICE-PRICE-PSA", event: "Rice prices up, PSA says?", market: "Rice price increases (PSA)", category: "Economy · Inflation", tags: ["Economy", "Inflation", "Philippines"], riskStatus: "inventory_adjusted_quote", volume: 22790, pnl: -14, inventory: 43, staleSeconds: 25, traders: 65, endInMinutes: 22140 },
+  { id: "EGG-PRICE-PSA", event: "PSA chicken egg average retail price increase", market: "Egg price increases (PSA)", category: "Economy · Inflation", tags: ["Economy", "Inflation", "Philippines"], riskStatus: "normal_quote", volume: 17620, pnl: 73, inventory: -11, staleSeconds: 16, traders: 47, endInMinutes: 22140 },
+  { id: "AUG-CPI-GT-JUL", event: "August 2026 CPI > July 2026 CPI", market: "August 2026 CPI > July 2026 CPI", category: "Economy · Inflation", tags: ["Economy", "Inflation", "Philippines"], riskStatus: "data_delay", volume: 25830, pnl: -24, inventory: 31, staleSeconds: 78, traders: 76, endInMinutes: 19820 },
+  { id: "MARCOS-OUT-2026", event: "Marcos out in 2026?", market: "Marcos out in 2026?", category: "Politics · Government", tags: ["Politics", "Government", "Philippines"], riskStatus: "normal_quote", volume: 36640, pnl: 218, inventory: -23, staleSeconds: 12, traders: 111, endInMinutes: 181520 },
+  { id: "MAGNOLIA-MERALCO-JUL24", event: "Magnolia over Meralco on Jul 24?", market: "Magnolia over Meralco on Jul 24?", category: "Sports · Basketball", tags: ["Sports", "Basketball", "Philippines"], riskStatus: "endgame_quote", volume: 14210, pnl: 31, inventory: 54, staleSeconds: 39, traders: 39, endInMinutes: 340 },
+  { id: "BLACKWATER-GINEBRA-JUL24", event: "Blackwater over Ginebra on Jul 24?", market: "Blackwater over Ginebra on Jul 24?", category: "Sports · Basketball", tags: ["Sports", "Basketball", "Philippines"], riskStatus: "orderbook_missing", volume: 12890, pnl: -19, inventory: -6, staleSeconds: 96, traders: 36, endInMinutes: 330 },
+  { id: "MANILA-10PM-COOLER", event: "Manila 10 PM cooler than 9 PM on Jul 24?", market: "Manila 10 PM cooler than 9 PM on Jul 24?", category: "Weather · Temperature", tags: ["Weather", "Temperature", "Philippines"], riskStatus: "normal_quote", volume: 10860, pnl: 39, inventory: -8, staleSeconds: 22, traders: 31, endInMinutes: 190 },
+  { id: "MANILA-6PM-COOLER", event: "Manila 6 PM cooler than 5 PM on Jul 24?", market: "Manila 6 PM cooler than 5 PM on Jul 24?", category: "Weather · Temperature", tags: ["Weather", "Temperature", "Philippines"], riskStatus: "data_delay", volume: 10480, pnl: -9, inventory: 18, staleSeconds: 74, traders: 30, endInMinutes: 180 },
+  { id: "MANILA-2PM-EQUAL", event: "Manila 2 PM temperature equals 1 PM on Jul 24?", market: "Manila 2 PM temperature equals 1 PM on Jul 24?", category: "Weather · Temperature", tags: ["Weather", "Temperature", "Philippines"], riskStatus: "normal_quote", volume: 11270, pnl: 44, inventory: 7, staleSeconds: 21, traders: 32, endInMinutes: 170 },
+];
+
+function buildSeries(index: number, volume: number, pnl: number, spread: number, washRatio: number | null) {
+  const points = ["18:25", "18:30", "18:35", "18:40", "18:45", "18:50", "18:55"];
+  const baseVolume = Math.max(2, Math.round(volume / 4200));
+  const washPct = Math.round((washRatio ?? 0) * 100);
+  return points.map((time, point) => {
+    const progress = (point + 1) / points.length;
+    return {
+      time,
+      volume: Math.round(baseVolume * (0.62 + progress + ((index + point) % 3) * 0.08)),
+      pnl: Math.round(pnl * progress),
+      spread: Number(((spread || 0.07) * 100 + Math.max(0, 3 - point) * 0.18).toFixed(1)),
+      wash: Math.max(0, washPct + ((index + point) % 3) - 1),
+      bidSlope: Math.max(0, 42 + index * 2 + point * 5),
+      askSlope: Math.max(0, 49 + index * 2 + point * 6),
+    };
+  });
+}
+
+function buildLevels(bestPrice: number, side: "bid" | "ask", liquidity: number) {
+  if (!bestPrice) return [];
+  const direction = side === "bid" ? -1 : 1;
+  return Array.from({ length: 8 }, (_, level) => ({
+    price: Number(Math.min(0.99, Math.max(0.01, bestPrice + direction * level * 0.01)).toFixed(2)),
+    quantity: Math.max(1, Math.round(liquidity / (18 + level * 5))),
+  }));
+}
+
+function buildSlippageBuckets(avgSlippage: number | null) {
+  if (avgSlippage === null) {
+    return [
+      { bucket: "0-1%", count: 0, tone: "good" as const },
+      { bucket: "1-2%", count: 0, tone: "good" as const },
+      { bucket: "2-4%", count: 0, tone: "warn" as const },
+      { bucket: "4-8%", count: 0, tone: "bad" as const },
+      { bucket: ">8%", count: 0, tone: "bad" as const },
+    ];
+  }
+
+  const load = Math.max(8, Math.round(40 + avgSlippage * 7));
+  return [
+    { bucket: "0-1%", count: Math.max(2, Math.round(load * 0.24)), tone: "good" as const },
+    { bucket: "1-2%", count: Math.max(4, Math.round(load * 0.34)), tone: "good" as const },
+    { bucket: "2-4%", count: Math.max(2, Math.round(load * 0.23)), tone: "warn" as const },
+    { bucket: "4-8%", count: Math.max(1, Math.round(load * 0.13)), tone: "bad" as const },
+    { bucket: ">8%", count: Math.max(0, Math.round(load * 0.06)), tone: "bad" as const },
+  ];
+}
+
+function riskReasonFor(status: RiskStatus) {
+  const reasons: Record<RiskStatus, string> = {
+    normal_quote: "fair value fresh, two-sided book healthy, budget inside guardrails",
+    inventory_adjusted_quote: "inventory skew detected; quote center shifted to invite de-risk fills",
+    reduce_only: "inventory near reduce-only threshold; only risk-reducing side is quoted",
+    endgame_quote: "market is near end time; levels tightened and quote size reduced",
+    budget_limited: "worst-case PnL close to configured budget guard",
+    orderbook_missing: "authority snapshot not converged; quoting paused for this market",
+    data_delay: "fair value or catalog update is stale beyond freshness target",
+    negrisk_group_protection: "group-level loss guard is active for related buckets",
+    paused: "operator or runtime pause is active",
+  };
+  return reasons[status];
+}
+
+function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
+  const tone = statusMeta[seed.riskStatus].tone;
+  const status = seed.riskStatus === "orderbook_missing" || seed.riskStatus === "paused"
+    ? "paused"
+    : tone === "ok"
+      ? "live"
+      : "degraded";
+  const qMax = 80;
+  const maxLossBudget = 30;
+  const liquidity = seed.riskStatus === "orderbook_missing" ? 0 : Math.max(160, Math.round(seed.volume / 31));
+  const spread = seed.riskStatus === "orderbook_missing"
+    ? 0
+    : seed.riskStatus === "normal_quote"
+      ? 0.03 + (index % 3) * 0.005
+      : seed.riskStatus === "data_delay" || seed.riskStatus === "budget_limited"
+        ? 0.075
+        : 0.055;
+  const mid = seed.riskStatus === "orderbook_missing"
+    ? 0
+    : Math.min(0.82, Math.max(0.18, 0.47 + ((index % 11) - 5) * 0.027));
+  const bestBid = mid ? Number(Math.max(0.01, mid - spread / 2).toFixed(2)) : 0;
+  const bestAsk = mid ? Number(Math.min(0.99, mid + spread / 2).toFixed(2)) : 0;
+  const washRatio = index % 9 === 0 ? null : Number((0.06 + (index % 6) * 0.025).toFixed(2));
+  const avgSlippage = seed.riskStatus === "orderbook_missing" ? null : Number((1.4 + (index % 7) * 0.7).toFixed(1));
+  const quoteMode = seed.riskStatus === "orderbook_missing" ? "paused" : seed.riskStatus;
+  const bidLevels = buildLevels(bestBid, "bid", liquidity);
+  const askLevels = buildLevels(bestAsk, "ask", liquidity);
+  const series = buildSeries(index, seed.volume, seed.pnl, spread, washRatio);
+
+  return {
+    id: seed.id,
+    event: seed.event,
+    market: seed.market,
+    category: seed.category,
+    tags: seed.tags,
+    status,
+    riskStatus: seed.riskStatus,
+    quoteMode,
+    riskReason: riskReasonFor(seed.riskStatus),
+    grossVolume: seed.volume,
+    netVolume: Math.round(seed.volume * (0.72 + (index % 5) * 0.035)),
+    traderCount: seed.traders,
+    pnl: seed.pnl,
+    washRatio,
+    inventory: seed.inventory,
+    qMax,
+    worstCasePnl: Number(Math.min(-2.4, -Math.abs(seed.inventory) * 0.43).toFixed(1)),
+    maxLossBudget,
+    bestBid,
+    bestAsk,
+    spread,
+    mid: Number(mid.toFixed(3)),
+    askSlope: seed.riskStatus === "orderbook_missing" ? null : series.at(-1)?.askSlope ?? null,
+    bidSlope: seed.riskStatus === "orderbook_missing" ? null : series.at(-1)?.bidSlope ?? null,
+    avgSlippage,
+    staleSeconds: seed.staleSeconds,
+    liquidity,
+    endInMinutes: seed.endInMinutes,
+    series,
+    slippageBuckets: buildSlippageBuckets(avgSlippage),
+    bidLevels,
+    askLevels,
+    events: [
+      { time: "18:59:12", type: statusMeta[seed.riskStatus].short.toLowerCase(), detail: riskReasonFor(seed.riskStatus), severity: tone === "bad" ? "bad" : tone === "warn" ? "warn" : "ok" },
+      { time: "18:58:20", type: "catalog", detail: "prod market sample mirrored into dashboard mock", severity: "ok" },
+      { time: "18:57:06", type: "heartbeat", detail: `last market data age ${seed.staleSeconds}s`, severity: seed.staleSeconds > 60 ? "warn" : "ok" },
+    ],
+  };
+}
+
+const markets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))];
 
 const filterOptions = [
   { id: "all", label: "全部", tag: null },
