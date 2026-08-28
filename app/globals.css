@@ -867,11 +867,50 @@ h3 {
 }
 
 .source-row {
+  position: relative;
   display: flex;
   justify-content: space-between;
   gap: 12px;
   min-height: 26px;
   border-bottom: 1px solid rgba(37, 42, 51, 0.65);
+}
+
+.param-label {
+  min-width: 0;
+}
+
+.param-label.has-tooltip {
+  cursor: help;
+  text-decoration: underline dotted rgba(126, 135, 150, 0.7);
+  text-underline-offset: 4px;
+}
+
+.param-label.has-tooltip::after {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: min(320px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #171b22;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  color: var(--foreground);
+  content: attr(data-tooltip);
+  font-size: 12px;
+  line-height: 1.55;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: normal;
+}
+
+.param-label.has-tooltip:hover::after,
+.param-label.has-tooltip:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .source-row strong {

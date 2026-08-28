@@ -1406,10 +1406,38 @@ function TinyStat({ label, value, tone }: { label: string; value: string; tone: 
   );
 }
 
+const parameterDescriptions: Record<string, string> = {
+  gross_volume: "当前市场的累计双边成交额，用于观察这个市场本身的交易规模。",
+  net_volume: "当前市场剔除刷量或内部成交后的真实交易量；未知时不填 0，避免误导。",
+  trader_count: "当前市场内发生过有效交易或交互的用户数量。",
+  wash_volume_ratio: "当前市场刷量成交额占总成交额的比例，用于判断成交质量。",
+  avg_trade_slippage: "当前市场真实成交相对成交前盘口中间价的平均滑点。",
+  ask_impact_slope: "当前市场买入 YES 方向的盘口冲击斜率，数值越低说明 ask 侧越容易被吃穿。",
+  bid_impact_slope: "当前市场卖出 YES 方向的盘口冲击斜率，数值越低说明 bid 侧越容易被吃穿。",
+  orderbook_history: "当前市场最近的盘口历史是否足够计算深度、点差和冲击斜率。",
+  risk_status: "当前市场的风控状态，由库存、预算、盘口、临期和数据新鲜度等条件共同决定。",
+  quote_mode: "当前市场实际采用的摆单模式，例如正常摆单、库存倾斜、只减风险或暂停摆单。",
+  reduce_only_line: "触发只减风险模式的库存阈值；超过后只允许能降低库存风险的一侧继续报价。",
+  endgame_window: "距离当前市场结束的剩余时间；进入临期窗口后报价会更保守或减少档位。",
+  "Backend metrics": "后端统计指标的最近更新时间，包含成交量、用户数、PnL 等单市场统计。",
+  "Strategy runtime": "策略端对当前市场的最近一次计算或心跳延迟，过久表示 fair value 或报价可能变旧。",
+  "Order snapshot": "后端权威订单快照的新鲜度；缺失时不能确认当前挂单状态。",
+  "Runtime health": "当前市场运行状态，区分正常做市、降级做市和暂停做市。",
+};
+
 function SourceRow({ label, value, tone }: { label: string; value: string; tone: "ok" | "warn" | "bad" }) {
+  const description = parameterDescriptions[label];
+
   return (
     <div className="source-row">
-      <span>{label}</span>
+      <span
+        className={description ? "param-label has-tooltip" : "param-label"}
+        data-tooltip={description}
+        tabIndex={description ? 0 : undefined}
+        title={description}
+      >
+        {label}
+      </span>
       <strong className={tone}>{value}</strong>
     </div>
   );

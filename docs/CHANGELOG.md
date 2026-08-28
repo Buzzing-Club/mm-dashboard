@@ -2,6 +2,26 @@
 
 ## 2026-08-28
 
+### Add Chinese hover explanations for runtime parameters
+
+- Added Chinese hover tooltips for the parameter labels in the selected-market panels.
+- Covered the risk and dependency parameters shown in the current Risk subboard:
+  - `risk_status`
+  - `quote_mode`
+  - `reduce_only_line`
+  - `endgame_window`
+  - `Backend metrics`
+  - `Strategy runtime`
+  - `Order snapshot`
+  - `Runtime health`
+- Also added explanations for macro and user-experience source labels so the behavior is consistent across subboards.
+- Added keyboard-focus support for the same explanations.
+
+Verification:
+
+- `npm run build` passed.
+- Browser hover smoke check confirmed the Chinese tooltip renders for `risk_status`.
+
 ### Limit Market Overview to three visible rows
 
 - Capped the Market Overview list to three visible rows.
