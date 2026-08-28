@@ -603,6 +603,46 @@ h3 {
   font-size: 12px;
 }
 
+.pnl-detail-label {
+  position: relative;
+  display: inline-block;
+}
+
+.pnl-detail-label.has-tooltip {
+  cursor: help;
+  text-decoration: underline dotted rgba(126, 135, 150, 0.7);
+  text-underline-offset: 4px;
+}
+
+.pnl-detail-label.has-tooltip::after {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 35;
+  width: min(340px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #171b22;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  color: var(--foreground);
+  content: attr(data-tooltip);
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 12px;
+  line-height: 1.55;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: normal;
+}
+
+.pnl-detail-label.has-tooltip:hover::after,
+.pnl-detail-label.has-tooltip:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .table-panel {
   min-height: 252px;
 }

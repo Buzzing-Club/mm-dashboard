@@ -975,7 +975,21 @@ function MacroBoard({
             <small>backend / strategy</small>
           </div>
           <strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong>
-          <p>Worst case {signedCurrency(visibleMarket.worstCasePnl)} · budget -{currency(visibleMarket.maxLossBudget)}</p>
+          <p>
+            <PnlMetaLabel
+              label="Worst case"
+              description="当前选中市场在不利成交、库存偏移或盘口跳动等情景下的最坏情形 PnL 估算，用来判断潜在亏损暴露。"
+            />
+            {" "}
+            {signedCurrency(visibleMarket.worstCasePnl)}
+            {" · "}
+            <PnlMetaLabel
+              label="budget"
+              description="当前选中市场可接受的最大亏损预算；最坏情形 PnL 接近该预算时，策略需要降级、只减风险或暂停。"
+            />
+            {" -"}
+            {currency(visibleMarket.maxLossBudget)}
+          </p>
         </div>
       </div>
 
@@ -1303,6 +1317,19 @@ function Meter({ label, value, figure, tone = "warn" }: { label: string; value: 
         <span className={tone} style={{ width: `${value}%` }} />
       </div>
     </div>
+  );
+}
+
+function PnlMetaLabel({ label, description }: { label: string; description: string }) {
+  return (
+    <span
+      className="pnl-detail-label has-tooltip"
+      data-tooltip={description}
+      tabIndex={0}
+      title={description}
+    >
+      {label}
+    </span>
   );
 }
 

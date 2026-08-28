@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Add PnL detail hover definitions
+
+- Added Chinese hover definitions for the macro PnL detail labels:
+  - `Worst case`
+  - `budget`
+- Kept the PnL values unchanged while clarifying each metric's calculation purpose.
+
+Verification:
+
+- `npm run build` passed.
+
 ### Move slippage distribution into detail row
 
 - Removed the user-experience `异常原因` readiness panel because its `ready` states duplicated lower-level availability checks.
