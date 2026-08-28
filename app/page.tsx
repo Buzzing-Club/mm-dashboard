@@ -54,6 +54,7 @@ type Market = {
   event: string;
   market: string;
   category: string;
+  tags: string[];
   status: "live" | "degraded" | "paused";
   riskStatus: RiskStatus;
   quoteMode: RiskStatus;
@@ -109,10 +110,11 @@ const statusMeta: Record<
 
 const markets: Market[] = [
   {
-    id: "BTC-5M-1910",
-    event: "BTC Up/Down 5M",
-    market: "Bitcoin Up or Down - 19:10-19:15 ET",
-    category: "Crypto · Recurring",
+    id: "BSP-USDPHP-FRI",
+    event: "BSP USD/PHP Reference Rate",
+    market: "Reference rate higher this Friday?",
+    category: "Economy · FX",
+    tags: ["Economy", "FX", "Philippines"],
     status: "live",
     riskStatus: "normal_quote",
     quoteMode: "normal_quote",
@@ -181,8 +183,9 @@ const markets: Market[] = [
   {
     id: "MANILA-TEMP-31",
     event: "Manila RPLL Temperature",
-    market: "Temperature 31C bucket",
-    category: "Weather · NegRisk",
+    market: "At or above 88°F at 2 PM bucket",
+    category: "Weather · Temperature",
+    tags: ["Weather", "Temperature", "Philippines", "NegRisk"],
     status: "degraded",
     riskStatus: "negrisk_group_protection",
     quoteMode: "negrisk_group_protection",
@@ -249,10 +252,11 @@ const markets: Market[] = [
     ],
   },
   {
-    id: "ETH-15M-1845",
-    event: "ETH Up/Down 15M",
-    market: "Ethereum Up or Down - 18:45-19:00 ET",
-    category: "Crypto · Recurring",
+    id: "SARA-SENATE-CONVICT",
+    event: "Philippine Senate Conviction",
+    market: "Will the Senate convict Sara Duterte?",
+    category: "Politics · Government",
+    tags: ["Politics", "Government", "Philippines"],
     status: "live",
     riskStatus: "inventory_adjusted_quote",
     quoteMode: "inventory_adjusted_quote",
@@ -319,10 +323,11 @@ const markets: Market[] = [
     ],
   },
   {
-    id: "CS2-MAJOR-LIQUID",
-    event: "IEM Cologne Major 2026",
-    market: "Will Team Liquid win?",
+    id: "MPLPH-S18-TLPH",
+    event: "Team Liquid PH Four-Peat",
+    market: "MPL PH S18 title market",
     category: "Sports · Esports",
+    tags: ["Sports", "Esports", "Games"],
     status: "paused",
     riskStatus: "orderbook_missing",
     quoteMode: "paused",
@@ -371,10 +376,11 @@ const markets: Market[] = [
     ],
   },
   {
-    id: "DOGE-5M-1915",
-    event: "DOGE Up/Down 5M",
-    market: "Dogecoin Up or Down - 19:15-19:20 ET",
-    category: "Crypto · Recurring",
+    id: "VOICE-KIDS-RATINGS",
+    event: "The Voice Kids Philippines 2026",
+    market: "Premiere episode wins weekend TV ratings?",
+    category: "Media · TV Ratings",
+    tags: ["Media", "Entertainment", "TV", "Philippines"],
     status: "degraded",
     riskStatus: "data_delay",
     quoteMode: "budget_limited",
@@ -439,11 +445,13 @@ const markets: Market[] = [
 ];
 
 const filterOptions = [
-  { id: "all", label: "全部" },
-  { id: "attention", label: "异常" },
-  { id: "live", label: "Live" },
-  { id: "crypto", label: "Crypto" },
-  { id: "negrisk", label: "NegRisk" },
+  { id: "all", label: "全部", tag: null },
+  { id: "attention", label: "异常", tag: null },
+  { id: "weather", label: "Weather", tag: "Weather" },
+  { id: "economy", label: "Economy", tag: "Economy" },
+  { id: "politics", label: "Politics", tag: "Politics" },
+  { id: "sports", label: "Sports", tag: "Sports" },
+  { id: "media", label: "Media", tag: "Media" },
 ];
 
 const timeframes = ["15m", "1h", "4h"];
@@ -518,20 +526,19 @@ export default function Home() {
 
   const filteredMarkets = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
+    const selectedFilter = filterOptions.find((option) => option.id === filter);
 
     return markets
       .filter((marketItem) => {
         if (filter === "attention") {
           return statusMeta[marketItem.riskStatus].tone !== "ok" || marketItem.staleSeconds > 60;
         }
-        if (filter === "live") return marketItem.status === "live";
-        if (filter === "crypto") return marketItem.category.toLowerCase().includes("crypto");
-        if (filter === "negrisk") return marketItem.category.toLowerCase().includes("negrisk");
+        if (selectedFilter?.tag) return marketItem.tags.includes(selectedFilter.tag);
         return true;
       })
       .filter((marketItem) => {
         if (!normalizedQuery) return true;
-        return `${marketItem.event} ${marketItem.market} ${marketItem.id}`
+        return `${marketItem.event} ${marketItem.market} ${marketItem.category} ${marketItem.tags.join(" ")} ${marketItem.id}`
           .toLowerCase()
           .includes(normalizedQuery);
       })
@@ -768,7 +775,7 @@ function MarketOverview({
           aria-label="Search markets"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="market / event / id"
+          placeholder="market / event / tag / id"
         />
       </div>
 

@@ -2,6 +2,26 @@
 
 ## 2026-08-28
 
+### Align overview filters with prod market labels
+
+- Checked the MM Prod environment (`ubuntu@52.63.52.18`) in read-only mode.
+- Confirmed current active prod market samples are mainly Philippines-focused markets across weather, economy/FX, politics, sports/esports, and media/TV.
+- Confirmed the MM runtime database currently keeps event/market titles, slug, NegRisk flag, and pricing route, but not original raw market tags.
+- Replaced the temporary overview filters `Live` and `Crypto` with market-label filters:
+  - `Weather`
+  - `Economy`
+  - `Politics`
+  - `Sports`
+  - `Media`
+- Kept `全部` and `异常` for the operator workflow: scan problematic markets first, then narrow by label or search.
+- Updated mock market names/categories to match the prod market universe more closely.
+- Added tag-aware search and a mobile layout guard for the expanded filter bar.
+
+Verification:
+
+- `npm run build` passed with the workspace Node runtime.
+- Visual smoke check passed at `1690x940`; filter labels have no desktop overflow.
+
 ### Move market overview to the top of the workflow
 
 - Reordered the page to match the intended operator flow:
