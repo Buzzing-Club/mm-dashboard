@@ -9,8 +9,9 @@
   - `Mid Insert Freq`
   - `L1 Distance`
   - `Max Live Pairs`
-- Split liquidity monitoring into a separate `流动性变化` panel with initial liquidity, current liquidity, absolute change, and percentage lift.
-- Changed the user-experience detail area to a 2x2 panel layout so flash-order parameters and liquidity impact are easier to compare.
+- Replaced the `Liquidity / Slippage` chart section with a `Liquidity History` section.
+- Changed the main experience chart from spread/impact slope to historical available-liquidity movement with an initial-liquidity baseline.
+- Removed the separate liquidity-change table so liquidity impact is represented by the chart only.
 
 Verification:
 

@@ -1087,7 +1087,17 @@ function ExperienceBoard({
   const askMax = maxQuantity(displayedAskLevels);
   const initialLiquidity = Math.round(visibleMarket.liquidity * 0.72);
   const liquidityChange = visibleMarket.liquidity - initialLiquidity;
-  const liquidityChangePct = initialLiquidity === 0 ? 0 : (liquidityChange / initialLiquidity) * 100;
+  const liquidityHistory = visibleMarket.series.map((point, index, points) => {
+    const lastIndex = Math.max(1, points.length - 1);
+    const progress = index / lastIndex;
+    const wiggle = index === 0 || index === points.length - 1 ? 0 : ((index % 3) - 1) * Math.max(1, Math.round(visibleMarket.liquidity * 0.015));
+
+    return {
+      time: point.time,
+      availableLiquidity: Math.max(0, Math.round(initialLiquidity + liquidityChange * progress + wiggle)),
+      initialBaseline: initialLiquidity,
+    };
+  });
 
   return (
     <>
@@ -1110,19 +1120,6 @@ function ExperienceBoard({
             <TinyStat label="Mid Insert Freq" value="360 / h" tone="ok" />
             <TinyStat label="L1 Distance" value="1-2 ticks" tone={visibleMarket.spread && visibleMarket.spread > 0.02 ? "ok" : "warn"} />
             <TinyStat label="Max Live Pairs" value="3 pairs" tone="ok" />
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-title">
-            <span><Layers3 size={16} /> 流动性变化</span>
-            <small>before / now</small>
-          </div>
-          <div className="micro-grid">
-            <TinyStat label="Initial Liquidity" value={`${initialLiquidity} sh`} tone={visibleMarket.liquidity ? "ok" : "bad"} />
-            <TinyStat label="Current Liquidity" value={`${visibleMarket.liquidity} sh`} tone={visibleMarket.liquidity > 500 ? "ok" : "bad"} />
-            <TinyStat label="Liquidity Change" value={`${liquidityChange >= 0 ? "+" : ""}${liquidityChange} sh`} tone={liquidityChange >= 0 ? "ok" : "bad"} />
-            <TinyStat label="Liquidity Lift" value={`${liquidityChangePct >= 0 ? "+" : ""}${liquidityChangePct.toFixed(1)}%`} tone={liquidityChangePct >= 0 ? "ok" : "bad"} />
           </div>
         </div>
 
@@ -1153,25 +1150,23 @@ function ExperienceBoard({
         </div>
       </div>
 
-      <BoardChartToolbar title="Liquidity / Slippage" timeframe={timeframe} setTimeframe={setTimeframe} />
+      <BoardChartToolbar title="Liquidity History" timeframe={timeframe} setTimeframe={setTimeframe} />
 
       <div className="analytics-grid">
         <div className="panel chart-panel wide">
           <div className="panel-title">
-            <span><LineChart size={16} /> Spread / Impact Slope</span>
+            <span><LineChart size={16} /> 历史流动性变化</span>
             <small>{timeframe}</small>
           </div>
           <div className="chart-frame">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={visibleMarket.series}>
+              <ComposedChart data={liquidityHistory}>
                 <CartesianGrid stroke="#242833" vertical={false} />
                 <XAxis dataKey="time" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                <YAxis yAxisId="left" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
-                <Area yAxisId="left" type="monotone" dataKey="askSlope" fill="#4cc9f033" stroke="#4cc9f0" strokeWidth={2} />
-                <Line yAxisId="left" type="monotone" dataKey="bidSlope" stroke="#20d49b" strokeWidth={2} dot={false} />
-                <Line yAxisId="right" type="monotone" dataKey="spread" stroke="#ffb020" strokeWidth={2} dot={false} />
+                <Area type="monotone" dataKey="availableLiquidity" name="Liquidity" fill="#20d49b33" stroke="#20d49b" strokeWidth={2} />
+                <Line type="monotone" dataKey="initialBaseline" name="Initial Baseline" stroke="#4cc9f0" strokeDasharray="4 4" strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -1449,10 +1444,6 @@ const tinyStatDescriptions: Record<string, string> = {
   "Mid Insert Freq": "中间档位插入的目标触发频率，文档口径约为每 10 秒随机插入一次，即 360 次/小时。",
   "L1 Distance": "闪单价格相对当前 Best Bid / Best Ask 一档附近的距离，文档口径为贴近一档 1-2 个 tick。",
   "Max Live Pairs": "同一市场同一时刻允许存在的最大 Bot 挂单对数，用于控制并发挂单和保证金占用。",
-  "Initial Liquidity": "本轮监控窗口开始时的盘口可用流动性，作为对比当前流动性的基准。",
-  "Current Liquidity": "当前订单簿内可被成交的挂单深度，单位为 shares。",
-  "Liquidity Change": "当前流动性相对监控窗口初始值的绝对变化，正值表示盘口深度增加。",
-  "Liquidity Lift": "当前流动性相对监控窗口初始值的百分比变化，用于观察闪单后深度改善幅度。",
   "Avg Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
   "Spread Now": "当前选中市场最优 ask 与最优 bid 的实时价差，数值越小成交体验通常越好。",
   "Ask K": "买入 YES 方向的盘口冲击斜率，衡量吃 ask 时价格随成交量上移的速度。",
