@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Improve Vercel presentation layout
+
+- Added compact presentation breakpoints for common 1280px/720px and laptop-height preview windows.
+- Reduced the market-overview card height, top spacing, and dashboard switcher height so selected-market details appear in the first viewport.
+- Kept the three-row market list behavior while making the deployed Vercel view match the local dashboard density more closely.
+
+Verification:
+
+- `npx next build` passed.
+- `npm run build` passed.
+
 ### Prepare mock dashboard for Vercel preview
 
 - Documented that mock market data is committed with the source and does not require backend environment variables.

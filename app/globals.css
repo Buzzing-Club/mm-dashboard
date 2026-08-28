@@ -1251,6 +1251,91 @@ h3 {
   white-space: nowrap;
 }
 
+@media (max-width: 1440px), (max-height: 820px) {
+  .terminal-shell {
+    padding: 12px;
+  }
+
+  .topbar {
+    min-height: 56px;
+    padding: 9px 12px;
+  }
+
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  .market-rail {
+    padding: 10px;
+  }
+
+  .market-overview {
+    margin: 10px 0;
+  }
+
+  .rail-header {
+    margin-bottom: 9px;
+  }
+
+  .search-box {
+    height: 34px;
+  }
+
+  .segmented {
+    margin: 8px 0;
+  }
+
+  .segmented button {
+    min-height: 26px;
+  }
+
+  .market-overview .market-list {
+    max-height: calc(88px * 3 + 7px * 2);
+    gap: 7px;
+  }
+
+  .market-row {
+    min-height: 88px;
+    padding: 8px;
+  }
+
+  .market-row p {
+    margin-top: 5px;
+  }
+
+  .market-row-metrics {
+    margin-top: 7px;
+  }
+
+  .detail-header {
+    min-height: 62px;
+    padding: 10px;
+  }
+
+  .quote-box > div {
+    min-width: 74px;
+    padding: 7px 10px;
+  }
+
+  .quote-box strong {
+    font-size: 17px;
+  }
+
+  .board-switcher {
+    margin: 8px 0 10px;
+  }
+
+  .board-switcher button {
+    min-height: 58px;
+    padding: 8px;
+  }
+}
+
 @media (max-width: 1180px) {
   .board-switcher {
     grid-template-columns: 1fr;
@@ -1304,7 +1389,7 @@ h3 {
   }
 
   .market-overview .market-list {
-    max-height: calc(112px * 3 + 8px * 2);
+    max-height: calc(88px * 3 + 7px * 2);
   }
 
   .detail-header {
