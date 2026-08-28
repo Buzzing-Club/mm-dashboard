@@ -1,0 +1,69 @@
+# Dashboard Prototype Change Log
+
+## 2026-08-28
+
+### Split realtime dashboard into three metric subboards
+
+- Kept the quant-trading terminal visual direction from the first prototype.
+- Reworked the information architecture to match the product document:
+  - `宏观业务指标`
+  - `用户体验指标`
+  - `市场风控指标`
+- Added top-level category switching while preserving the selected market and market filters.
+- Made KPI cards context-aware so each subboard surfaces only the metrics relevant to that category.
+- Added dedicated subboard layouts:
+  - Macro board: gross volume, net volume, trader count, PnL, wash ratio, business trend, market ranking.
+  - Experience board: flash-order monitoring, liquidity, average slippage, spread history, bid/ask impact slope, order book snapshot.
+  - Risk board: risk status, quote mode, inventory, worst-case PnL, source freshness, risk queue, strategy events.
+- Fixed a hydration mismatch caused by rendering the live clock differently on server and client.
+
+Verification:
+
+- `npm run build` passed.
+- Local preview: `http://localhost:3000/`
+- Private preview: `https://market-making-realtime-dashboard.arthurqiuy.chatgpt.site`
+
+Related commit:
+
+- `5add558 Split dashboard into metric subboards`
+
+## 2026-08-27
+
+### Build first market-making dashboard prototype
+
+- Created the initial dashboard project in `/Users/Admin/Documents/New project/dashboard`.
+- Built a single-page mock realtime market-making console.
+- Added mock markets covering representative strategy states:
+  - `normal_quote`
+  - `inventory_adjusted_quote`
+  - `negrisk_group_protection`
+  - `orderbook_missing`
+  - `data_delay`
+  - `paused`
+- Added core UI surfaces:
+  - Market list with filters and severity ordering.
+  - Macro KPI strip.
+  - Selected-market bid, mid, ask, and spread summary.
+  - Risk state and strategy reason.
+  - Inventory and worst-case PnL meters.
+  - Data source freshness.
+  - Order book depth.
+  - Slippage distribution.
+  - Volume, PnL, and spread trend.
+  - Strategy event stream.
+- Published an initial private Sites version.
+
+Verification:
+
+- `npm run build` passed.
+
+Related commit:
+
+- `ba3d4fe Build market making dashboard prototype`
+
+## Repository State
+
+- Local git repository: `/Users/Admin/Documents/New project/dashboard`
+- Branch: `main`
+- Remote source repository: `sites-origin`
+- Sites project id is stored in `.openai/hosting.json`.
