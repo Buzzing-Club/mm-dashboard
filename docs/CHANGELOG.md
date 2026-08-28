@@ -2,6 +2,16 @@
 
 ## 2026-08-28
 
+### Move slippage distribution into detail row
+
+- Removed the user-experience `异常原因` readiness panel because its `ready` states duplicated lower-level availability checks.
+- Moved the `Slippage Dist` chart into that third detail-panel position.
+- Made the remaining liquidity-history chart span the full analytics row.
+
+Verification:
+
+- `npm run build` passed.
+
 ### Remove macro metric readiness panel
 
 - Removed the macro board `指标状态` panel because its `ready` checks duplicated the visible macro metrics.

@@ -960,6 +960,10 @@ h3 {
   height: 252px;
 }
 
+.mini-chart {
+  height: 154px;
+}
+
 .chart-tooltip {
   display: grid;
   min-width: 130px;

@@ -1074,23 +1074,35 @@ function ExperienceBoard({
           </div>
         </div>
 
-        <div className="panel">
+        <div className="panel chart-panel">
           <div className="panel-title">
-            <span><Database size={16} /> 异常原因</span>
-            <small>not zero-filled</small>
+            <span><TimerReset size={16} /> Slippage Dist</span>
+            <small>filled orders</small>
           </div>
-          <div className="source-list">
-            <SourceRow label="avg_trade_slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : "ready"} tone={visibleMarket.avgSlippage === null ? "warn" : "ok"} />
-            <SourceRow label="ask_impact_slope" value={visibleMarket.askSlope === null ? "insufficient_ask_depth" : "ready"} tone={visibleMarket.askSlope === null ? "bad" : "ok"} />
-            <SourceRow label="bid_impact_slope" value={visibleMarket.bidSlope === null ? "insufficient_bid_depth" : "ready"} tone={visibleMarket.bidSlope === null ? "bad" : "ok"} />
-            <SourceRow label="orderbook_history" value={visibleMarket.bidLevels.length ? "ready" : "orderbook_missing"} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
+          <div className="chart-frame mini-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={visibleMarket.slippageBuckets}>
+                <CartesianGrid stroke="#242833" vertical={false} />
+                <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                  {visibleMarket.slippageBuckets.map((entry) => (
+                    <Cell
+                      key={entry.bucket}
+                      fill={entry.tone === "good" ? "#20d49b" : entry.tone === "warn" ? "#ffb020" : "#ff5c6c"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
 
       <BoardChartToolbar title="Liquidity History" timeframe={timeframe} setTimeframe={setTimeframe} />
 
-      <div className="analytics-grid">
+      <div className="analytics-grid single-bottom">
         <div className="panel chart-panel wide">
           <div className="panel-title">
             <span><LineChart size={16} /> 历史流动性变化</span>
@@ -1110,30 +1122,6 @@ function ExperienceBoard({
           </div>
         </div>
 
-        <div className="panel chart-panel">
-          <div className="panel-title">
-            <span><TimerReset size={16} /> Slippage Dist</span>
-            <small>filled orders</small>
-          </div>
-          <div className="chart-frame compact-chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={visibleMarket.slippageBuckets}>
-                <CartesianGrid stroke="#242833" vertical={false} />
-                <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                  {visibleMarket.slippageBuckets.map((entry) => (
-                    <Cell
-                      key={entry.bucket}
-                      fill={entry.tone === "good" ? "#20d49b" : entry.tone === "warn" ? "#ffb020" : "#ff5c6c"}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
       </div>
 
       <div className="bottom-grid single-bottom">
@@ -1352,10 +1340,6 @@ function TinyStat({ label, value, tone }: { label: string; value: string; tone: 
 }
 
 const parameterDescriptions: Record<string, string> = {
-  avg_trade_slippage: "当前市场真实成交相对成交前盘口中间价的平均滑点。",
-  ask_impact_slope: "当前市场买入 YES 方向的盘口冲击斜率，数值越低说明 ask 侧越容易被吃穿。",
-  bid_impact_slope: "当前市场卖出 YES 方向的盘口冲击斜率，数值越低说明 bid 侧越容易被吃穿。",
-  orderbook_history: "当前市场最近的盘口历史是否足够计算深度、点差和冲击斜率。",
   risk_status: "当前市场的风控状态，由库存、预算、盘口、临期和数据新鲜度等条件共同决定。",
   quote_mode: "当前市场实际采用的摆单模式，例如正常摆单、库存倾斜、只减风险或暂停摆单。",
   reduce_only_line: "触发只减风险模式的库存阈值；超过后只允许能降低库存风险的一侧继续报价。",
