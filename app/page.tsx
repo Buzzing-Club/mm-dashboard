@@ -742,50 +742,28 @@ export default function Home() {
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
 
-  const totals = useMemo(() => {
-    const gross = markets.reduce((sum, marketItem) => sum + marketItem.grossVolume, 0);
-    const net = markets.reduce((sum, marketItem) => sum + (marketItem.netVolume ?? 0), 0);
-    const pnl = markets.reduce((sum, marketItem) => sum + marketItem.pnl, 0);
-    const alerts = markets.filter((marketItem) => statusMeta[marketItem.riskStatus].tone !== "ok").length;
-    const washKnown = markets.filter((marketItem) => marketItem.washRatio !== null);
-    const avgWash =
-      washKnown.reduce((sum, marketItem) => sum + (marketItem.washRatio ?? 0), 0) /
-      Math.max(1, washKnown.length);
-    const avgSlippage =
-      markets.reduce((sum, marketItem) => sum + (marketItem.avgSlippage ?? 0), 0) /
-      Math.max(1, markets.filter((marketItem) => marketItem.avgSlippage !== null).length);
-    const avgSpread =
-      markets.reduce((sum, marketItem) => sum + marketItem.spread, 0) / Math.max(1, markets.length);
-    const liquidity = markets.reduce((sum, marketItem) => sum + marketItem.liquidity, 0);
-    const stale = markets.filter((marketItem) => marketItem.staleSeconds > 60).length;
-    const paused = markets.filter((marketItem) => marketItem.status === "paused").length;
-    const avgRiskUsed =
-      markets.reduce(
-        (sum, marketItem) =>
-          sum + Math.min(100, (Math.abs(marketItem.worstCasePnl) / marketItem.maxLossBudget) * 100),
-        0,
-      ) / Math.max(1, markets.length);
-
-    return {
-      gross,
-      net,
-      pnl,
-      alerts,
-      avgWash,
-      avgSlippage,
-      avgSpread,
-      liquidity,
-      stale,
-      paused,
-      avgRiskUsed,
-      traders: markets.reduce((sum, marketItem) => sum + marketItem.traderCount, 0),
-    };
-  }, []);
-
   const bidMax = maxQuantity(visibleMarket.bidLevels);
   const askMax = maxQuantity(visibleMarket.askLevels);
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
+  const latestPoint = visibleMarket.series.at(-1);
+  const previousPoint = visibleMarket.series.at(-2);
+  const volumeDelta =
+    latestPoint && previousPoint
+      ? `${latestPoint.volume - previousPoint.volume >= 0 ? "+" : ""}${latestPoint.volume - previousPoint.volume}`
+      : "tick";
+  const pnlDelta =
+    latestPoint && previousPoint ? signedCurrency(latestPoint.pnl - previousPoint.pnl) : "tick";
+  const spreadDelta =
+    latestPoint && previousPoint
+      ? `${latestPoint.spread - previousPoint.spread >= 0 ? "+" : ""}${(latestPoint.spread - previousPoint.spread).toFixed(1)}c`
+      : "tick";
+  const washDelta =
+    latestPoint && previousPoint
+      ? `${latestPoint.wash - previousPoint.wash >= 0 ? "+" : ""}${latestPoint.wash - previousPoint.wash}p`
+      : "tick";
+  const selectedTone = statusMeta[visibleMarket.riskStatus].tone;
+  const selectedRiskTone = selectedTone === "ok" ? "ok" : selectedTone === "warn" ? "warn" : "bad";
   return (
     <main className="terminal-shell">
       <section className="topbar">
@@ -873,35 +851,35 @@ export default function Home() {
         <section className="kpi-grid" aria-label="Realtime dashboard metrics">
           {activeBoard === "macro" && (
             <>
-              <MetricCard icon={<BarChart3 size={17} />} label="Gross Volume" value={currency(totals.gross)} delta="+18.4%" tone="ok" />
-              <MetricCard icon={<Activity size={17} />} label="Net Volume" value={currency(totals.net)} delta="+12.1%" tone="ok" />
-              <MetricCard icon={<WalletCards size={17} />} label="Traders" value={totals.traders.toLocaleString()} delta="+64" tone="ok" />
-              <MetricCard icon={<LineChart size={17} />} label="Current PnL" value={signedCurrency(totals.pnl)} delta="-0.8%" tone={totals.pnl >= 0 ? "ok" : "bad"} />
-              <MetricCard icon={<TimerReset size={17} />} label="Wash Ratio" value={pct(totals.avgWash)} delta="avg" tone={totals.avgWash < 0.2 ? "ok" : "warn"} />
+              <MetricCard icon={<BarChart3 size={17} />} label="Market Gross" value={currency(visibleMarket.grossVolume)} delta={volumeDelta} tone="ok" />
+              <MetricCard icon={<Activity size={17} />} label="Market Net" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} delta="selected" tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
+              <MetricCard icon={<WalletCards size={17} />} label="Market Traders" value={visibleMarket.traderCount.toLocaleString()} delta={`${visibleMarket.endInMinutes}m`} tone="ok" />
+              <MetricCard icon={<LineChart size={17} />} label="Market PnL" value={signedCurrency(visibleMarket.pnl)} delta={pnlDelta} tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+              <MetricCard icon={<TimerReset size={17} />} label="Wash Ratio" value={pct(visibleMarket.washRatio)} delta={washDelta} tone={(visibleMarket.washRatio ?? 1) < 0.2 ? "ok" : "warn"} />
             </>
           )}
           {activeBoard === "experience" && (
             <>
-              <MetricCard icon={<Layers3 size={17} />} label="Liquidity" value={`${totals.liquidity.toLocaleString()} sh`} delta="+7.2%" tone="ok" />
-              <MetricCard icon={<TimerReset size={17} />} label="Avg Slippage" value={`${totals.avgSlippage.toFixed(1)}%`} delta="-0.4%" tone={totals.avgSlippage < 4 ? "ok" : "bad"} />
-              <MetricCard icon={<Activity size={17} />} label="Avg Spread" value={`${(totals.avgSpread * 100).toFixed(1)}c`} delta="+0.7c" tone={totals.avgSpread < 0.06 ? "ok" : "warn"} />
-              <MetricCard icon={<Gauge size={17} />} label="Ask K / Bid K" value={`${visibleMarket.askSlope?.toFixed(0) ?? "--"} / ${visibleMarket.bidSlope?.toFixed(0) ?? "--"}`} delta="selected" tone={visibleMarket.askSlope && visibleMarket.bidSlope ? "ok" : "bad"} />
+              <MetricCard icon={<Layers3 size={17} />} label="Market Liquidity" value={`${visibleMarket.liquidity.toLocaleString()} sh`} delta={visibleMarket.bidLevels.length ? "2-sided" : "empty"} tone={visibleMarket.liquidity > 0 ? "ok" : "bad"} />
+              <MetricCard icon={<TimerReset size={17} />} label="Trade Slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : `${visibleMarket.avgSlippage.toFixed(1)}%`} delta="market" tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
+              <MetricCard icon={<Activity size={17} />} label="Spread Now" value={visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "missing"} delta={spreadDelta} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
+              <MetricCard icon={<Gauge size={17} />} label="Ask K / Bid K" value={`${visibleMarket.askSlope?.toFixed(0) ?? "--"} / ${visibleMarket.bidSlope?.toFixed(0) ?? "--"}`} delta="market" tone={visibleMarket.askSlope && visibleMarket.bidSlope ? "ok" : "bad"} />
               <MetricCard icon={<Database size={17} />} label="Book Health" value={visibleMarket.bidLevels.length ? "2-sided" : "missing"} delta={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
             </>
           )}
           {activeBoard === "risk" && (
             <>
-              <MetricCard icon={<ShieldAlert size={17} />} label="Risk Alerts" value={String(totals.alerts)} delta={`${totals.stale} stale`} tone="bad" />
-              <MetricCard icon={<Pause size={17} />} label="Paused" value={String(totals.paused)} delta="markets" tone={totals.paused ? "bad" : "ok"} />
-              <MetricCard icon={<Gauge size={17} />} label="Avg Budget Used" value={`${totals.avgRiskUsed.toFixed(0)}%`} delta="worst pnl" tone={totals.avgRiskUsed > 80 ? "bad" : "warn"} />
-              <MetricCard icon={<Activity size={17} />} label="Selected q" value={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} delta={statusMeta[visibleMarket.quoteMode].short} tone={Math.abs(visibleMarket.inventory) >= 64 ? "bad" : "warn"} />
+              <MetricCard icon={<ShieldAlert size={17} />} label="Risk Status" value={statusMeta[visibleMarket.riskStatus].short} delta="market" tone={selectedRiskTone} />
+              <MetricCard icon={<Pause size={17} />} label="Quote Mode" value={statusMeta[visibleMarket.quoteMode].short} delta={visibleMarket.status} tone={selectedRiskTone} />
+              <MetricCard icon={<Gauge size={17} />} label="Budget Used" value={`${lossUsed.toFixed(0)}%`} delta="worst pnl" tone={lossUsed > 85 ? "bad" : "warn"} />
+              <MetricCard icon={<Activity size={17} />} label="Inventory q" value={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} delta={statusMeta[visibleMarket.quoteMode].short} tone={Math.abs(visibleMarket.inventory) >= 64 ? "bad" : "warn"} />
               <MetricCard icon={<Database size={17} />} label="Runtime Delay" value={`${visibleMarket.staleSeconds}s`} delta="strategy" tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
             </>
           )}
         </section>
 
         {activeBoard === "macro" && (
-          <MacroBoard visibleMarket={visibleMarket} markets={filteredMarkets} timeframe={timeframe} setTimeframe={setTimeframe} />
+          <MacroBoard visibleMarket={visibleMarket} timeframe={timeframe} setTimeframe={setTimeframe} />
         )}
 
         {activeBoard === "experience" && (
@@ -917,7 +895,6 @@ export default function Home() {
         {activeBoard === "risk" && (
           <RiskBoard
             visibleMarket={visibleMarket}
-            markets={filteredMarkets}
             inventoryUsed={inventoryUsed}
             lossUsed={lossUsed}
           />
@@ -1014,12 +991,10 @@ function MarketOverview({
 
 function MacroBoard({
   visibleMarket,
-  markets,
   timeframe,
   setTimeframe,
 }: {
   visibleMarket: Market;
-  markets: Market[];
   timeframe: string;
   setTimeframe: (value: string) => void;
 }) {
@@ -1096,10 +1071,10 @@ function MacroBoard({
 
         <div className="panel table-panel">
           <div className="panel-title">
-            <span><Activity size={16} /> Market Ranking</span>
-            <small>filtered scope</small>
+            <span><Activity size={16} /> Market Snapshot</span>
+            <small>selected market</small>
           </div>
-          <MarketMetricTable markets={markets} mode="macro" />
+          <MarketMetricTable markets={[visibleMarket]} mode="macro" />
         </div>
       </div>
     </>
@@ -1238,12 +1213,10 @@ function ExperienceBoard({
 
 function RiskBoard({
   visibleMarket,
-  markets,
   inventoryUsed,
   lossUsed,
 }: {
   visibleMarket: Market;
-  markets: Market[];
   inventoryUsed: number;
   lossUsed: number;
 }) {
@@ -1308,10 +1281,10 @@ function RiskBoard({
       <div className="bottom-grid">
         <div className="panel table-panel">
           <div className="panel-title">
-            <span><ShieldAlert size={16} /> Risk Queue</span>
-            <small>filtered scope</small>
+            <span><ShieldAlert size={16} /> Risk Snapshot</span>
+            <small>selected market</small>
           </div>
-          <MarketMetricTable markets={markets} mode="risk" />
+          <MarketMetricTable markets={[visibleMarket]} mode="risk" />
         </div>
 
         <div className="panel event-panel">

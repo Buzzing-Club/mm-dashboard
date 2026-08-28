@@ -2,6 +2,25 @@
 
 ## 2026-08-28
 
+### Scope all subboard metrics to the selected market
+
+- Changed the macro, user-experience, and risk KPI strips from all-market aggregate values to selected-market values.
+- Removed the all-market total calculation from the dashboard view.
+- Reworded KPI labels to make the selected-market scope explicit:
+  - `Market Gross`
+  - `Market Net`
+  - `Market Traders`
+  - `Market PnL`
+  - `Market Liquidity`
+  - `Risk Status`
+- Replaced the filtered-market ranking/risk queue panels with selected-market snapshot panels.
+- Kept Market Overview as the only cross-market scanning surface.
+
+Verification:
+
+- `npm run build` passed.
+- Browser smoke check confirmed switching markets changes macro, experience, and risk KPI values.
+
 ### Expand market overview with prod open-market samples
 
 - Checked MM Prod in read-only mode and confirmed:
