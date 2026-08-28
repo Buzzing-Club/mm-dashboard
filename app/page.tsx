@@ -564,7 +564,6 @@ function riskReasonFor(status: RiskStatus) {
 const riskEventTypeLabels: Record<string, string> = {
   normal: "正常摆单",
   requote: "重新定价",
-  risk: "风险触发",
   inventory: "库存倾斜",
   skew: "库存倾斜",
   reduce: "只减风险",
@@ -581,8 +580,28 @@ const riskEventTypeLabels: Record<string, string> = {
   depth: "深度收紧",
 };
 
-function getRiskEventLabel(type: string) {
-  return riskEventTypeLabels[type] ?? type;
+function getRiskEventLabel(eventItem: RiskEvent) {
+  if (eventItem.type === "risk") {
+    const detail = eventItem.detail.toLowerCase();
+    if (detail.includes("group") || detail.includes("negrisk") || detail.includes("soft loss")) {
+      return "组级损失保护";
+    }
+    if (detail.includes("budget") || detail.includes("pnl") || detail.includes("loss")) {
+      return "预算损失保护";
+    }
+    if (detail.includes("inventory") || detail.includes("q ")) {
+      return "库存风险保护";
+    }
+    if (detail.includes("stale") || detail.includes("delay") || detail.includes("freshness")) {
+      return "数据延迟保护";
+    }
+    if (detail.includes("book") || detail.includes("snapshot") || detail.includes("depth")) {
+      return "盘口异常保护";
+    }
+    return "风控保护触发";
+  }
+
+  return riskEventTypeLabels[eventItem.type] ?? eventItem.type;
 }
 
 function toSourceTone(tone: "ok" | "warn" | "bad" | "muted"): "ok" | "warn" | "bad" {
@@ -1320,11 +1339,11 @@ function RiskStatusTimeline({ events }: { events: RiskEvent[] }) {
           <div
             key={`${eventItem.time}-${eventItem.type}-${index}`}
             className={`risk-timeline-node ${eventItem.severity}`}
-            title={`${getRiskEventLabel(eventItem.type)} · ${eventItem.detail}`}
+            title={`${getRiskEventLabel(eventItem)} · ${eventItem.detail}`}
           >
             <time>{eventItem.time}</time>
             <span className="risk-timeline-dot" />
-            <strong>{getRiskEventLabel(eventItem.type)}</strong>
+            <strong>{getRiskEventLabel(eventItem)}</strong>
             <p>{eventItem.detail}</p>
           </div>
         ))}

@@ -2,6 +2,16 @@
 
 ## 2026-08-28
 
+### Clarify risk timeline labels
+
+- Replaced generic `risk` timeline titles with specific risk names inferred from the event detail.
+- Example: `group soft loss ratio triggered` now displays as `组级损失保护` instead of `风险触发`.
+
+Verification:
+
+- `npx next build` passed.
+- `npm run build` passed.
+
 ### Improve Vercel presentation layout
 
 - Added compact presentation breakpoints for common 1280px/720px and laptop-height preview windows.
