@@ -2,6 +2,20 @@
 
 ## 2026-08-28
 
+### Add YES / NO order book switching
+
+- Added a compact `YES / NO` switch to the Order Book History Snapshot panel.
+- Kept `YES` as the default book view.
+- Derived the `NO` book from the binary complement of the `YES` book:
+  - `NO bid = 1 - YES ask`
+  - `NO ask = 1 - YES bid`
+- Recomputed depth bars independently for the selected outcome side.
+
+Verification:
+
+- `npm run build` passed.
+- Browser smoke check confirmed switching to `NO` updates book titles and complement prices.
+
 ### Add Chinese hover explanations for runtime parameters
 
 - Added Chinese hover tooltips for the parameter labels in the selected-market panels.

@@ -48,6 +48,7 @@ type RiskStatus =
   | "paused";
 
 type BoardId = "macro" | "experience" | "risk";
+type OutcomeSide = "yes" | "no";
 
 type Market = {
   id: string;
@@ -696,6 +697,15 @@ function maxQuantity(levels: Array<{ quantity: number }>) {
   return Math.max(1, ...levels.map((level) => level.quantity));
 }
 
+function complementaryLevels(levels: Array<{ price: number; quantity: number }>, sort: "bid" | "ask") {
+  return levels
+    .map((level) => ({
+      price: Number((1 - level.price).toFixed(2)),
+      quantity: level.quantity,
+    }))
+    .sort((a, b) => (sort === "bid" ? b.price - a.price : a.price - b.price));
+}
+
 export default function Home() {
   const [activeId, setActiveId] = useState(markets[0].id);
   const [filter, setFilter] = useState("attention");
@@ -742,8 +752,6 @@ export default function Home() {
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
 
-  const bidMax = maxQuantity(visibleMarket.bidLevels);
-  const askMax = maxQuantity(visibleMarket.askLevels);
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
   const latestPoint = visibleMarket.series.at(-1);
@@ -885,8 +893,6 @@ export default function Home() {
         {activeBoard === "experience" && (
           <ExperienceBoard
             visibleMarket={visibleMarket}
-            bidMax={bidMax}
-            askMax={askMax}
             timeframe={timeframe}
             setTimeframe={setTimeframe}
           />
@@ -1083,17 +1089,21 @@ function MacroBoard({
 
 function ExperienceBoard({
   visibleMarket,
-  bidMax,
-  askMax,
   timeframe,
   setTimeframe,
 }: {
   visibleMarket: Market;
-  bidMax: number;
-  askMax: number;
   timeframe: string;
   setTimeframe: (value: string) => void;
 }) {
+  const [bookOutcome, setBookOutcome] = useState<OutcomeSide>("yes");
+  const displayedBidLevels =
+    bookOutcome === "yes" ? visibleMarket.bidLevels : complementaryLevels(visibleMarket.askLevels, "bid");
+  const displayedAskLevels =
+    bookOutcome === "yes" ? visibleMarket.askLevels : complementaryLevels(visibleMarket.bidLevels, "ask");
+  const bidMax = maxQuantity(displayedBidLevels);
+  const askMax = maxQuantity(displayedAskLevels);
+
   return (
     <>
       <div className="subboard-header">
@@ -1199,11 +1209,25 @@ function ExperienceBoard({
         <div className="panel orderbook-panel">
           <div className="panel-title">
             <span><Activity size={16} /> Order Book History Snapshot</span>
-            <small>{visibleMarket.liquidity ? `${visibleMarket.liquidity} shares` : "empty"}</small>
+            <div className="orderbook-title-actions">
+              <div className="outcome-toggle" aria-label="切换订单簿结果方向">
+                {(["yes", "no"] as OutcomeSide[]).map((outcome) => (
+                  <button
+                    key={outcome}
+                    className={bookOutcome === outcome ? "active" : ""}
+                    type="button"
+                    onClick={() => setBookOutcome(outcome)}
+                  >
+                    {outcome.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <small>{visibleMarket.liquidity ? `${visibleMarket.liquidity} shares` : "empty"}</small>
+            </div>
           </div>
           <div className="book-grid">
-            <OrderSide title="Bids" side="bid" levels={visibleMarket.bidLevels} max={bidMax} />
-            <OrderSide title="Asks" side="ask" levels={visibleMarket.askLevels} max={askMax} />
+            <OrderSide title={`${bookOutcome.toUpperCase()} Bids`} side="bid" levels={displayedBidLevels} max={bidMax} />
+            <OrderSide title={`${bookOutcome.toUpperCase()} Asks`} side="ask" levels={displayedAskLevels} max={askMax} />
           </div>
         </div>
       </div>

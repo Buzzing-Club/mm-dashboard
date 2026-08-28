@@ -736,6 +736,41 @@ h3 {
   font-weight: 800;
 }
 
+.orderbook-title-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.outcome-toggle {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(42px, 1fr));
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0b0d11;
+  padding: 3px;
+}
+
+.outcome-toggle button {
+  min-height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.outcome-toggle button.active {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
 .risk-state {
   align-items: flex-start;
   gap: 10px;
