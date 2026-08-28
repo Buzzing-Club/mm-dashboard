@@ -851,11 +851,6 @@ function signedCurrency(value: number) {
   return `${sign}${currency(value)}`;
 }
 
-function pct(value: number | null, decimals = 1) {
-  if (value === null) return "unknown";
-  return `${(value * 100).toFixed(decimals)}%`;
-}
-
 function price(value: number) {
   return value ? value.toFixed(2) : "--";
 }
@@ -1125,7 +1120,9 @@ function MacroBoard({
 }) {
   return (
     <>
-      <div className="detail-grid macro-detail-grid">
+      <BoardChartToolbar title="Business Trend" timeframe={timeframe} setTimeframe={setTimeframe} />
+
+      <div className="macro-business-grid">
         <div className="panel">
           <div className="panel-title">
             <span><BarChart3 size={16} /> 交易规模与用户规模</span>
@@ -1135,43 +1132,16 @@ function MacroBoard({
             <TinyStat label="Gross Volume" value={currency(visibleMarket.grossVolume)} tone="ok" />
             <TinyStat label="Net Volume" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
             <TinyStat label="Trader Count" value={visibleMarket.traderCount.toLocaleString()} tone="ok" />
-            <TinyStat label="Wash / Total" value={pct(visibleMarket.washRatio)} tone={(visibleMarket.washRatio ?? 1) < 0.2 ? "ok" : "warn"} />
+            <TinyStat label="Current PnL" value={signedCurrency(visibleMarket.pnl)} tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
           </div>
         </div>
 
-        <div className="panel pnl-tile">
-          <div className="panel-title">
-            <span><LineChart size={16} /> 当前市场 PnL</span>
-            <small>backend / strategy</small>
-          </div>
-          <strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong>
-          <p>
-            <PnlMetaLabel
-              label="Worst case"
-              description="当前选中市场在不利成交、库存偏移或盘口跳动等情景下的最坏情形 PnL 估算，用来判断潜在亏损暴露。"
-            />
-            {" "}
-            {signedCurrency(visibleMarket.worstCasePnl)}
-            {" · "}
-            <PnlMetaLabel
-              label="budget"
-              description="当前选中市场可接受的最大亏损预算；最坏情形 PnL 接近该预算时，策略需要降级、只减风险或暂停。"
-            />
-            {" -"}
-            {currency(visibleMarket.maxLossBudget)}
-          </p>
-        </div>
-      </div>
-
-      <BoardChartToolbar title="Business Trend" timeframe={timeframe} setTimeframe={setTimeframe} />
-
-      <div className="analytics-grid">
-        <div className="panel chart-panel wide">
+        <div className="panel chart-panel">
           <div className="panel-title">
             <span><LineChart size={16} /> Volume / PnL / Wash</span>
             <small>{timeframe}</small>
           </div>
-          <div className="chart-frame">
+          <div className="chart-frame macro-chart-frame">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={visibleMarket.series}>
                 <CartesianGrid stroke="#242833" vertical={false} />
@@ -1185,14 +1155,6 @@ function MacroBoard({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-        </div>
-
-        <div className="panel table-panel">
-          <div className="panel-title">
-            <span><Activity size={16} /> Market Snapshot</span>
-            <small>selected market</small>
-          </div>
-          <MarketMetricTable markets={[visibleMarket]} mode="macro" />
         </div>
       </div>
     </>
@@ -1516,24 +1478,11 @@ function Meter({ label, value, figure, tone = "warn" }: { label: string; value: 
   );
 }
 
-function PnlMetaLabel({ label, description }: { label: string; description: string }) {
-  return (
-    <span
-      className="pnl-detail-label has-tooltip"
-      data-tooltip={description}
-      tabIndex={0}
-      title={description}
-    >
-      {label}
-    </span>
-  );
-}
-
 const tinyStatDescriptions: Record<string, string> = {
   "Gross Volume": "当前选中市场的累计双边成交额，用于观察这个市场本身的交易规模。",
   "Net Volume": "当前选中市场剔除刷量或内部成交后的真实成交额；未知时显示 unknown。",
   "Trader Count": "当前选中市场内参与过有效交易或关键交互的用户数量。",
-  "Wash / Total": "当前选中市场刷量成交额占总成交额的比例，用于判断成交质量。",
+  "Current PnL": "当前选中市场的实时 PnL，反映后端成交与策略持仓在这个市场上的当前盈亏。",
   "Tier-1 Freq": "一档贴近操作的目标触发频率，文档口径约为每 12 秒一次，即 300 次/小时。",
   "Mid Insert Freq": "中间档位插入的目标触发频率，文档口径约为每 10 秒随机插入一次，即 360 次/小时。",
   "L1 Distance": "闪单价格相对当前 Best Bid / Best Ask 一档附近的距离，文档口径为贴近一档 1-2 个 tick。",

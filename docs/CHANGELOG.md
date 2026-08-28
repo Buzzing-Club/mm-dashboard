@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Rework macro board layout
+
+- Moved current market PnL into the metric grid, replacing the `Wash / Total` tile.
+- Removed the lower `Market Snapshot` panel.
+- Placed the business trend chart to the right of the macro metric grid for a tighter first-screen scan.
+
+Verification:
+
+- `npm run lint` passed.
+- `npm run build` passed.
+
 ### Add liquidity change strategy markers
 
 - Added event dots to the liquidity history chart for every liquidity increase/decrease point.
