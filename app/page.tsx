@@ -18,7 +18,6 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   TimerReset,
-  WalletCards,
 } from "lucide-react";
 import {
   Area,
@@ -752,8 +751,6 @@ export default function Home() {
 
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
-  const selectedTone = statusMeta[visibleMarket.riskStatus].tone;
-  const selectedRiskTone = selectedTone === "ok" ? "ok" : selectedTone === "warn" ? "warn" : "bad";
   return (
     <main className="terminal-shell">
       <section className="topbar">
@@ -836,36 +833,6 @@ export default function Home() {
               <small>{board.subtitle}</small>
             </button>
           ))}
-        </section>
-
-        <section className="kpi-grid" aria-label="Realtime dashboard metrics">
-          {activeBoard === "macro" && (
-            <>
-              <MetricCard icon={<BarChart3 size={17} />} label="Market Gross" value={currency(visibleMarket.grossVolume)} tone="ok" />
-              <MetricCard icon={<Activity size={17} />} label="Market Net" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
-              <MetricCard icon={<WalletCards size={17} />} label="Market Traders" value={visibleMarket.traderCount.toLocaleString()} tone="ok" />
-              <MetricCard icon={<LineChart size={17} />} label="Market PnL" value={signedCurrency(visibleMarket.pnl)} tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
-              <MetricCard icon={<TimerReset size={17} />} label="Wash Ratio" value={pct(visibleMarket.washRatio)} tone={(visibleMarket.washRatio ?? 1) < 0.2 ? "ok" : "warn"} />
-            </>
-          )}
-          {activeBoard === "experience" && (
-            <>
-              <MetricCard icon={<Layers3 size={17} />} label="Market Liquidity" value={`${visibleMarket.liquidity.toLocaleString()} sh`} tone={visibleMarket.liquidity > 0 ? "ok" : "bad"} />
-              <MetricCard icon={<TimerReset size={17} />} label="Trade Slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : `${visibleMarket.avgSlippage.toFixed(1)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
-              <MetricCard icon={<Activity size={17} />} label="Spread Now" value={visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "missing"} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
-              <MetricCard icon={<Gauge size={17} />} label="Ask K / Bid K" value={`${visibleMarket.askSlope?.toFixed(0) ?? "--"} / ${visibleMarket.bidSlope?.toFixed(0) ?? "--"}`} tone={visibleMarket.askSlope && visibleMarket.bidSlope ? "ok" : "bad"} />
-              <MetricCard icon={<Database size={17} />} label="Book Health" value={visibleMarket.bidLevels.length ? "2-sided" : "missing"} tone={visibleMarket.bidLevels.length ? "ok" : "bad"} />
-            </>
-          )}
-          {activeBoard === "risk" && (
-            <>
-              <MetricCard icon={<ShieldAlert size={17} />} label="Risk Status" value={statusMeta[visibleMarket.riskStatus].short} tone={selectedRiskTone} />
-              <MetricCard icon={<Pause size={17} />} label="Quote Mode" value={statusMeta[visibleMarket.quoteMode].short} tone={selectedRiskTone} />
-              <MetricCard icon={<Gauge size={17} />} label="Budget Used" value={`${lossUsed.toFixed(0)}%`} tone={lossUsed > 85 ? "bad" : "warn"} />
-              <MetricCard icon={<Activity size={17} />} label="Inventory q" value={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} tone={Math.abs(visibleMarket.inventory) >= 64 ? "bad" : "warn"} />
-              <MetricCard icon={<Database size={17} />} label="Runtime Delay" value={`${visibleMarket.staleSeconds}s`} tone={visibleMarket.staleSeconds > 60 ? "bad" : "ok"} />
-            </>
-          )}
         </section>
 
         {activeBoard === "macro" && (
@@ -988,14 +955,6 @@ function MacroBoard({
 }) {
   return (
     <>
-      <div className="subboard-header">
-        <div>
-          <p className="section-label">Sub Dashboard 01</p>
-          <h3>宏观业务指标</h3>
-        </div>
-        <span>后端统计 · 60s refresh · 双边交易量口径</span>
-      </div>
-
       <div className="detail-grid macro-detail-grid">
         <div className="panel">
           <div className="panel-title">
@@ -1101,14 +1060,6 @@ function ExperienceBoard({
 
   return (
     <>
-      <div className="subboard-header">
-        <div>
-          <p className="section-label">Sub Dashboard 02</p>
-          <h3>用户体验指标</h3>
-        </div>
-        <span>撮合/后端/策略端 · 剔除刷量交易 · V=10 shares</span>
-      </div>
-
       <div className="detail-grid experience-detail-grid">
         <div className="panel">
           <div className="panel-title">
@@ -1239,14 +1190,6 @@ function RiskBoard({
 }) {
   return (
     <>
-      <div className="subboard-header">
-        <div>
-          <p className="section-label">Sub Dashboard 03</p>
-          <h3>市场风控指标</h3>
-        </div>
-        <span>策略端状态 · 2 tick / 60s freshness · 只展示不下发参数</span>
-      </div>
-
       <div className="detail-grid risk-detail-grid">
         <div className="panel risk-panel">
           <div className="panel-title">
@@ -1370,53 +1313,6 @@ function MarketMetricTable({ markets: rows, mode }: { markets: Market[]; mode: "
           </span>
         </div>
       ))}
-    </div>
-  );
-}
-
-const metricDescriptions: Record<string, string> = {
-  "Market Gross": "当前选中市场的累计双边成交额，包含所有可计入市场交易规模的成交。",
-  "Market Net": "当前选中市场剔除刷量或内部成交后的真实成交额；未知时显示 unknown。",
-  "Market Traders": "当前选中市场内参与过有效交易或关键交互的用户数量。",
-  "Market PnL": "当前选中市场的实时做市盈亏，按当前持仓、现金流和估值口径计算。",
-  "Wash Ratio": "当前选中市场刷量成交额占总成交额的比例，用于判断交易质量。",
-  "Market Liquidity": "当前选中市场盘口可用流动性，表示当前可被成交的挂单深度。",
-  "Trade Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
-  "Spread Now": "当前选中市场最优 ask 与最优 bid 的价差，数值越小成交体验通常越好。",
-  "Ask K / Bid K": "当前选中市场买入侧和卖出侧盘口冲击斜率，用于衡量吃单对价格的影响。",
-  "Book Health": "当前选中市场订单簿是否有双边有效盘口；missing 表示无法确认挂单状态。",
-  "Risk Status": "当前选中市场的综合风控状态，由库存、预算、盘口、临期和数据新鲜度共同决定。",
-  "Quote Mode": "当前选中市场实际采用的摆单模式，例如正常、库存倾斜、只减风险或暂停。",
-  "Budget Used": "当前选中市场最坏情况亏损相对风控预算的占用比例。",
-  "Inventory q": "当前选中市场做市账户持仓相对 q_max 的库存敞口。",
-  "Runtime Delay": "当前选中市场策略端最近一次计算或心跳距离现在的延迟。",
-};
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  tone: "ok" | "warn" | "bad";
-}) {
-  const description = metricDescriptions[label];
-
-  return (
-    <div className="metric-card">
-      <div className="metric-icon">{icon}</div>
-      <span
-        className={description ? "metric-label has-tooltip" : "metric-label"}
-        data-tooltip={description}
-        tabIndex={description ? 0 : undefined}
-        title={description}
-      >
-        {label}
-      </span>
-      <strong>{value}</strong>
     </div>
   );
 }

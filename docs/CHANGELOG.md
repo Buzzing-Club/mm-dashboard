@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Remove duplicate subboard summary layers
+
+- Removed the top KPI card strip that repeated metrics already shown in the subboard detail panels.
+- Removed the repeated `Sub Dashboard` header bar from macro, user-experience, and risk subboards.
+- Kept the three category selector cards as the primary switching surface, then route directly into the selected board's detailed metrics and charts.
+- Removed now-unused KPI card component code and styles.
+
+Verification:
+
+- `npm run build` passed.
+
 ### Rework flash-order parameter monitoring
 
 - Read the liquidity flash-order bot document and replaced the placeholder flash metrics with document-backed parameters:

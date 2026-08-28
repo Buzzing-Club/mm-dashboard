@@ -83,8 +83,7 @@ button {
 .segmented,
 .chart-toolbar,
 .timeframe-tabs,
-.risk-state,
-.subboard-header {
+.risk-state {
   display: flex;
   align-items: center;
 }
@@ -188,13 +187,6 @@ h3 {
   height: 30px;
 }
 
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(150px, 1fr));
-  gap: 10px;
-  margin: 12px 0;
-}
-
 .board-switcher {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -254,7 +246,6 @@ h3 {
   font-size: 12px;
 }
 
-.metric-card,
 .panel,
 .market-rail {
   border: 1px solid var(--line);
@@ -262,24 +253,6 @@ h3 {
   background: rgba(16, 18, 22, 0.94);
 }
 
-.metric-card {
-  position: relative;
-  min-height: 104px;
-  padding: 12px;
-}
-
-.metric-icon {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: var(--panel-3);
-  color: var(--cyan);
-  margin-bottom: 12px;
-}
-
-.metric-card > span,
 .tiny-stat span,
 .meter span,
 .quote-box span,
@@ -290,47 +263,6 @@ h3 {
 .panel-title small {
   color: var(--muted);
   font-size: 12px;
-}
-
-.metric-label.has-tooltip {
-  cursor: help;
-  text-decoration: underline dotted rgba(126, 135, 150, 0.7);
-  text-underline-offset: 4px;
-}
-
-.metric-label.has-tooltip::after {
-  position: absolute;
-  left: 12px;
-  bottom: calc(100% + 8px);
-  z-index: 30;
-  width: min(340px, calc(100vw - 48px));
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  background: #171b22;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
-  color: var(--foreground);
-  content: attr(data-tooltip);
-  font-size: 12px;
-  line-height: 1.55;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition: opacity 120ms ease, transform 120ms ease;
-  white-space: normal;
-}
-
-.metric-label.has-tooltip:hover::after,
-.metric-label.has-tooltip:focus-visible::after {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.metric-card > strong {
-  display: block;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 24px;
-  line-height: 1.1;
 }
 
 .positive {
@@ -654,23 +586,6 @@ h3 {
 .panel {
   min-width: 0;
   padding: 12px;
-}
-
-.subboard-header {
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 48px;
-  margin-top: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(10, 12, 16, 0.82);
-  padding: 10px 12px;
-}
-
-.subboard-header span {
-  color: var(--muted);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 12px;
 }
 
 .pnl-tile strong {
@@ -1187,10 +1102,6 @@ h3 {
 }
 
 @media (max-width: 1180px) {
-  .kpi-grid {
-    grid-template-columns: repeat(3, minmax(150px, 1fr));
-  }
-
   .board-switcher {
     grid-template-columns: 1fr;
   }
@@ -1230,7 +1141,6 @@ h3 {
     flex-direction: column;
   }
 
-  .kpi-grid,
   .market-list,
   .market-overview .market-list,
   .book-grid,
@@ -1249,11 +1159,6 @@ h3 {
 
   .detail-header {
     padding: 10px;
-  }
-
-  .subboard-header {
-    align-items: flex-start;
-    flex-direction: column;
   }
 
   .quote-box {
