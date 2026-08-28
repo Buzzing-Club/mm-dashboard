@@ -123,9 +123,9 @@ const statusMeta: Record<
 const MOCK_OBSERVATION_AT = Date.parse("2026-08-28T18:59:30+08:00");
 const MINUTE_MS = 60 * 1000;
 
-function marketWindow(endInMinutes: number, durationMinutes = 240) {
+function marketWindow(endInMinutes: number, elapsedSinceStartMinutes = 240) {
   const endMs = MOCK_OBSERVATION_AT + endInMinutes * MINUTE_MS;
-  const startMs = Math.min(MOCK_OBSERVATION_AT - 45 * MINUTE_MS, endMs - durationMinutes * MINUTE_MS);
+  const startMs = MOCK_OBSERVATION_AT - elapsedSinceStartMinutes * MINUTE_MS;
 
   return {
     startAt: new Date(startMs).toISOString(),
@@ -133,12 +133,12 @@ function marketWindow(endInMinutes: number, durationMinutes = 240) {
   };
 }
 
-function defaultMarketDuration(endInMinutes: number, index: number) {
-  if (endInMinutes <= 360) return 360;
-  if (endInMinutes <= 1440) return 720;
-  if (endInMinutes <= 14400) return 1440 + (index % 3) * 360;
-  if (endInMinutes <= 60000) return 10080;
-  return 43200 + (index % 4) * 10080;
+function defaultElapsedSinceStart(endInMinutes: number, index: number) {
+  if (endInMinutes <= 360) return 90 + (index % 4) * 30;
+  if (endInMinutes <= 1440) return 240 + (index % 3) * 90;
+  if (endInMinutes <= 14400) return 720 + (index % 4) * 180;
+  if (endInMinutes <= 60000) return 2880 + (index % 5) * 720;
+  return 10080 + (index % 4) * 2880;
 }
 
 function timestamp(value: string) {
@@ -183,14 +183,46 @@ function axisTicks(startAt: string, endAt: string, count = 5) {
   return lifecyclePoints(startAt, endAt, count).map((point) => point.ts);
 }
 
+function eventProgress(eventItem: RiskEvent, index: number, observedProgress: number) {
+  const type = eventItem.type.toLowerCase();
+  const riskEventTypes = new Set([
+    "risk",
+    "reduce",
+    "endgame",
+    "budget",
+    "book",
+    "snapshot",
+    "cancel",
+    "pause",
+    "paused",
+    "data",
+    "stale",
+    "negrisk",
+  ]);
+  const earlyEventTypes = new Set(["catalog", "heartbeat", "normal", "requote"]);
+  const inventoryEventTypes = new Set(["inventory", "skew", "depth", "fill"]);
+  const baseProgress = riskEventTypes.has(type)
+    ? 0.62
+    : inventoryEventTypes.has(type)
+      ? 0.24
+      : earlyEventTypes.has(type)
+        ? 0.08
+        : 0.18;
+  const eventJitter = (index % 3) * 0.035;
+  const latestPastProgress = Math.max(0.05, observedProgress - 0.025);
+
+  return Math.min(latestPastProgress, Math.max(0.035, baseProgress + eventJitter));
+}
+
 function retimeEvents(market: Market) {
   const start = timestamp(market.startAt);
   const end = timestamp(market.endAt);
   const observedAt = clampTimestamp(MOCK_OBSERVATION_AT, start, end);
-  const offsets = [0, 45, 135, 270, 420, 600];
+  const observedProgress = (observedAt - start) / Math.max(1, end - start);
 
   return market.events.map((eventItem, index) => {
-    const ts = clampTimestamp(observedAt - (offsets[index] ?? index * 120) * 1000, start, end);
+    const progress = eventProgress(eventItem, index, observedProgress);
+    const ts = clampTimestamp(start + (end - start) * progress, start, observedAt);
     return {
       ...eventItem,
       ts,
@@ -241,7 +273,7 @@ const manualMarkets: Market[] = [
     avgSlippage: 1.8,
     staleSeconds: 12,
     liquidity: 1420,
-    ...marketWindow(4, 240),
+    ...marketWindow(4, 236),
     endInMinutes: 4,
     series: [
       { time: "18:25", volume: 42, pnl: 520, spread: 4.1, wash: 14, bidSlope: 92, askSlope: 101 },
@@ -313,7 +345,7 @@ const manualMarkets: Market[] = [
     avgSlippage: 4.6,
     staleSeconds: 41,
     liquidity: 610,
-    ...marketWindow(132, 360),
+    ...marketWindow(132, 228),
     endInMinutes: 132,
     series: [
       { time: "18:25", volume: 8, pnl: 4, spread: 5.2, wash: 4, bidSlope: 72, askSlope: 88 },
@@ -385,7 +417,7 @@ const manualMarkets: Market[] = [
     avgSlippage: 2.9,
     staleSeconds: 18,
     liquidity: 870,
-    ...marketWindow(13, 240),
+    ...marketWindow(13, 227),
     endInMinutes: 13,
     series: [
       { time: "18:25", volume: 18, pnl: 220, spread: 4.2, wash: 19, bidSlope: 98, askSlope: 102 },
@@ -511,7 +543,7 @@ const manualMarkets: Market[] = [
     avgSlippage: 7.7,
     staleSeconds: 74,
     liquidity: 280,
-    ...marketWindow(9, 240),
+    ...marketWindow(9, 231),
     endInMinutes: 9,
     series: [
       { time: "18:25", volume: 6, pnl: -11, spread: 5.9, wash: 11, bidSlope: 65, askSlope: 69 },
@@ -838,7 +870,7 @@ function getRiskTimelineEvents(market: Market) {
 
 function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
   const tone = statusMeta[seed.riskStatus].tone;
-  const window = marketWindow(seed.endInMinutes, defaultMarketDuration(seed.endInMinutes, index));
+  const window = marketWindow(seed.endInMinutes, defaultElapsedSinceStart(seed.endInMinutes, index));
   const status = seed.riskStatus === "orderbook_missing" || seed.riskStatus === "paused"
     ? "paused"
     : tone === "ok"

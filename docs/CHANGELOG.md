@@ -2,6 +2,17 @@
 
 ## 2026-08-28
 
+### Distribute mock events by market phase
+
+- Changed mock market windows so `startAt` is derived from elapsed runtime instead of being forced near refresh time.
+- Rebased event timestamps by event type: opening/catalog/requote events happen shortly after market start, inventory events happen during early market operation, and risk events happen later during the active market run.
+- Kept event timestamps capped before the mock observation time so timeline events represent already-observed strategy states.
+
+Verification:
+
+- `npm run lint` passed.
+- `npm run build` passed.
+
 ### Show all strategy events on risk timeline
 
 - Updated the risk status timeline to include every strategy event instead of filtering out catalog, heartbeat, or fill events.
