@@ -1448,10 +1448,34 @@ function Meter({ label, value, figure, tone = "warn" }: { label: string; value: 
   );
 }
 
+const tinyStatDescriptions: Record<string, string> = {
+  "Gross Volume": "当前选中市场的累计双边成交额，用于观察这个市场本身的交易规模。",
+  "Net Volume": "当前选中市场剔除刷量或内部成交后的真实成交额；未知时显示 unknown。",
+  "Trader Count": "当前选中市场内参与过有效交易或关键交互的用户数量。",
+  "Wash / Total": "当前选中市场刷量成交额占总成交额的比例，用于判断成交质量。",
+  "Brush Status": "当前选中市场是否已配置刷量识别口径；未配置时真实成交、净成交和滑点统计可能不可靠。",
+  "K / Book Drift": "策略端 K 线价格与订单簿快照之间的偏移，用于判断定价输入和盘口是否同步。",
+  "Initial Liquidity": "本轮监控窗口开始时的盘口可用流动性，作为对比当前流动性的基准。",
+  "Current Liquidity": "当前订单簿内可被成交的挂单深度，单位为 shares。",
+  "Avg Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
+  "Spread Now": "当前选中市场最优 ask 与最优 bid 的实时价差，数值越小成交体验通常越好。",
+  "Ask K": "买入 YES 方向的盘口冲击斜率，衡量吃 ask 时价格随成交量上移的速度。",
+  "Bid K": "卖出 YES 方向的盘口冲击斜率，衡量吃 bid 时价格随成交量下移的速度。",
+};
+
 function TinyStat({ label, value, tone }: { label: string; value: string; tone: "ok" | "warn" | "bad" }) {
+  const description = tinyStatDescriptions[label];
+
   return (
     <div className={`tiny-stat ${tone}`}>
-      <span>{label}</span>
+      <span
+        className={description ? "tiny-stat-label has-tooltip" : "tiny-stat-label"}
+        data-tooltip={description}
+        tabIndex={description ? 0 : undefined}
+        title={description}
+      >
+        {label}
+      </span>
       <strong>{value}</strong>
     </div>
   );

@@ -2,6 +2,26 @@
 
 ## 2026-08-28
 
+### Add Chinese hover definitions to detail metrics
+
+- Added Chinese hover tooltips for the small detail metric labels in the macro and user-experience panels.
+- Covered the flash-order monitoring metrics:
+  - `Brush Status`
+  - `K / Book Drift`
+  - `Initial Liquidity`
+  - `Current Liquidity`
+- Covered the single-market slippage metrics:
+  - `Avg Slippage`
+  - `Spread Now`
+  - `Ask K`
+  - `Bid K`
+- Also covered macro detail metrics rendered by the same small-card component.
+
+Verification:
+
+- `npm run build` passed.
+- Browser hover smoke check confirmed the `Brush Status` tooltip renders.
+
 ### Add Chinese hover definitions to KPI cards
 
 - Added Chinese hover tooltips for top KPI labels across macro, user-experience, and risk subboards.
