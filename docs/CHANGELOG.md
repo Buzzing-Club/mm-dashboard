@@ -1,5 +1,17 @@
 # Dashboard Prototype Change Log
 
+## 2026-08-29
+
+### Stagger risk timeline status labels
+
+- Alternated risk timeline status labels above and below the shared axis to prevent adjacent Chinese labels from overlapping.
+- Kept every event dot anchored on the same timeline axis.
+
+Verification:
+
+- `npm run lint` passed.
+- `npm run build` passed.
+
 ## 2026-08-28
 
 ### Align risk timeline events on one axis

@@ -750,7 +750,7 @@ h3 {
 .risk-timeline {
   position: relative;
   overflow: hidden;
-  min-height: 112px;
+  min-height: 132px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #0b0d11;
@@ -759,7 +759,7 @@ h3 {
 
 .risk-timeline::before {
   position: absolute;
-  top: 44px;
+  top: 60px;
   right: 20px;
   left: 20px;
   height: 1px;
@@ -777,17 +777,24 @@ h3 {
 
 .risk-timeline-node {
   position: absolute;
-  top: 44px;
+  top: 60px;
   width: min(176px, 32%);
   min-width: 0;
 }
 
 .risk-timeline-label {
   position: absolute;
-  top: 26px;
-  left: 0;
+  left: -10px;
   width: max-content;
   max-width: 176px;
+}
+
+.risk-timeline-node.label-top .risk-timeline-label {
+  bottom: 18px;
+}
+
+.risk-timeline-node.label-bottom .risk-timeline-label {
+  top: 24px;
 }
 
 .risk-timeline-dot {

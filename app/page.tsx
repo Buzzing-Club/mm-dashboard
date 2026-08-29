@@ -1569,7 +1569,7 @@ function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; s
         {events.map((eventItem, index) => (
           <div
             key={`${eventItem.time}-${eventItem.type}-${index}`}
-            className={`risk-timeline-node ${eventItem.severity}`}
+            className={`risk-timeline-node ${eventItem.severity} ${index % 2 === 0 ? "label-top" : "label-bottom"}`}
             style={{ left: `${Math.min(88, Math.max(8, (((eventItem.ts ?? start) - start) / duration) * 100))}%` }}
             title={`${getRiskEventLabel(eventItem)} · ${eventItem.detail}`}
           >
