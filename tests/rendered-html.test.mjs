@@ -62,4 +62,7 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /yes_book_liquidity/);
   assert.match(page, /label_zh/);
   assert.match(route, /STRATEGY_DASHBOARD_API/);
+  assert.match(route, /CF_ACCESS_CLIENT_ID/);
+  assert.match(route, /CF-Access-Client-Secret/);
+  assert.match(route, /Dashboard upstream did not return JSON/);
 });
