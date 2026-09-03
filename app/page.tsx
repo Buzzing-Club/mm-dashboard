@@ -165,6 +165,8 @@ type DashboardRealtimeItem = {
     ask_k?: string | number | null;
     bid_k?: string | number | null;
     book_liquidity?: string | number | null;
+    yes_book_liquidity?: string | number | null;
+    no_book_liquidity?: string | number | null;
     yes?: DashboardBookSide;
     no?: DashboardBookSide;
   };
@@ -172,6 +174,7 @@ type DashboardRealtimeItem = {
     current_strategy_liquidity?: string | number | null;
     current_book_liquidity?: string | number | null;
     initial_liquidity?: string | number | null;
+    initial_liquidity_source?: string | null;
     history?: Array<{
       ts?: string | number | null;
       liquidity?: string | number | null;

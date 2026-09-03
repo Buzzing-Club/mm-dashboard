@@ -55,5 +55,7 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /mm-dashboard-realtime\.v1/);
   assert.match(page, /mapDashboardPayload/);
   assert.match(page, /actual_pairs_per_hour/);
+  assert.match(page, /initial_liquidity_source/);
+  assert.match(page, /yes_book_liquidity/);
   assert.match(route, /STRATEGY_DASHBOARD_API/);
 });
