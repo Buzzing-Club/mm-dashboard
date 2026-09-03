@@ -162,6 +162,18 @@ h3 {
   font-weight: 700;
 }
 
+.feed-pill.data-source-mock {
+  border-color: rgba(255, 176, 32, 0.28);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.feed-pill.data-source-loading {
+  border-color: rgba(76, 201, 240, 0.24);
+  background: var(--cyan-soft);
+  color: var(--cyan);
+}
+
 .icon-button {
   display: grid;
   place-items: center;
