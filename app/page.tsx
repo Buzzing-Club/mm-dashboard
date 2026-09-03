@@ -101,7 +101,13 @@ type Market = {
   flash?: {
     actualPairsPerHour: number | null;
     actualAvgIntervalS: number | null;
+    tier1PairsPerHour: number | null;
+    tier1AvgIntervalS: number | null;
+    midPairsPerHour: number | null;
+    midAvgIntervalS: number | null;
     activePairs: number | null;
+    tier1ActivePairs: number | null;
+    midActivePairs: number | null;
     maxPairsTotal: number | null;
     l1DistanceTicks: number | null;
   };
@@ -181,12 +187,33 @@ type DashboardRealtimeItem = {
       delta?: string | number | null;
       direction?: "increase" | "decrease" | null;
       reason_code?: string | null;
+      reason?: {
+        code?: string | null;
+        base_code?: string | null;
+        direction?: "increase" | "decrease" | null;
+        label_zh?: string | null;
+        source?: string | null;
+        detail?: string | null;
+      } | null;
     }>;
   };
   flash?: {
+    actual_pairs_observed?: string | number | null;
     actual_pairs_per_hour?: string | number | null;
     actual_avg_interval_s?: string | number | null;
+    actual_pairs_by_kind?: Record<string, {
+      actual_pairs_observed?: string | number | null;
+      actual_pairs_per_hour?: string | number | null;
+      actual_avg_interval_s?: string | number | null;
+    } | undefined> | null;
+    tier1_actual_pairs_observed?: string | number | null;
+    tier1_actual_pairs_per_hour?: string | number | null;
+    tier1_actual_avg_interval_s?: string | number | null;
+    mid_actual_pairs_observed?: string | number | null;
+    mid_actual_pairs_per_hour?: string | number | null;
+    mid_actual_avg_interval_s?: string | number | null;
     active_pairs?: string | number | null;
+    active_pairs_by_kind?: Record<string, string | number | null | undefined> | null;
     max_pairs_total?: string | number | null;
     l1_distance_ticks?: string | number | null;
   };
@@ -1069,8 +1096,34 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
   };
 }
 
+function withMockFlash(marketItem: Market, index: number): Market {
+  if (marketItem.flash || marketItem.riskStatus === "orderbook_missing" || marketItem.status === "paused") {
+    return marketItem;
+  }
+  const tier1PairsPerHour = 240 + (index % 5) * 24;
+  const midPairsPerHour = 120 + (index % 4) * 18;
+  const tier1ActivePairs = 1 + (index % 2);
+  const midActivePairs = 1 + (index % 3);
+  return {
+    ...marketItem,
+    flash: {
+      actualPairsPerHour: tier1PairsPerHour + midPairsPerHour,
+      actualAvgIntervalS: Number((3600 / (tier1PairsPerHour + midPairsPerHour)).toFixed(1)),
+      tier1PairsPerHour,
+      tier1AvgIntervalS: Number((3600 / tier1PairsPerHour).toFixed(1)),
+      midPairsPerHour,
+      midAvgIntervalS: Number((3600 / midPairsPerHour).toFixed(1)),
+      activePairs: tier1ActivePairs + midActivePairs,
+      tier1ActivePairs,
+      midActivePairs,
+      maxPairsTotal: 5,
+      l1DistanceTicks: 1 + (index % 4),
+    },
+  };
+}
+
 const mockMarkets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))]
-  .map((marketItem) => retimeMarket(marketItem));
+  .map((marketItem, index) => retimeMarket(withMockFlash(marketItem, index)));
 
 const filterOptions = [
   { id: "all", label: "全部", tag: null },
@@ -1228,6 +1281,38 @@ function reasonLabel(reasonCode: string | null | undefined, direction?: "increas
   return direction === "increase" ? "策略恢复部分市场深度" : "策略减少市场深度";
 }
 
+function liquidityReasonLabel(
+  point: NonNullable<NonNullable<DashboardRealtimeItem["liquidity"]>["history"]>[number],
+) {
+  const delta = numberValue(point.delta);
+  if (delta === null || delta === 0) return null;
+  return (
+    point.reason?.label_zh
+    ?? point.reason?.detail
+    ?? reasonLabel(point.reason?.code ?? point.reason_code, point.direction)
+  );
+}
+
+function flashKindStats(
+  flash: DashboardRealtimeItem["flash"] | undefined,
+  kind: "tier1" | "mid",
+) {
+  const nested = flash?.actual_pairs_by_kind?.[kind];
+  const prefix = kind === "tier1" ? "tier1" : "mid";
+  return {
+    pairsPerHour:
+      numberValue(flash?.[`${prefix}_actual_pairs_per_hour`])
+      ?? numberValue(nested?.actual_pairs_per_hour),
+    avgIntervalS:
+      numberValue(flash?.[`${prefix}_actual_avg_interval_s`])
+      ?? numberValue(nested?.actual_avg_interval_s),
+    observed:
+      numberValue(flash?.[`${prefix}_actual_pairs_observed`])
+      ?? numberValue(nested?.actual_pairs_observed),
+    activePairs: numberValue(flash?.active_pairs_by_kind?.[kind]),
+  };
+}
+
 function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | null {
   const conditionId = item.identity?.condition_id;
   if (!conditionId) return null;
@@ -1282,7 +1367,7 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
       initialBaseline,
       liquidityDelta: delta,
       liquidityDirection: point.direction ?? null,
-      liquidityReason: delta === null || delta === 0 ? null : reasonLabel(point.reason_code, point.direction),
+      liquidityReason: liquidityReasonLabel(point),
     };
   });
   const events = (item.risk_events ?? []).map((eventItem) => {
@@ -1296,6 +1381,9 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
       severity: severityValue(eventItem.severity),
     };
   });
+
+  const tier1Flash = flashKindStats(item.flash, "tier1");
+  const midFlash = flashKindStats(item.flash, "mid");
 
   return {
     id: conditionId,
@@ -1339,7 +1427,13 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
     flash: {
       actualPairsPerHour: numberValue(item.flash?.actual_pairs_per_hour),
       actualAvgIntervalS: numberValue(item.flash?.actual_avg_interval_s),
+      tier1PairsPerHour: tier1Flash.pairsPerHour,
+      tier1AvgIntervalS: tier1Flash.avgIntervalS,
+      midPairsPerHour: midFlash.pairsPerHour,
+      midAvgIntervalS: midFlash.avgIntervalS,
       activePairs: numberValue(item.flash?.active_pairs),
+      tier1ActivePairs: tier1Flash.activePairs,
+      midActivePairs: midFlash.activePairs,
       maxPairsTotal: numberValue(item.flash?.max_pairs_total),
       l1DistanceTicks: numberValue(item.flash?.l1_distance_ticks),
     },
@@ -1731,9 +1825,11 @@ function ExperienceBoard({
   const askMax = maxQuantity(displayedAskLevels);
   const liquidityHistory = buildLiquidityHistory(visibleMarket);
   const liquidityEvents = liquidityHistory.filter((point) => point.liquidityReason);
-  const flashFreq = visibleMarket.flash?.actualPairsPerHour;
-  const flashInterval = visibleMarket.flash?.actualAvgIntervalS;
+  const tier1FlashFreq = visibleMarket.flash?.tier1PairsPerHour ?? visibleMarket.flash?.actualPairsPerHour;
+  const midFlashFreq = visibleMarket.flash?.midPairsPerHour;
   const activePairs = visibleMarket.flash?.activePairs;
+  const tier1ActivePairs = visibleMarket.flash?.tier1ActivePairs;
+  const midActivePairs = visibleMarket.flash?.midActivePairs;
   const maxPairs = visibleMarket.flash?.maxPairsTotal;
   const l1Distance = visibleMarket.flash?.l1DistanceTicks;
 
@@ -1746,11 +1842,17 @@ function ExperienceBoard({
             <small>tier-1 / mid insertion</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Actual Flash Freq" value={flashFreq === null || flashFreq === undefined ? "missing" : `${Math.round(flashFreq)} / h`} tone={flashFreq ? "ok" : "warn"} />
-            <TinyStat label="Avg Flash Interval" value={flashInterval === null || flashInterval === undefined ? "missing" : `${flashInterval.toFixed(1)}s`} tone={flashInterval && flashInterval < 20 ? "ok" : "warn"} />
-            <TinyStat label="Active Pairs" value={activePairs === null || activePairs === undefined ? "missing" : `${activePairs}${maxPairs ? ` / ${maxPairs}` : ""}`} tone={activePairs !== null && activePairs !== undefined ? "ok" : "warn"} />
+            <TinyStat label="Tier-1 Freq" value={tier1FlashFreq === null || tier1FlashFreq === undefined ? "missing" : `${Math.round(tier1FlashFreq)} / h`} tone={tier1FlashFreq ? "ok" : "warn"} />
+            <TinyStat label="Mid Freq" value={midFlashFreq === null || midFlashFreq === undefined ? "missing" : `${Math.round(midFlashFreq)} / h`} tone={midFlashFreq ? "ok" : "warn"} />
             <TinyStat label="L1 Distance" value={l1Distance === null || l1Distance === undefined ? "missing" : `${l1Distance} ticks`} tone={l1Distance !== null && l1Distance !== undefined ? "ok" : "warn"} />
+            <TinyStat label="Active Pairs" value={activePairs === null || activePairs === undefined ? "missing" : `${activePairs}${maxPairs ? ` / ${maxPairs}` : ""}`} tone={activePairs !== null && activePairs !== undefined ? "ok" : "warn"} />
           </div>
+          {(tier1ActivePairs !== null && tier1ActivePairs !== undefined) || (midActivePairs !== null && midActivePairs !== undefined) ? (
+            <div className="flash-kind-strip" aria-label="闪单活跃 pair 拆分">
+              <span>Tier-1 active <b>{tier1ActivePairs ?? 0}</b></span>
+              <span>Mid active <b>{midActivePairs ?? 0}</b></span>
+            </div>
+          ) : null}
         </div>
 
         <div className="panel">
