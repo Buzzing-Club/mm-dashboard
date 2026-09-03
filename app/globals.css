@@ -1247,6 +1247,11 @@ h3 {
 .event-list {
   display: grid;
   gap: 8px;
+  max-height: calc(64px * 5 + 8px * 4);
+  overflow-y: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 .event-row {
@@ -1254,7 +1259,7 @@ h3 {
   grid-template-columns: 10px 72px 78px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  min-height: 34px;
+  min-height: 64px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #0b0d11;

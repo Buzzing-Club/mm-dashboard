@@ -237,6 +237,39 @@ type DashboardRealtimeItem = {
   };
 };
 
+type SingleMarketRealtimePayload = {
+  code?: number;
+  status?: string;
+  message?: string;
+  data?: {
+    business?: {
+      gross_volume?: string | number | null;
+      net_volume?: string | number | null;
+      wash_ratio?: string | number | null;
+      trader_count?: string | number | null;
+    };
+    pnl?: {
+      current_pnl?: string | number | null;
+    };
+    slippage?: {
+      avg_trade_slippage?: string | number | null;
+      distribution?: Array<{
+        bucket?: string | null;
+        trade_count?: string | number | null;
+      }> | null;
+    };
+  } | null;
+};
+
+type SingleMarketMetrics = Pick<
+  Market,
+  "avgSlippage" | "grossVolume" | "netVolume" | "pnl" | "slippageBuckets" | "traderCount" | "washRatio"
+>;
+
+type SingleMarketSlippageDistribution = NonNullable<
+  NonNullable<SingleMarketRealtimePayload["data"]>["slippage"]
+>["distribution"];
+
 type DashboardBookSide = {
   bids?: Array<{ price?: string | number | null; qty?: string | number | null }>;
   asks?: Array<{ price?: string | number | null; qty?: string | number | null }>;
@@ -268,6 +301,8 @@ const statusMeta: Record<
 
 const MOCK_OBSERVATION_AT = Date.parse("2026-08-28T18:59:30+08:00");
 const MINUTE_MS = 60 * 1000;
+const DASHBOARD_REFRESH_MS = 30_000;
+const MARKET_LIST_LIMIT = 80;
 
 function marketWindow(endInMinutes: number, elapsedSinceStartMinutes = 240) {
   const endMs = MOCK_OBSERVATION_AT + endInMinutes * MINUTE_MS;
@@ -1198,6 +1233,10 @@ function numberValue(value: string | number | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function raw6ToUsdb(value: string | number | null | undefined) {
+  return (numberValue(value) ?? 0) / 1_000_000;
+}
+
 function statusValue(value: string | null | undefined): RiskStatus {
   const normalized = String(value ?? "paused") as RiskStatus;
   return normalized in statusMeta ? normalized : "paused";
@@ -1205,6 +1244,27 @@ function statusValue(value: string | null | undefined): RiskStatus {
 
 function severityValue(value: string | null | undefined): "ok" | "warn" | "bad" {
   return value === "ok" || value === "warn" || value === "bad" ? value : "warn";
+}
+
+function looksLikeOpaqueIdentifier(value: string) {
+  const text = value.trim();
+  return /^(\d+:)?0x[a-f0-9]{24,}$/i.test(text) || /^[a-f0-9]{40,}$/i.test(text);
+}
+
+function readableLabel(value: string | null | undefined) {
+  const text = value?.trim();
+  if (!text || looksLikeOpaqueIdentifier(text)) return null;
+  return text;
+}
+
+function compactIdentifier(value: string | number | null | undefined) {
+  const text = String(value ?? "").trim();
+  if (!text) return "--";
+  const prefixMatch = text.match(/^(\d+:)(0x[a-f0-9]+)$/i);
+  const prefix = prefixMatch?.[1] ?? "";
+  const body = prefixMatch?.[2] ?? text;
+  if (body.length <= 18) return text;
+  return `${prefix}${body.slice(0, 8)}...${body.slice(-6)}`;
 }
 
 function isoTime(value: string | number | null | undefined, fallback: number) {
@@ -1238,6 +1298,17 @@ function endMinutes(endAt: string) {
   return Math.max(0, Math.round((timestamp(endAt) - Date.now()) / MINUTE_MS));
 }
 
+function isExpiredDashboardItem(item: DashboardRealtimeItem, now: number) {
+  if (item.lifecycle?.end_time === null || item.lifecycle?.end_time === undefined || item.lifecycle.end_time === "") {
+    return false;
+  }
+  return apiTimestamp(item.lifecycle.end_time, now + MINUTE_MS) <= now;
+}
+
+function hasReadableDashboardTitle(item: DashboardRealtimeItem) {
+  return Boolean(readableLabel(item.identity?.event_title) || readableLabel(item.identity?.title));
+}
+
 function marketStatus(status: RiskStatus, runtimeState?: string | null): Market["status"] {
   if (runtimeState && runtimeState !== "running") return "paused";
   const tone = statusMeta[status].tone;
@@ -1269,6 +1340,47 @@ function apiSlippageBuckets(
           : "good"
     ),
   }));
+}
+
+function singleMarketSlippageBuckets(buckets: SingleMarketSlippageDistribution) {
+  if (!Array.isArray(buckets)) return buildSlippageBuckets(null);
+  return buckets.map((bucket) => {
+    const label = String(bucket.bucket ?? "");
+    return {
+      bucket: label,
+      count: numberValue(bucket.trade_count) ?? 0,
+      tone: label.includes(">") || label.includes("5c")
+        ? "bad" as const
+        : label.includes("3-5")
+          ? "warn" as const
+          : "good" as const,
+    };
+  });
+}
+
+function mapSingleMarketMetrics(payload: SingleMarketRealtimePayload): SingleMarketMetrics | null {
+  if (payload.code !== 0 || !payload.data) return null;
+  const business = payload.data.business;
+  const slippage = payload.data.slippage;
+  return {
+    grossVolume: raw6ToUsdb(business?.gross_volume),
+    netVolume: raw6ToUsdb(business?.net_volume),
+    traderCount: numberValue(business?.trader_count) ?? 0,
+    pnl: raw6ToUsdb(payload.data.pnl?.current_pnl),
+    washRatio: numberValue(business?.wash_ratio),
+    avgSlippage: slippage?.avg_trade_slippage === null || slippage?.avg_trade_slippage === undefined
+      ? null
+      : (numberValue(slippage.avg_trade_slippage) ?? 0) * 100,
+    slippageBuckets: singleMarketSlippageBuckets(slippage?.distribution),
+  };
+}
+
+function applySingleMarketMetrics(marketItem: Market, metrics: SingleMarketMetrics | undefined) {
+  if (!metrics) return marketItem;
+  return {
+    ...marketItem,
+    ...metrics,
+  };
 }
 
 function reasonLabel(reasonCode: string | null | undefined, direction?: "increase" | "decrease" | null) {
@@ -1387,8 +1499,8 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
 
   return {
     id: conditionId,
-    event: item.identity?.event_title ?? item.identity?.title ?? conditionId,
-    market: item.identity?.title ?? item.identity?.event_title ?? conditionId,
+    event: readableLabel(item.identity?.event_title) ?? readableLabel(item.identity?.title) ?? `Market ${index + 1}`,
+    market: readableLabel(item.identity?.title) ?? readableLabel(item.identity?.event_title) ?? `Condition ${compactIdentifier(conditionId)}`,
     category: "Strategy · Runtime",
     tags: ["Strategy"],
     status: marketStatus(riskStatus, item.lifecycle?.runtime_state),
@@ -1442,7 +1554,10 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
 
 function mapDashboardPayload(payload: DashboardRealtimePayload): Market[] {
   if (payload.contract_version !== "mm-dashboard-realtime.v1") return [];
+  const now = Date.now();
   return (payload.items ?? [])
+    .filter((item) => !isExpiredDashboardItem(item, now))
+    .filter(hasReadableDashboardTitle)
     .map((item, index) => mapDashboardItem(item, index))
     .filter((marketItem): marketItem is Market => Boolean(marketItem));
 }
@@ -1456,11 +1571,12 @@ export default function Home() {
   });
   const [refreshTick, setRefreshTick] = useState(0);
   const [activeId, setActiveId] = useState(mockMarkets[0].id);
-  const [filter, setFilter] = useState("attention");
+  const [filter, setFilter] = useState("all");
   const [timeframe, setTimeframe] = useState("1h");
   const [query, setQuery] = useState("");
   const [liveClock, setLiveClock] = useState("--:--:--");
   const [activeBoard, setActiveBoard] = useState<BoardId>("macro");
+  const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
 
   useEffect(() => {
     const updateClock = () => {
@@ -1473,8 +1589,11 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
 
     async function loadDashboard() {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const response = await fetch("/api/dashboard/realtime", {
           cache: "no-store",
@@ -1504,11 +1623,13 @@ export default function Home() {
           label: "MOCK",
           detail: error instanceof Error ? error.message : "dashboard API unavailable",
         });
+      } finally {
+        inFlight = false;
       }
     }
 
     loadDashboard();
-    const timer = window.setInterval(loadDashboard, 10000);
+    const timer = window.setInterval(loadDashboard, DASHBOARD_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -1540,9 +1661,42 @@ export default function Home() {
   }, [filter, markets, query]);
 
   const activeMarket = markets.find((marketItem) => marketItem.id === activeId) ?? markets[0];
-  const visibleMarket = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
+  const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
+  const visibleMarket = applySingleMarketMetrics(visibleMarketBase, singleMarketMetrics[visibleMarketBase.id]);
+
+  useEffect(() => {
+    if (!visibleMarketBase?.id) return undefined;
+    const controller = new AbortController();
+
+    async function loadSingleMarketMetrics() {
+      try {
+        const params = new URLSearchParams({
+          condition_id: visibleMarketBase.id,
+          window: timeframe,
+        });
+        const response = await fetch(`/api/dashboard/market-realtime?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const payload = await response.json() as SingleMarketRealtimePayload;
+        const metrics = mapSingleMarketMetrics(payload);
+        if (!metrics || controller.signal.aborted) return;
+        setSingleMarketMetrics((current) => ({
+          ...current,
+          [visibleMarketBase.id]: metrics,
+        }));
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.warn("single market metrics unavailable", error);
+      }
+    }
+
+    loadSingleMarketMetrics();
+    return () => controller.abort();
+  }, [refreshTick, timeframe, visibleMarketBase?.id]);
 
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
@@ -1598,7 +1752,7 @@ export default function Home() {
                 {statusMeta[visibleMarket.riskStatus].label}
               </span>
             </div>
-            <p>{visibleMarket.market} · {visibleMarket.category} · {visibleMarket.id}</p>
+            <p>{visibleMarket.market} · {visibleMarket.category} · {compactIdentifier(visibleMarket.id)}</p>
           </div>
 
           <div className="quote-box">
@@ -1679,12 +1833,22 @@ function MarketOverview({
   setQuery: (value: string) => void;
   setActiveId: (value: string) => void;
 }) {
+  const displayedMarkets = useMemo(() => {
+    if (!filteredMarkets.length) return [];
+    const limitedMarkets = filteredMarkets.slice(0, MARKET_LIST_LIMIT);
+    if (limitedMarkets.some((marketItem) => marketItem.id === visibleMarket.id)) return limitedMarkets;
+    return [visibleMarket, ...limitedMarkets.slice(0, MARKET_LIST_LIMIT - 1)];
+  }, [filteredMarkets, visibleMarket]);
+
   return (
     <section className="market-rail market-overview">
       <div className="rail-header">
         <div>
           <p className="section-label">Market Overview</p>
           <strong>{filteredMarkets.length} / {marketCount}</strong>
+          {filteredMarkets.length > displayedMarkets.length && (
+            <small>显示 {displayedMarkets.length}</small>
+          )}
         </div>
         <button className="icon-button compact" type="button" title="筛选">
           <SlidersHorizontal size={15} />
@@ -1715,13 +1879,14 @@ function MarketOverview({
       </div>
 
       <div className="market-list">
-        {filteredMarkets.map((marketItem) => {
+        {displayedMarkets.map((marketItem) => {
           const meta = statusMeta[marketItem.riskStatus];
           return (
             <button
               key={marketItem.id}
               className={`market-row ${visibleMarket.id === marketItem.id ? "selected" : ""}`}
               type="button"
+              title={`${marketItem.event} / ${marketItem.market} / ${marketItem.id}`}
               onClick={() => setActiveId(marketItem.id)}
             >
               <div className="market-row-top">
@@ -1729,7 +1894,7 @@ function MarketOverview({
                 <strong>{marketItem.event}</strong>
                 <small className={`state-chip ${meta.tone}`}>{meta.short}</small>
               </div>
-              <p>{marketItem.market}</p>
+              <p>{marketItem.market} · {compactIdentifier(marketItem.id)}</p>
               <div className="market-row-metrics">
                 <span>{currency(marketItem.grossVolume)}</span>
                 <span className={marketItem.pnl >= 0 ? "positive" : "negative"}>
