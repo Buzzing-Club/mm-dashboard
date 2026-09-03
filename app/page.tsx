@@ -39,8 +39,11 @@ type RiskStatus =
   | "reduce_only"
   | "endgame_quote"
   | "budget_limited"
+  | "size_limited"
+  | "price_boundary_limited"
   | "orderbook_missing"
   | "data_delay"
+  | "adverse_flow_protection"
   | "negrisk_group_protection"
   | "paused";
 
@@ -91,7 +94,17 @@ type Market = {
   slippageBuckets: Array<{ bucket: string; count: number; tone: "good" | "warn" | "bad" }>;
   bidLevels: Array<{ price: number; quantity: number }>;
   askLevels: Array<{ price: number; quantity: number }>;
+  noBidLevels?: Array<{ price: number; quantity: number }>;
+  noAskLevels?: Array<{ price: number; quantity: number }>;
   events: Array<{ ts?: number; time: string; type: string; detail: string; severity: "ok" | "warn" | "bad" }>;
+  liquidityHistory?: LiquidityHistoryPoint[];
+  flash?: {
+    actualPairsPerHour: number | null;
+    actualAvgIntervalS: number | null;
+    activePairs: number | null;
+    maxPairsTotal: number | null;
+    l1DistanceTicks: number | null;
+  };
 };
 
 type RiskEvent = Market["events"][number];
@@ -105,6 +118,106 @@ type LiquidityHistoryPoint = {
   liquidityReason: string | null;
 };
 
+type DashboardRealtimePayload = {
+  contract_version: string;
+  generated_at?: number;
+  items?: DashboardRealtimeItem[];
+};
+
+type DashboardRealtimeItem = {
+  identity?: {
+    condition_id?: string;
+    event_id?: string | number;
+    title?: string | null;
+    event_title?: string | null;
+  };
+  lifecycle?: {
+    start_time?: string | number | null;
+    end_time?: string | number | null;
+    runtime_state?: string | null;
+    started?: boolean | null;
+  };
+  quote_state?: {
+    risk_status?: string | null;
+    quote_mode?: string | null;
+    label_zh?: string | null;
+    detail?: string | null;
+  };
+  risk?: {
+    q?: string | number | null;
+    q_max?: string | number | null;
+    worst_case_pnl?: string | number | null;
+    max_loss_budget?: string | number | null;
+  };
+  risk_events?: Array<{
+    ts?: string | number | null;
+    trigger?: string | null;
+    risk_status?: string | null;
+    label_zh?: string | null;
+    reason_code?: string | null;
+    severity?: "ok" | "warn" | "bad" | string | null;
+  }>;
+  orderbook_quality?: {
+    best_bid?: string | number | null;
+    best_ask?: string | number | null;
+    mid?: string | number | null;
+    spread?: string | number | null;
+    ask_k?: string | number | null;
+    bid_k?: string | number | null;
+    book_liquidity?: string | number | null;
+    yes?: DashboardBookSide;
+    no?: DashboardBookSide;
+  };
+  liquidity?: {
+    current_strategy_liquidity?: string | number | null;
+    current_book_liquidity?: string | number | null;
+    initial_liquidity?: string | number | null;
+    history?: Array<{
+      ts?: string | number | null;
+      liquidity?: string | number | null;
+      delta?: string | number | null;
+      direction?: "increase" | "decrease" | null;
+      reason_code?: string | null;
+    }>;
+  };
+  flash?: {
+    actual_pairs_per_hour?: string | number | null;
+    actual_avg_interval_s?: string | number | null;
+    active_pairs?: string | number | null;
+    max_pairs_total?: string | number | null;
+    l1_distance_ticks?: string | number | null;
+  };
+  dependencies?: {
+    runtime_snapshot_age_s?: string | number | null;
+    order_snapshot_age_s?: string | number | null;
+  };
+  strategy_account_metrics?: {
+    total_fill_notional?: string | number | null;
+    match_count?: string | number | null;
+    fill_count?: string | number | null;
+  };
+  backend_required?: {
+    gross_volume?: string | number | null;
+    net_volume?: string | number | null;
+    trader_count?: string | number | null;
+    current_pnl?: string | number | null;
+    wash_ratio?: string | number | null;
+    avg_slippage?: string | number | null;
+    slippage_distribution?: Array<{ bucket: string; count: number; tone?: "good" | "warn" | "bad" }> | null;
+  };
+};
+
+type DashboardBookSide = {
+  bids?: Array<{ price?: string | number | null; qty?: string | number | null }>;
+  asks?: Array<{ price?: string | number | null; qty?: string | number | null }>;
+};
+
+type DataSourceState = {
+  mode: "api" | "mock" | "loading";
+  label: string;
+  detail: string;
+};
+
 const statusMeta: Record<
   RiskStatus,
   { label: string; tone: "ok" | "warn" | "bad" | "muted"; short: string }
@@ -114,8 +227,11 @@ const statusMeta: Record<
   reduce_only: { label: "只减风险", tone: "bad", short: "REDUCE" },
   endgame_quote: { label: "临期保护", tone: "warn", short: "ENDGAME" },
   budget_limited: { label: "预算受限", tone: "bad", short: "BUDGET" },
+  size_limited: { label: "数量受限", tone: "warn", short: "SIZE" },
+  price_boundary_limited: { label: "价格边界", tone: "warn", short: "BOUND" },
   orderbook_missing: { label: "盘口缺失", tone: "bad", short: "BOOK" },
   data_delay: { label: "数据延迟", tone: "warn", short: "STALE" },
+  adverse_flow_protection: { label: "单边成交保护", tone: "bad", short: "FLOW" },
   negrisk_group_protection: { label: "组级保护", tone: "bad", short: "NEGRISK" },
   paused: { label: "暂停摆单", tone: "muted", short: "PAUSED" },
 };
@@ -694,8 +810,11 @@ function riskReasonFor(status: RiskStatus) {
     reduce_only: "inventory near reduce-only threshold; only risk-reducing side is quoted",
     endgame_quote: "market is near end time; levels tightened and quote size reduced",
     budget_limited: "worst-case PnL close to configured budget guard",
+    size_limited: "quote quantity is below the configured minimum viable size",
+    price_boundary_limited: "planned quote price hit the allowed market price boundary",
     orderbook_missing: "authority snapshot not converged; quoting paused for this market",
     data_delay: "fair value or catalog update is stale beyond freshness target",
+    adverse_flow_protection: "short-window risk-increasing fills triggered adverse-flow protection",
     negrisk_group_protection: "group-level loss guard is active for related buckets",
     paused: "operator or runtime pause is active",
   };
@@ -722,6 +841,9 @@ const riskEventTypeLabels: Record<string, string> = {
   stale: "数据延迟",
   negrisk: "组级保护",
   depth: "深度收紧",
+  flow: "单边成交保护",
+  size: "数量受限",
+  bound: "价格边界",
 };
 
 function getRiskEventLabel(eventItem: RiskEvent) {
@@ -804,6 +926,10 @@ function getLiquidityChangeReason(market: Market, delta: number, index: number) 
 }
 
 function buildLiquidityHistory(market: Market): LiquidityHistoryPoint[] {
+  if (market.liquidityHistory?.length) {
+    return market.liquidityHistory;
+  }
+
   const initialLiquidity = market.liquidity
     ? Math.round(market.liquidity * 0.72)
     : Math.max(140, Math.round(market.grossVolume / 64));
@@ -940,7 +1066,7 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
   };
 }
 
-const markets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))]
+const mockMarkets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))]
   .map((marketItem) => retimeMarket(marketItem));
 
 const filterOptions = [
@@ -1010,8 +1136,229 @@ function complementaryLevels(levels: Array<{ price: number; quantity: number }>,
     .sort((a, b) => (sort === "bid" ? b.price - a.price : a.price - b.price));
 }
 
+function numberValue(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function statusValue(value: string | null | undefined): RiskStatus {
+  const normalized = String(value ?? "paused") as RiskStatus;
+  return normalized in statusMeta ? normalized : "paused";
+}
+
+function severityValue(value: string | null | undefined): "ok" | "warn" | "bad" {
+  return value === "ok" || value === "warn" || value === "bad" ? value : "warn";
+}
+
+function isoTime(value: string | number | null | undefined, fallback: number) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const millis = value > 10_000_000_000 ? value : value * 1000;
+    return new Date(millis).toISOString();
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return isoTime(numeric, fallback);
+  }
+  return new Date(fallback).toISOString();
+}
+
+function apiTimestamp(value: string | number | null | undefined, fallback: number) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 10_000_000_000 ? value : value * 1000;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsedDate = Date.parse(value);
+    if (Number.isFinite(parsedDate)) return parsedDate;
+    const parsedNumber = Number(value);
+    if (Number.isFinite(parsedNumber)) return apiTimestamp(parsedNumber, fallback);
+  }
+  return fallback;
+}
+
+function endMinutes(endAt: string) {
+  return Math.max(0, Math.round((timestamp(endAt) - Date.now()) / MINUTE_MS));
+}
+
+function marketStatus(status: RiskStatus, runtimeState?: string | null): Market["status"] {
+  if (runtimeState && runtimeState !== "running") return "paused";
+  const tone = statusMeta[status].tone;
+  if (status === "orderbook_missing" || status === "paused") return "paused";
+  return tone === "ok" ? "live" : "degraded";
+}
+
+function apiLevels(side?: DashboardBookSide, key: "bids" | "asks" = "bids") {
+  return (side?.[key] ?? [])
+    .map((level) => ({
+      price: numberValue(level.price) ?? 0,
+      quantity: numberValue(level.qty) ?? 0,
+    }))
+    .filter((level) => level.price > 0 && level.quantity > 0);
+}
+
+function apiSlippageBuckets(
+  buckets: Array<{ bucket: string; count: number; tone?: "good" | "warn" | "bad" }> | null | undefined,
+) {
+  if (!Array.isArray(buckets)) return buildSlippageBuckets(null);
+  return buckets.map((bucket) => ({
+    bucket: String(bucket.bucket),
+    count: Number.isFinite(Number(bucket.count)) ? Number(bucket.count) : 0,
+    tone: bucket.tone ?? (
+      String(bucket.bucket).includes(">") || String(bucket.bucket).includes("8")
+        ? "bad"
+        : String(bucket.bucket).includes("4")
+          ? "warn"
+          : "good"
+    ),
+  }));
+}
+
+function reasonLabel(reasonCode: string | null | undefined, direction?: "increase" | "decrease" | null) {
+  const raw = String(reasonCode ?? "");
+  if (raw.includes("inventory")) return direction === "increase" ? "库存压力回落，补回做市深度" : "库存偏离目标，削减风险侧深度";
+  if (raw.includes("budget") || raw.includes("loss")) return direction === "increase" ? "预算占用下降，恢复 quote size" : "最坏情形 PnL 接近预算，减少挂单";
+  if (raw.includes("fresh") || raw.includes("stale") || raw.includes("delay")) return direction === "increase" ? "数据新鲜度恢复，重新打开挂单" : "数据延迟，撤掉远端档位";
+  if (raw.includes("negrisk") || raw.includes("group")) return direction === "increase" ? "组级保护压力缓解，恢复安全 bucket" : "组级损失保护触发，削减相关 bucket";
+  if (raw.includes("endgame") || raw.includes("tail")) return direction === "increase" ? "临期压力缓解，小幅补回近端流动性" : "进入临期窗口，降低 quote size";
+  return direction === "increase" ? "策略恢复部分市场深度" : "策略减少市场深度";
+}
+
+function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | null {
+  const conditionId = item.identity?.condition_id;
+  if (!conditionId) return null;
+
+  const now = Date.now();
+  const startAt = isoTime(item.lifecycle?.start_time, now - 4 * 60 * MINUTE_MS);
+  const endAt = isoTime(item.lifecycle?.end_time, now + 2 * 60 * MINUTE_MS);
+  const riskStatus = statusValue(item.quote_state?.risk_status);
+  const quoteMode = statusValue(item.quote_state?.quote_mode ?? item.quote_state?.risk_status);
+  const bestBid = numberValue(item.orderbook_quality?.best_bid) ?? 0;
+  const bestAsk = numberValue(item.orderbook_quality?.best_ask) ?? 0;
+  const mid = numberValue(item.orderbook_quality?.mid) ?? (bestBid && bestAsk ? (bestBid + bestAsk) / 2 : 0);
+  const spread = numberValue(item.orderbook_quality?.spread) ?? (bestBid && bestAsk ? bestAsk - bestBid : 0);
+  const strategyNotional = numberValue(item.strategy_account_metrics?.total_fill_notional);
+  const grossVolume = numberValue(item.backend_required?.gross_volume) ?? strategyNotional ?? 0;
+  const pnl = numberValue(item.backend_required?.current_pnl) ?? 0;
+  const washRatio = numberValue(item.backend_required?.wash_ratio);
+  const traderCount =
+    numberValue(item.backend_required?.trader_count)
+    ?? numberValue(item.strategy_account_metrics?.match_count)
+    ?? 0;
+  const liquidity =
+    numberValue(item.liquidity?.current_strategy_liquidity)
+    ?? numberValue(item.liquidity?.current_book_liquidity)
+    ?? 0;
+  const startMs = timestamp(startAt);
+  const endMs = timestamp(endAt);
+  const qMax = numberValue(item.risk?.q_max) ?? 80;
+  const worstCasePnl = numberValue(item.risk?.worst_case_pnl) ?? 0;
+  const maxLossBudget = numberValue(item.risk?.max_loss_budget) ?? 30;
+  const staleSeconds =
+    Math.round(
+      numberValue(item.dependencies?.runtime_snapshot_age_s)
+      ?? numberValue(item.dependencies?.order_snapshot_age_s)
+      ?? 0,
+    );
+  const series = buildSeries(index, Math.max(grossVolume, 1), pnl, spread, washRatio).map((point, pointIndex) => ({
+    ...point,
+    ...lifecyclePoints(startAt, endAt, 7)[pointIndex],
+  }));
+  const initialBaseline =
+    numberValue(item.liquidity?.initial_liquidity)
+    ?? numberValue(item.liquidity?.history?.[0]?.liquidity)
+    ?? liquidity;
+  const liquidityHistory = (item.liquidity?.history ?? []).map((point) => {
+    const pointTs = apiTimestamp(point.ts, startMs);
+    const delta = numberValue(point.delta);
+    return {
+      ts: clampTimestamp(pointTs, startMs, endMs),
+      time: formatAxisTime(pointTs, startAt, endAt),
+      availableLiquidity: numberValue(point.liquidity) ?? 0,
+      initialBaseline,
+      liquidityDelta: delta,
+      liquidityDirection: point.direction ?? null,
+      liquidityReason: delta === null || delta === 0 ? null : reasonLabel(point.reason_code, point.direction),
+    };
+  });
+  const events = (item.risk_events ?? []).map((eventItem) => {
+    const eventTs = apiTimestamp(eventItem.ts, startMs);
+    const status = statusValue(eventItem.risk_status);
+    return {
+      ts: clampTimestamp(eventTs, startMs, endMs),
+      time: formatAxisTime(eventTs, startAt, endAt),
+      type: statusMeta[status].short.toLowerCase(),
+      detail: eventItem.label_zh ?? eventItem.reason_code ?? eventItem.trigger ?? statusMeta[status].label,
+      severity: severityValue(eventItem.severity),
+    };
+  });
+
+  return {
+    id: conditionId,
+    event: item.identity?.event_title ?? item.identity?.title ?? conditionId,
+    market: item.identity?.title ?? item.identity?.event_title ?? conditionId,
+    category: "Strategy · Runtime",
+    tags: ["Strategy"],
+    status: marketStatus(riskStatus, item.lifecycle?.runtime_state),
+    riskStatus,
+    quoteMode,
+    riskReason: item.quote_state?.detail ?? riskReasonFor(riskStatus),
+    grossVolume,
+    netVolume: numberValue(item.backend_required?.net_volume),
+    traderCount,
+    pnl,
+    washRatio,
+    inventory: numberValue(item.risk?.q) ?? 0,
+    qMax,
+    worstCasePnl,
+    maxLossBudget,
+    bestBid,
+    bestAsk,
+    spread,
+    mid: Number(mid.toFixed(3)),
+    askSlope: numberValue(item.orderbook_quality?.ask_k),
+    bidSlope: numberValue(item.orderbook_quality?.bid_k),
+    avgSlippage: numberValue(item.backend_required?.avg_slippage),
+    staleSeconds,
+    liquidity,
+    startAt,
+    endAt,
+    endInMinutes: endMinutes(endAt),
+    series,
+    slippageBuckets: apiSlippageBuckets(item.backend_required?.slippage_distribution),
+    bidLevels: apiLevels(item.orderbook_quality?.yes, "bids"),
+    askLevels: apiLevels(item.orderbook_quality?.yes, "asks"),
+    noBidLevels: apiLevels(item.orderbook_quality?.no, "bids"),
+    noAskLevels: apiLevels(item.orderbook_quality?.no, "asks"),
+    events,
+    liquidityHistory: liquidityHistory.length ? liquidityHistory : undefined,
+    flash: {
+      actualPairsPerHour: numberValue(item.flash?.actual_pairs_per_hour),
+      actualAvgIntervalS: numberValue(item.flash?.actual_avg_interval_s),
+      activePairs: numberValue(item.flash?.active_pairs),
+      maxPairsTotal: numberValue(item.flash?.max_pairs_total),
+      l1DistanceTicks: numberValue(item.flash?.l1_distance_ticks),
+    },
+  };
+}
+
+function mapDashboardPayload(payload: DashboardRealtimePayload): Market[] {
+  if (payload.contract_version !== "mm-dashboard-realtime.v1") return [];
+  return (payload.items ?? [])
+    .map((item, index) => mapDashboardItem(item, index))
+    .filter((marketItem): marketItem is Market => Boolean(marketItem));
+}
+
 export default function Home() {
-  const [activeId, setActiveId] = useState(markets[0].id);
+  const [markets, setMarkets] = useState<Market[]>(mockMarkets);
+  const [dataSource, setDataSource] = useState<DataSourceState>({
+    mode: "loading",
+    label: "LOADING",
+    detail: "正在请求策略端 dashboard API",
+  });
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [activeId, setActiveId] = useState(mockMarkets[0].id);
   const [filter, setFilter] = useState("attention");
   const [timeframe, setTimeframe] = useState("1h");
   const [query, setQuery] = useState("");
@@ -1026,6 +1373,50 @@ export default function Home() {
     const timer = window.setInterval(updateClock, 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDashboard() {
+      try {
+        const response = await fetch("/api/dashboard/realtime", {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`dashboard API ${response.status}`);
+        }
+        const payload = await response.json() as DashboardRealtimePayload;
+        const nextMarkets = mapDashboardPayload(payload);
+        if (!nextMarkets.length) {
+          throw new Error("dashboard API returned no markets");
+        }
+        if (cancelled) return;
+        setMarkets(nextMarkets);
+        setActiveId((current) => nextMarkets.some((marketItem) => marketItem.id === current) ? current : nextMarkets[0].id);
+        setDataSource({
+          mode: "api",
+          label: "API",
+          detail: "策略端 /api/dashboard/realtime",
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setMarkets(mockMarkets);
+        setActiveId((current) => mockMarkets.some((marketItem) => marketItem.id === current) ? current : mockMarkets[0].id);
+        setDataSource({
+          mode: "mock",
+          label: "MOCK",
+          detail: error instanceof Error ? error.message : "dashboard API unavailable",
+        });
+      }
+    }
+
+    loadDashboard();
+    const timer = window.setInterval(loadDashboard, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshTick]);
 
   const filteredMarkets = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -1049,7 +1440,7 @@ export default function Home() {
         const severity = { bad: 0, warn: 1, muted: 2, ok: 3 };
         return severity[statusMeta[a.riskStatus].tone] - severity[statusMeta[b.riskStatus].tone];
       });
-  }, [filter, query]);
+  }, [filter, markets, query]);
 
   const activeMarket = markets.find((marketItem) => marketItem.id === activeId) ?? markets[0];
   const visibleMarket = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
@@ -1070,12 +1461,12 @@ export default function Home() {
         </div>
 
         <div className="topbar-actions">
-          <div className="feed-pill" title="Live data heartbeat">
+          <div className={`feed-pill data-source-${dataSource.mode}`} title={dataSource.detail}>
             <Radio size={15} />
-            <span>LIVE</span>
+            <span>{dataSource.label}</span>
             <strong>{liveClock}</strong>
           </div>
-          <button className="icon-button" type="button" title="刷新">
+          <button className="icon-button" type="button" title="刷新" onClick={() => setRefreshTick((value) => value + 1)}>
             <RefreshCw size={16} />
           </button>
           <button className="icon-button alert" type="button" title="告警">
@@ -1330,13 +1721,18 @@ function ExperienceBoard({
 }) {
   const [bookOutcome, setBookOutcome] = useState<OutcomeSide>("yes");
   const displayedBidLevels =
-    bookOutcome === "yes" ? visibleMarket.bidLevels : complementaryLevels(visibleMarket.askLevels, "bid");
+    bookOutcome === "yes" ? visibleMarket.bidLevels : visibleMarket.noBidLevels?.length ? visibleMarket.noBidLevels : complementaryLevels(visibleMarket.askLevels, "bid");
   const displayedAskLevels =
-    bookOutcome === "yes" ? visibleMarket.askLevels : complementaryLevels(visibleMarket.bidLevels, "ask");
+    bookOutcome === "yes" ? visibleMarket.askLevels : visibleMarket.noAskLevels?.length ? visibleMarket.noAskLevels : complementaryLevels(visibleMarket.bidLevels, "ask");
   const bidMax = maxQuantity(displayedBidLevels);
   const askMax = maxQuantity(displayedAskLevels);
   const liquidityHistory = buildLiquidityHistory(visibleMarket);
   const liquidityEvents = liquidityHistory.filter((point) => point.liquidityReason);
+  const flashFreq = visibleMarket.flash?.actualPairsPerHour;
+  const flashInterval = visibleMarket.flash?.actualAvgIntervalS;
+  const activePairs = visibleMarket.flash?.activePairs;
+  const maxPairs = visibleMarket.flash?.maxPairsTotal;
+  const l1Distance = visibleMarket.flash?.l1DistanceTicks;
 
   return (
     <>
@@ -1347,10 +1743,10 @@ function ExperienceBoard({
             <small>tier-1 / mid insertion</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Tier-1 Freq" value="300 / h" tone="ok" />
-            <TinyStat label="Mid Insert Freq" value="360 / h" tone="ok" />
-            <TinyStat label="L1 Distance" value="1-2 ticks" tone={visibleMarket.spread && visibleMarket.spread > 0.02 ? "ok" : "warn"} />
-            <TinyStat label="Max Live Pairs" value="3 pairs" tone="ok" />
+            <TinyStat label="Actual Flash Freq" value={flashFreq === null || flashFreq === undefined ? "missing" : `${Math.round(flashFreq)} / h`} tone={flashFreq ? "ok" : "warn"} />
+            <TinyStat label="Avg Flash Interval" value={flashInterval === null || flashInterval === undefined ? "missing" : `${flashInterval.toFixed(1)}s`} tone={flashInterval && flashInterval < 20 ? "ok" : "warn"} />
+            <TinyStat label="Active Pairs" value={activePairs === null || activePairs === undefined ? "missing" : `${activePairs}${maxPairs ? ` / ${maxPairs}` : ""}`} tone={activePairs !== null && activePairs !== undefined ? "ok" : "warn"} />
+            <TinyStat label="L1 Distance" value={l1Distance === null || l1Distance === undefined ? "missing" : `${l1Distance} ticks`} tone={l1Distance !== null && l1Distance !== undefined ? "ok" : "warn"} />
           </div>
         </div>
 
@@ -1626,9 +2022,12 @@ const tinyStatDescriptions: Record<string, string> = {
   "Net Volume": "当前选中市场剔除刷量或内部成交后的真实成交额；未知时显示 unknown。",
   "Trader Count": "当前选中市场内参与过有效交易或关键交互的用户数量。",
   "Current PnL": "当前选中市场的实时 PnL，反映后端成交与策略持仓在这个市场上的当前盈亏。",
+  "Actual Flash Freq": "策略端最近 5 分钟内实际成功发起的闪单 pair 频率，按平均间隔折算为每小时次数。",
+  "Avg Flash Interval": "策略端最近观测到的闪单 pair 平均间隔，用于判断闪单是否按预期 cadence 运行。",
+  "Active Pairs": "当前市场正在存活的闪单挂单对数，以及配置允许的最大挂单对数。",
   "Tier-1 Freq": "一档贴近操作的目标触发频率，文档口径约为每 12 秒一次，即 300 次/小时。",
   "Mid Insert Freq": "中间档位插入的目标触发频率，文档口径约为每 10 秒随机插入一次，即 360 次/小时。",
-  "L1 Distance": "闪单价格相对当前 Best Bid / Best Ask 一档附近的距离，文档口径为贴近一档 1-2 个 tick。",
+  "L1 Distance": "闪单生成价格相对当前订单簿一档位置的距离；策略端尚未提供时显示 missing。",
   "Max Live Pairs": "同一市场同一时刻允许存在的最大 Bot 挂单对数，用于控制并发挂单和保证金占用。",
   "Avg Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
   "Spread Now": "当前选中市场最优 ask 与最优 bid 的实时价差，数值越小成交体验通常越好。",
