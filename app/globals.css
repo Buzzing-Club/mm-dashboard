@@ -758,7 +758,7 @@ h3 {
 
 .market-lifecycle {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   overflow: hidden;
   margin-top: 8px;
   border: 1px solid var(--line);
@@ -788,6 +788,23 @@ h3 {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.market-lifecycle .lifecycle-open {
+  color: var(--cyan);
+}
+
+.market-lifecycle .lifecycle-provisional,
+.market-lifecycle .lifecycle-scheduled {
+  color: var(--amber);
+}
+
+.market-lifecycle .lifecycle-dispute {
+  color: var(--red);
+}
+
+.market-lifecycle .lifecycle-final {
+  color: var(--green);
 }
 
 .experience-quality-panel {
@@ -958,6 +975,45 @@ h3 {
   font-size: 11px;
 }
 
+.timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.timeline-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.timeline-legend span::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.timeline-legend .open {
+  color: var(--cyan);
+}
+
+.timeline-legend .scheduled {
+  color: var(--amber);
+}
+
+.timeline-legend .dispute {
+  color: var(--red);
+}
+
+.timeline-legend .final {
+  color: var(--green);
+}
+
 .risk-timeline {
   position: relative;
   overflow: hidden;
@@ -1033,6 +1089,27 @@ h3 {
 .risk-timeline-node.bad .risk-timeline-dot {
   background: var(--red);
   color: var(--red);
+}
+
+.risk-timeline-node.open .risk-timeline-dot {
+  background: var(--cyan);
+  color: var(--cyan);
+}
+
+.risk-timeline-node.scheduled .risk-timeline-dot,
+.risk-timeline-node.provisional .risk-timeline-dot {
+  background: var(--amber);
+  color: var(--amber);
+}
+
+.risk-timeline-node.dispute .risk-timeline-dot {
+  background: var(--red);
+  color: var(--red);
+}
+
+.risk-timeline-node.final .risk-timeline-dot {
+  background: var(--green);
+  color: var(--green);
 }
 
 .risk-timeline-node strong {

@@ -51,6 +51,19 @@ type RiskStatus =
 type BoardId = "macro" | "experience" | "risk";
 type OutcomeSide = "yes" | "no";
 type ExperienceIncidentKind = "single_sided_empty" | "double_sided_empty" | "l1_distance_exceeded";
+type SettlementPhase = "none" | "announcing" | "ruling1" | "dispute1" | "ruling2" | "dispute2" | "claimable" | "unknown";
+
+type MarketLifecycleInfo = {
+  settlementPhase: SettlementPhase;
+  acceptingOrders: boolean;
+  closed: boolean;
+  currentOutcome: string | null;
+  settledOutcome: string | null;
+  disputeCount: number;
+  phaseEndAt: string | null;
+  updatedAt: string | null;
+  settledAt: string | null;
+};
 
 type ExperienceIncidentMetric = {
   count: number;
@@ -111,6 +124,7 @@ type Market = {
   startAt: string;
   endAt: string;
   endInMinutes: number;
+  lifecycle?: MarketLifecycleInfo;
   series: Array<{
     ts?: number;
     time: string;
@@ -182,6 +196,15 @@ type DashboardRealtimeItem = {
     end_time?: string | number | null;
     runtime_state?: string | null;
     started?: boolean | null;
+    accepting_orders?: boolean | null;
+    closed?: boolean | null;
+    settlement_phase?: string | null;
+    current_outcome?: string | null;
+    settled_outcome?: string | null;
+    dispute_count?: string | number | null;
+    phase_end_timestamp?: string | number | null;
+    lifecycle_updated_at_ms?: string | number | null;
+    settled_at?: string | number | null;
   };
   quote_state?: {
     risk_status?: string | null;
@@ -392,6 +415,7 @@ const MOCK_OBSERVATION_AT = Date.parse("2026-08-28T18:59:30+08:00");
 const MINUTE_MS = 60 * 1000;
 const DASHBOARD_REFRESH_MS = 30_000;
 const MARKET_LIST_LIMIT = 80;
+const FINAL_MARKET_RETENTION_MS = 24 * 60 * MINUTE_MS;
 const MOCK_STRATEGY_CALIBRATION = {
   askTotalQtyPerOutcome: 30,
   bidTotalCash: 16,
@@ -524,6 +548,74 @@ function retimeMarket(market: Market) {
       ...points[index],
     })),
     events: retimeEvents(market),
+  };
+}
+
+function mockLifecycle(market: Market): Market {
+  if (market.lifecycle) return market;
+
+  if (market.id === "BLACKWATER-GINEBRA-JUL24") {
+    const plannedEnd = MOCK_OBSERVATION_AT - 2 * 60 * MINUTE_MS;
+    const start = plannedEnd - 6 * 60 * MINUTE_MS;
+    return {
+      ...market,
+      startAt: new Date(start).toISOString(),
+      endAt: new Date(plannedEnd).toISOString(),
+      endInMinutes: 0,
+      lifecycle: {
+        settlementPhase: "dispute1",
+        acceptingOrders: true,
+        closed: false,
+        currentOutcome: "NO",
+        settledOutcome: null,
+        disputeCount: 1,
+        phaseEndAt: new Date(MOCK_OBSERVATION_AT + 22 * 60 * MINUTE_MS).toISOString(),
+        updatedAt: new Date(plannedEnd + 45 * MINUTE_MS).toISOString(),
+        settledAt: null,
+      },
+    };
+  }
+
+  if (market.id === "MAGNOLIA-MERALCO-JUL24") {
+    const plannedEnd = MOCK_OBSERVATION_AT - 8 * 60 * MINUTE_MS;
+    const start = plannedEnd - 6 * 60 * MINUTE_MS;
+    const settledAt = plannedEnd + 3 * 60 * MINUTE_MS;
+    return {
+      ...market,
+      startAt: new Date(start).toISOString(),
+      endAt: new Date(plannedEnd).toISOString(),
+      endInMinutes: 0,
+      status: "paused",
+      riskStatus: "paused",
+      quoteMode: "paused",
+      riskReason: "market is claimable; quoting stopped and settlement is final",
+      lifecycle: {
+        settlementPhase: "claimable",
+        acceptingOrders: false,
+        closed: true,
+        currentOutcome: "YES",
+        settledOutcome: "YES",
+        disputeCount: 0,
+        phaseEndAt: null,
+        updatedAt: new Date(settledAt).toISOString(),
+        settledAt: new Date(settledAt).toISOString(),
+      },
+    };
+  }
+
+  return {
+    ...market,
+    lifecycle: {
+      settlementPhase: "none",
+      acceptingOrders: market.status !== "paused",
+      closed: false,
+      currentOutcome: null,
+      settledOutcome: null,
+      disputeCount: 0,
+      phaseEndAt: null,
+      updatedAt: null,
+      settledAt: null,
+    },
   };
 }
 
@@ -1410,7 +1502,10 @@ function withMockFlash(marketItem: Market, index: number): Market {
 }
 
 const mockMarkets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))]
-  .map((marketItem, index) => withMockExperienceQuality(retimeMarket(withMockFlash(marketItem, index)), index));
+  .map((marketItem, index) => {
+    const lifecycleMarket = mockLifecycle(marketItem);
+    return withMockExperienceQuality(retimeMarket(withMockFlash(lifecycleMarket, index)), index);
+  });
 
 const filterOptions = [
   { id: "all", label: "全部", tag: null },
@@ -1533,6 +1628,20 @@ function isoTime(value: string | number | null | undefined, fallback: number) {
   return new Date(fallback).toISOString();
 }
 
+function optionalIsoTime(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+  const millis = apiTimestamp(value, Number.NaN);
+  return Number.isFinite(millis) ? new Date(millis).toISOString() : null;
+}
+
+function settlementPhase(value: string | null | undefined): SettlementPhase {
+  const normalized = String(value ?? "none").trim().toLowerCase();
+  if (["none", "announcing", "ruling1", "dispute1", "ruling2", "dispute2", "claimable"].includes(normalized)) {
+    return normalized as SettlementPhase;
+  }
+  return normalized ? "unknown" : "none";
+}
+
 function apiTimestamp(value: string | number | null | undefined, fallback: number) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value > 10_000_000_000 ? value : value * 1000;
@@ -1551,6 +1660,17 @@ function endMinutes(endAt: string) {
 }
 
 function isExpiredDashboardItem(item: DashboardRealtimeItem, now: number) {
+  const phase = settlementPhase(item.lifecycle?.settlement_phase);
+  if (["announcing", "ruling1", "dispute1", "ruling2", "dispute2"].includes(phase)) {
+    return false;
+  }
+  if (phase === "claimable" || item.lifecycle?.closed || item.lifecycle?.settled_outcome) {
+    const finalAt = apiTimestamp(
+      item.lifecycle?.settled_at ?? item.lifecycle?.lifecycle_updated_at_ms,
+      Number.NEGATIVE_INFINITY,
+    );
+    return !Number.isFinite(finalAt) || now - finalAt > FINAL_MARKET_RETENTION_MS;
+  }
   if (item.lifecycle?.end_time === null || item.lifecycle?.end_time === undefined || item.lifecycle.end_time === "") {
     return false;
   }
@@ -1832,6 +1952,7 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
 
   const tier1Flash = flashKindStats(item.flash, "tier1");
   const midFlash = flashKindStats(item.flash, "mid");
+  const phase = settlementPhase(item.lifecycle?.settlement_phase);
 
   return {
     id: conditionId,
@@ -1864,6 +1985,17 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
     startAt,
     endAt,
     endInMinutes: endMinutes(endAt),
+    lifecycle: {
+      settlementPhase: phase,
+      acceptingOrders: item.lifecycle?.accepting_orders ?? phase !== "claimable",
+      closed: Boolean(item.lifecycle?.closed),
+      currentOutcome: readableLabel(item.lifecycle?.current_outcome),
+      settledOutcome: readableLabel(item.lifecycle?.settled_outcome),
+      disputeCount: Math.max(0, Math.round(numberValue(item.lifecycle?.dispute_count) ?? 0)),
+      phaseEndAt: optionalIsoTime(item.lifecycle?.phase_end_timestamp),
+      updatedAt: optionalIsoTime(item.lifecycle?.lifecycle_updated_at_ms),
+      settledAt: optionalIsoTime(item.lifecycle?.settled_at),
+    },
     series,
     slippageBuckets: apiSlippageBuckets(item.backend_required?.slippage_distribution),
     slippageNotionalBuckets: apiSlippageNotionalBuckets(item.backend_required?.slippage_distribution_by_notional),
@@ -2346,15 +2478,45 @@ function durationLabel(totalSeconds: number) {
   return `${days} 天 ${hours % 24} 小时`;
 }
 
+const settlementPhaseMeta: Record<SettlementPhase, { label: string; tone: string }> = {
+  none: { label: "交易中", tone: "open" },
+  announcing: { label: "结果公布中", tone: "provisional" },
+  ruling1: { label: "第一次裁定", tone: "provisional" },
+  dispute1: { label: "第一次质疑", tone: "dispute" },
+  ruling2: { label: "第二次裁定", tone: "provisional" },
+  dispute2: { label: "第二次质疑", tone: "dispute" },
+  claimable: { label: "链上结算完成", tone: "final" },
+  unknown: { label: "未知结算阶段", tone: "scheduled" },
+};
+
+function lifecycleStatusText(market: Market) {
+  const lifecycle = market.lifecycle;
+  if (!lifecycle) return "交易中";
+  const base = settlementPhaseMeta[lifecycle.settlementPhase].label;
+  if (lifecycle.settlementPhase === "dispute1" || lifecycle.settlementPhase === "dispute2") {
+    return `${base}${lifecycle.currentOutcome ? ` · ${lifecycle.currentOutcome} 暂定` : ""}`;
+  }
+  if (lifecycle.settlementPhase === "claimable") {
+    return `${base}${lifecycle.settledOutcome ? ` · ${lifecycle.settledOutcome}` : ""}`;
+  }
+  return base;
+}
+
 function MarketLifecycle({ market }: { market: Market }) {
   const totalSeconds = Math.max(0, Math.round((timestamp(market.endAt) - timestamp(market.startAt)) / 1000));
   const remainingSeconds = Math.max(0, market.endInMinutes * 60);
   const elapsedSeconds = Math.max(0, totalSeconds - remainingSeconds);
+  const phaseMeta = settlementPhaseMeta[market.lifecycle?.settlementPhase ?? "none"];
+  const milestoneAt = market.lifecycle?.settledAt ?? market.lifecycle?.phaseEndAt;
   return (
     <div className="market-lifecycle" aria-label="市场生命周期">
       <span><small>开盘时间</small><strong>{formatAxisTime(timestamp(market.startAt), market.startAt, market.endAt)}</strong></span>
-      <span><small>已运行</small><strong>{durationLabel(elapsedSeconds)}</strong></span>
-      <span><small>距离结算</small><strong>{durationLabel(remainingSeconds)}</strong></span>
+      <span><small>计划结束</small><strong>{formatAxisTime(timestamp(market.endAt), market.startAt, market.endAt)}</strong></span>
+      <span><small>当前阶段</small><strong className={`lifecycle-${phaseMeta.tone}`}>{lifecycleStatusText(market)}</strong></span>
+      <span>
+        <small>{market.lifecycle?.settledAt ? "结算完成时间" : market.lifecycle?.phaseEndAt ? "当前阶段截止" : remainingSeconds ? "已运行 / 距离结束" : "运行时长"}</small>
+        <strong>{milestoneAt ? formatAxisTime(timestamp(milestoneAt), market.startAt, milestoneAt) : remainingSeconds ? `${durationLabel(elapsedSeconds)} / ${durationLabel(remainingSeconds)}` : durationLabel(elapsedSeconds)}</strong>
+      </span>
     </div>
   );
 }
@@ -2718,6 +2880,7 @@ function RiskBoard({
 
   return (
     <>
+      <MarketLifecycle market={visibleMarket} />
       <div className="detail-grid risk-detail-grid">
         <div className="panel risk-panel">
           <div className="panel-title">
@@ -2740,7 +2903,7 @@ function RiskBoard({
               <p>{visibleMarket.riskReason}</p>
             </div>
           </div>
-          <RiskStatusTimeline events={timelineEvents} startAt={visibleMarket.startAt} endAt={visibleMarket.endAt} />
+          <RiskStatusTimeline market={visibleMarket} events={timelineEvents} />
           <div className="meter-stack">
             <Meter label="Inventory / q_max" value={inventoryUsed} figure={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} />
             <Meter label="Worst PnL / budget" value={lossUsed} figure={`${visibleMarket.worstCasePnl.toFixed(1)} / -${visibleMarket.maxLossBudget}`} tone={lossUsed > 85 ? "bad" : "warn"} />
@@ -2796,32 +2959,88 @@ function RiskBoard({
   );
 }
 
-function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; startAt: string; endAt: string }) {
-  const start = timestamp(startAt);
-  const end = timestamp(endAt);
-  const duration = Math.max(1, end - start);
+type StatusTimelineNode = {
+  ts: number;
+  label: string;
+  detail: string;
+  tone: "open" | "scheduled" | "provisional" | "dispute" | "final" | "ok" | "warn" | "bad";
+};
+
+function lifecycleTimelineNodes(market: Market): StatusTimelineNode[] {
+  const lifecycle = market.lifecycle;
+  const nodes: StatusTimelineNode[] = [
+    { ts: timestamp(market.startAt), label: "市场开盘", detail: "市场开始接受交易", tone: "open" },
+    { ts: timestamp(market.endAt), label: "计划结束", detail: "市场计划停止常规交易", tone: "scheduled" },
+  ];
+  if (!lifecycle || lifecycle.settlementPhase === "none") return nodes;
+
+  const phaseMeta = settlementPhaseMeta[lifecycle.settlementPhase];
+  const phaseAt = optionalIsoTime(lifecycle.updatedAt) ?? market.endAt;
+  if (lifecycle.settlementPhase === "claimable") {
+    nodes.push({
+      ts: timestamp(lifecycle.settledAt ?? phaseAt),
+      label: "链上结算完成",
+      detail: lifecycle.settledOutcome ? `最终结果 ${lifecycle.settledOutcome}` : "市场已进入 claimable/closed 终态",
+      tone: "final",
+    });
+  } else {
+    nodes.push({
+      ts: timestamp(phaseAt),
+      label: phaseMeta.label,
+      detail: `${lifecycle.currentOutcome ? `暂定结果 ${lifecycle.currentOutcome}` : "暂无暂定结果"}${lifecycle.disputeCount ? `，累计质疑 ${lifecycle.disputeCount} 次` : ""}`,
+      tone: lifecycle.settlementPhase.startsWith("dispute") ? "dispute" : "provisional",
+    });
+  }
+  return nodes;
+}
+
+function RiskStatusTimeline({ events, market }: { events: RiskEvent[]; market: Market }) {
+  const start = timestamp(market.startAt);
+  const lifecycle = market.lifecycle;
+  const lifecycleEndCandidates = [
+    timestamp(market.endAt),
+    lifecycle?.phaseEndAt ? timestamp(lifecycle.phaseEndAt) : 0,
+    lifecycle?.settledAt ? timestamp(lifecycle.settledAt) : 0,
+    ...events.map((eventItem) => eventItem.ts ?? start),
+  ];
+  const end = Math.max(start + 1, ...lifecycleEndCandidates);
+  const duration = end - start;
+  const nodes = [
+    ...lifecycleTimelineNodes(market),
+    ...events.map((eventItem) => ({
+      ts: eventItem.ts ?? start,
+      label: getRiskEventLabel(eventItem),
+      detail: eventItem.detail,
+      tone: eventItem.severity,
+    } satisfies StatusTimelineNode)),
+  ].sort((left, right) => left.ts - right.ts);
 
   return (
     <div className="risk-timeline-wrap">
       <div className="risk-timeline-header">
-        <span>状态变化时间轴</span>
-        <small>events</small>
-      </div>
-      <div className="risk-timeline" aria-label="风控状态变化时间轴">
-        <div className="risk-timeline-boundary">
-          <span>{formatAxisTime(start, startAt, endAt)}</span>
-          <span>{formatAxisTime(end, startAt, endAt)}</span>
+        <span>市场生命周期与状态时间轴</span>
+        <div className="timeline-legend" aria-label="生命周期颜色说明">
+          <span className="open">开盘</span>
+          <span className="scheduled">计划结束</span>
+          <span className="dispute">质疑</span>
+          <span className="final">完成结算</span>
         </div>
-        {events.map((eventItem, index) => (
+      </div>
+      <div className="risk-timeline" aria-label="市场生命周期与风控状态变化时间轴">
+        <div className="risk-timeline-boundary">
+          <span>{formatAxisTime(start, market.startAt, new Date(end).toISOString())}</span>
+          <span>{formatAxisTime(end, market.startAt, new Date(end).toISOString())}</span>
+        </div>
+        {nodes.map((node, index) => (
           <div
-            key={`${eventItem.time}-${eventItem.type}-${index}`}
-            className={`risk-timeline-node ${eventItem.severity} ${index % 2 === 0 ? "label-top" : "label-bottom"}`}
-            style={{ left: `${Math.min(88, Math.max(8, (((eventItem.ts ?? start) - start) / duration) * 100))}%` }}
-            title={`${getRiskEventLabel(eventItem)} · ${eventItem.detail}`}
+            key={`${node.ts}-${node.label}-${index}`}
+            className={`risk-timeline-node ${node.tone} ${index % 2 === 0 ? "label-top" : "label-bottom"}`}
+            style={{ left: `${Math.min(96, Math.max(3, ((node.ts - start) / duration) * 100))}%` }}
+            title={`${node.label} · ${node.detail}`}
           >
             <span className="risk-timeline-dot" />
             <div className="risk-timeline-label">
-              <strong>{getRiskEventLabel(eventItem)}</strong>
+              <strong>{node.label}</strong>
             </div>
           </div>
         ))}

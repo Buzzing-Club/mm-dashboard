@@ -55,6 +55,19 @@ Mock 的策略校准口径：
 
 缺少上述字段时，真实 API 模式会明确显示“待接入”或“等待数据”；mock 模式提供完整示例，便于评审交互。
 
+### 市场生命周期契约
+
+策略端 `/api/dashboard/realtime` 的 `lifecycle` 同时提供交易期和结算期信息：
+
+- `start_time`、`end_time`：市场开盘时间与计划结束时间。
+- `settlement_phase`：`none`、`announcing`、`ruling1`、`dispute1`、`ruling2`、`dispute2` 或 `claimable`。
+- `current_outcome`、`dispute_count`、`phase_end_timestamp`：当前暂定结果、累计质疑次数和当前阶段截止时间。
+- `settled_outcome`、`settled_at`、`closed`：最终结果、链上结算完成时间和终态标记。
+
+风控看板将生命周期与策略状态事件绘制在同一条绝对时间轴上：青色为开盘，黄色为计划结束/裁定阶段，红色为质疑阶段，绿色为链上结算完成。质疑中的市场不会因 `end_time` 已过而从列表消失；刚完成结算的市场保留 24 小时供复盘。
+
+Mock 中包含三类可直接检查的样例：普通交易中市场、`BLACKWATER-GINEBRA-JUL24` 第一次质疑、`MAGNOLIA-MERALCO-JUL24` 链上结算完成。
+
 ## 本地运行
 
 ```bash
