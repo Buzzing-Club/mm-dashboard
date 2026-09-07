@@ -37,6 +37,7 @@ html {
 
 body {
   margin: 0;
+  overflow-x: clip;
   background:
     linear-gradient(180deg, rgba(32, 212, 155, 0.05), transparent 260px),
     linear-gradient(90deg, rgba(76, 201, 240, 0.035), transparent 42%, rgba(255, 176, 32, 0.025)),
@@ -313,6 +314,140 @@ h3 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   overscroll-behavior: contain;
   scrollbar-color: var(--line-strong) transparent;
+}
+
+.overview-diagnostics {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.85fr) minmax(520px, 1.15fr);
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.overview-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.overview-ranking {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b0d11;
+  padding: 10px;
+}
+
+.overview-ranking-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.overview-ranking-head strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.rank-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.rank-tabs button {
+  min-height: 26px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.rank-tabs button.active {
+  border-color: var(--line-strong);
+  background: var(--panel-3);
+  color: var(--foreground);
+}
+
+.ranking-list {
+  display: grid;
+  gap: 3px;
+}
+
+.ranking-list button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 28px;
+  gap: 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  padding: 0 6px;
+  text-align: left;
+}
+
+.ranking-list button:hover {
+  background: var(--panel-3);
+}
+
+.ranking-list button > span,
+.ranking-list button > em {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.ranking-list button > span {
+  color: var(--muted);
+}
+
+.ranking-list button > strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ranking-list button > em {
+  color: var(--amber);
+}
+
+.overview-statuses {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.overview-statuses span {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #0b0d11;
+  color: var(--text-soft);
+  font-size: 11px;
+  padding: 5px 7px;
+}
+
+.overview-statuses span.ok { color: var(--green); }
+.overview-statuses span.warn { color: var(--amber); }
+.overview-statuses span.bad { color: var(--red); }
+
+.overview-statuses b {
+  margin-left: 4px;
+  color: var(--foreground);
+  font-family: var(--font-geist-mono), monospace;
 }
 
 .scope-divider {
@@ -621,6 +756,70 @@ h3 {
   height: 246px;
 }
 
+.market-lifecycle {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b0d11;
+}
+
+.market-lifecycle > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 8px 10px;
+}
+
+.market-lifecycle > span + span {
+  border-left: 1px solid var(--line);
+}
+
+.market-lifecycle small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.market-lifecycle strong {
+  overflow: hidden;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.experience-quality-panel {
+  grid-column: span 2;
+}
+
+.experience-quality-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.slippage-count-panel {
+  grid-column: span 2;
+}
+
+.experience-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.chart-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  border: 1px dashed var(--line-strong);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .risk-panel {
   grid-column: 1 / -1;
 }
@@ -846,6 +1045,80 @@ h3 {
   white-space: nowrap;
 }
 
+.experience-incident-panel {
+  margin-top: 10px;
+}
+
+.experience-incident-timeline {
+  position: relative;
+  min-height: 116px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b0d11;
+  padding: 12px 16px;
+}
+
+.experience-incident-timeline::before {
+  position: absolute;
+  top: 55px;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+  background: rgba(126, 135, 150, 0.32);
+  content: "";
+}
+
+.experience-incident-boundary {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+}
+
+.experience-incident-node {
+  position: absolute;
+  top: 55px;
+  width: min(140px, 22%);
+  color: var(--amber);
+}
+
+.experience-incident-node.l1_distance_exceeded {
+  color: var(--red);
+}
+
+.experience-incident-node > span {
+  position: absolute;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #0b0d11;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+.experience-incident-node strong {
+  position: absolute;
+  left: -8px;
+  overflow: hidden;
+  width: max-content;
+  max-width: 140px;
+  color: var(--foreground);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.experience-incident-node.label-top strong {
+  bottom: 15px;
+}
+
+.experience-incident-node.label-bottom strong {
+  top: 18px;
+}
+
 .meter-stack {
   display: grid;
   gap: 10px;
@@ -934,6 +1207,52 @@ h3 {
 
 .tiny-stat-label.has-tooltip:hover::after,
 .tiny-stat-label.has-tooltip:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.micro-grid .tiny-stat:nth-child(even) .tiny-stat-label.has-tooltip::after,
+.experience-quality-grid .tiny-stat:last-child .tiny-stat-label.has-tooltip::after {
+  right: 0;
+  left: auto;
+}
+
+.status-label {
+  position: relative;
+  display: inline-block;
+}
+
+.status-label.has-tooltip {
+  cursor: help;
+  text-decoration: underline dotted rgba(126, 135, 150, 0.7);
+  text-underline-offset: 4px;
+}
+
+.status-label.has-tooltip::after {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 35;
+  width: min(380px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #171b22;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  color: var(--foreground);
+  content: attr(data-tooltip);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: normal;
+}
+
+.status-label.has-tooltip:hover::after,
+.status-label.has-tooltip:focus-visible::after {
   opacity: 1;
   transform: translateY(0);
 }
@@ -1391,9 +1710,16 @@ h3 {
   .detail-header,
   .detail-grid,
   .macro-business-grid,
+  .overview-diagnostics,
+  .experience-analytics-grid,
   .analytics-grid,
   .bottom-grid {
     grid-template-columns: 1fr;
+  }
+
+  .experience-quality-panel,
+  .slippage-count-panel {
+    grid-column: auto;
   }
 
   .market-rail {
@@ -1426,8 +1752,25 @@ h3 {
   .market-list,
   .market-overview .market-list,
   .book-grid,
-  .micro-grid {
+  .micro-grid,
+  .experience-quality-grid,
+  .overview-summary-grid,
+  .market-lifecycle {
     grid-template-columns: 1fr;
+  }
+
+  .market-lifecycle > span + span {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .overview-ranking-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .rank-tabs {
+    justify-content: flex-start;
   }
 
   .segmented {

@@ -27,6 +27,7 @@ import {
   Cell,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -49,6 +50,35 @@ type RiskStatus =
 
 type BoardId = "macro" | "experience" | "risk";
 type OutcomeSide = "yes" | "no";
+type ExperienceIncidentKind = "single_sided_empty" | "double_sided_empty" | "l1_distance_exceeded";
+
+type ExperienceIncidentMetric = {
+  count: number;
+  durationSeconds: number;
+  durationRatio: number;
+};
+
+type ExperienceIncident = {
+  ts: number;
+  time: string;
+  kind: ExperienceIncidentKind;
+  durationSeconds: number;
+  valuePct?: number | null;
+};
+
+type ExperienceHistoryPoint = {
+  ts: number;
+  time: string;
+  slippagePct: number | null;
+  impactPct: number | null;
+};
+
+type SlippageNotionalBucket = {
+  bucket: string;
+  tradeCount: number;
+  avgSlippagePct: number | null;
+  tone: "good" | "warn" | "bad";
+};
 
 type Market = {
   id: string;
@@ -92,12 +122,22 @@ type Market = {
     askSlope: number;
   }>;
   slippageBuckets: Array<{ bucket: string; count: number; tone: "good" | "warn" | "bad" }>;
+  slippageNotionalBuckets?: SlippageNotionalBucket[];
   bidLevels: Array<{ price: number; quantity: number }>;
   askLevels: Array<{ price: number; quantity: number }>;
   noBidLevels?: Array<{ price: number; quantity: number }>;
   noAskLevels?: Array<{ price: number; quantity: number }>;
   events: Array<{ ts?: number; time: string; type: string; detail: string; severity: "ok" | "warn" | "bad" }>;
   liquidityHistory?: LiquidityHistoryPoint[];
+  experienceQuality?: {
+    observedDurationSeconds: number;
+    l1DistanceThresholdPct: number;
+    singleSidedEmpty: ExperienceIncidentMetric;
+    doubleSidedEmpty: ExperienceIncidentMetric;
+    l1DistanceExceeded: ExperienceIncidentMetric;
+    incidents: ExperienceIncident[];
+    history: ExperienceHistoryPoint[];
+  };
   flash?: {
     actualPairsPerHour: number | null;
     actualAvgIntervalS: number | null;
@@ -234,7 +274,36 @@ type DashboardRealtimeItem = {
     wash_ratio?: string | number | null;
     avg_slippage?: string | number | null;
     slippage_distribution?: Array<{ bucket: string; count: number; tone?: "good" | "warn" | "bad" }> | null;
+    slippage_distribution_by_notional?: Array<{
+      bucket?: string | null;
+      trade_count?: string | number | null;
+      avg_slippage?: string | number | null;
+    }> | null;
   };
+  experience_quality?: {
+    observed_duration_s?: string | number | null;
+    l1_distance_threshold_pct?: string | number | null;
+    single_sided_empty?: DashboardIncidentMetric | null;
+    double_sided_empty?: DashboardIncidentMetric | null;
+    l1_distance_exceeded?: DashboardIncidentMetric | null;
+    incidents?: Array<{
+      ts?: string | number | null;
+      type?: ExperienceIncidentKind | string | null;
+      duration_s?: string | number | null;
+      value_pct?: string | number | null;
+    }> | null;
+    history?: Array<{
+      ts?: string | number | null;
+      slippage_pct?: string | number | null;
+      impact_pct?: string | number | null;
+    }> | null;
+  };
+};
+
+type DashboardIncidentMetric = {
+  count?: string | number | null;
+  duration_s?: string | number | null;
+  duration_ratio?: string | number | null;
 };
 
 type SingleMarketRealtimePayload = {
@@ -257,13 +326,18 @@ type SingleMarketRealtimePayload = {
         bucket?: string | null;
         trade_count?: string | number | null;
       }> | null;
+      distribution_by_notional?: Array<{
+        bucket?: string | null;
+        trade_count?: string | number | null;
+        avg_trade_slippage?: string | number | null;
+      }> | null;
     };
   } | null;
 };
 
 type SingleMarketMetrics = Pick<
   Market,
-  "avgSlippage" | "grossVolume" | "netVolume" | "pnl" | "slippageBuckets" | "traderCount" | "washRatio"
+  "avgSlippage" | "grossVolume" | "netVolume" | "pnl" | "slippageBuckets" | "slippageNotionalBuckets" | "traderCount" | "washRatio"
 >;
 
 type SingleMarketSlippageDistribution = NonNullable<
@@ -297,6 +371,21 @@ const statusMeta: Record<
   adverse_flow_protection: { label: "单边成交保护", tone: "bad", short: "FLOW" },
   negrisk_group_protection: { label: "组级保护", tone: "bad", short: "NEGRISK" },
   paused: { label: "暂停摆单", tone: "muted", short: "PAUSED" },
+};
+
+const riskStatusDescriptions: Record<RiskStatus, string> = {
+  normal_quote: "行情、盘口和预算均在阈值内，策略按正常参数进行双边报价。",
+  inventory_adjusted_quote: "库存偏离目标，策略调整报价中心或两侧数量，以降低库存风险。",
+  reduce_only: "库存或风险预算接近限制，仅保留能够降低当前风险敞口的报价。",
+  endgame_quote: "市场接近结束或结算，策略收紧档位并降低报价数量。",
+  budget_limited: "最坏情形 PnL 接近风险预算，策略限制新增风险与挂单规模。",
+  size_limited: "计算出的报价数量低于最小有效数量，部分档位不再下单。",
+  price_boundary_limited: "目标报价触及允许价格边界，策略对价格进行截断或停止该档报价。",
+  orderbook_missing: "权威订单簿缺失或未收敛，策略无法安全计算报价并暂停摆单。",
+  data_delay: "fair value、市场目录或行情超过新鲜度阈值，策略进入降级状态。",
+  adverse_flow_protection: "短时间内出现持续增加风险的单边成交，策略主动降低报价暴露。",
+  negrisk_group_protection: "关联 bucket 的组级最坏损失达到保护阈值，相关市场共同降级。",
+  paused: "运营人员或策略运行时主动暂停当前市场做市。",
 };
 
 const MOCK_OBSERVATION_AT = Date.parse("2026-08-28T18:59:30+08:00");
@@ -868,6 +957,85 @@ function buildSlippageBuckets(avgSlippage: number | null) {
   ];
 }
 
+function slippageTone(value: number | null): "good" | "warn" | "bad" {
+  if (value === null) return "warn";
+  if (value < 2) return "good";
+  if (value < 4) return "warn";
+  return "bad";
+}
+
+function buildSlippageNotionalBuckets(avgSlippage: number | null, index: number): SlippageNotionalBucket[] {
+  if (avgSlippage === null) return [];
+  return [
+    { bucket: "$0-25", tradeCount: 38 + (index % 8), avgSlippagePct: Number((avgSlippage * 0.72).toFixed(1)) },
+    { bucket: "$25-100", tradeCount: 24 + (index % 6), avgSlippagePct: Number((avgSlippage * 0.91).toFixed(1)) },
+    { bucket: "$100-500", tradeCount: 9 + (index % 5), avgSlippagePct: Number((avgSlippage * 1.18).toFixed(1)) },
+    { bucket: "$500+", tradeCount: 2 + (index % 3), avgSlippagePct: Number((avgSlippage * 1.56).toFixed(1)) },
+  ].map((bucket) => ({ ...bucket, tone: slippageTone(bucket.avgSlippagePct) }));
+}
+
+function withMockExperienceQuality(marketItem: Market, index: number): Market {
+  const start = timestamp(marketItem.startAt);
+  const end = timestamp(marketItem.endAt);
+  const observedEnd = clampTimestamp(MOCK_OBSERVATION_AT, start, end);
+  const observedDurationSeconds = Math.max(60, Math.round((observedEnd - start) / 1000));
+  const stressed = statusMeta[marketItem.riskStatus].tone !== "ok";
+  const singleCount = marketItem.riskStatus === "orderbook_missing" ? 6 : stressed ? 2 + (index % 3) : index % 2;
+  const doubleCount = marketItem.riskStatus === "orderbook_missing" ? 3 : stressed ? index % 2 : 0;
+  const distanceCount = stressed ? 2 + (index % 4) : index % 3;
+  const singleDuration = singleCount * (8 + (index % 5) * 3);
+  const doubleDuration = doubleCount * (6 + (index % 4) * 4);
+  const distanceDuration = distanceCount * (7 + (index % 6) * 2);
+  const incidentSpecs: Array<{ kind: ExperienceIncidentKind; count: number; duration: number; progress: number }> = [
+    { kind: "single_sided_empty", count: singleCount, duration: singleDuration, progress: 0.22 },
+    { kind: "double_sided_empty", count: doubleCount, duration: doubleDuration, progress: 0.48 },
+    { kind: "l1_distance_exceeded", count: distanceCount, duration: distanceDuration, progress: 0.72 },
+  ];
+  const incidents = incidentSpecs.flatMap((spec, specIndex) => (
+    Array.from({ length: Math.min(spec.count, 3) }, (_, eventIndex) => {
+      const progress = Math.min(0.94, spec.progress + eventIndex * 0.075 + specIndex * 0.025);
+      const ts = Math.round(start + (observedEnd - start) * progress);
+      return {
+        ts,
+        time: formatAxisTime(ts, marketItem.startAt, marketItem.endAt),
+        kind: spec.kind,
+        durationSeconds: Math.max(3, Math.round(spec.duration / Math.max(1, spec.count))),
+        valuePct: spec.kind === "l1_distance_exceeded" ? Number((1.1 + (index % 5) * 0.24).toFixed(2)) : null,
+      } satisfies ExperienceIncident;
+    })
+  ));
+  const history = lifecyclePoints(marketItem.startAt, marketItem.endAt, marketItem.series.length).map((point, pointIndex) => {
+    const baseSlippage = marketItem.avgSlippage ?? 0;
+    const wave = ((pointIndex + index) % 4 - 1.5) * 0.16;
+    return {
+      ...point,
+      slippagePct: marketItem.avgSlippage === null ? null : Number(Math.max(0, baseSlippage * (0.72 + pointIndex * 0.045 + wave)).toFixed(2)),
+      impactPct: marketItem.askSlope === null || marketItem.bidSlope === null
+        ? null
+        : Number(Math.max(0, marketItem.spread * 100 * (0.62 + pointIndex * 0.08 + wave)).toFixed(2)),
+    };
+  });
+  const metric = (count: number, durationSeconds: number): ExperienceIncidentMetric => ({
+    count,
+    durationSeconds,
+    durationRatio: durationSeconds / observedDurationSeconds,
+  });
+
+  return {
+    ...marketItem,
+    slippageNotionalBuckets: buildSlippageNotionalBuckets(marketItem.avgSlippage, index),
+    experienceQuality: {
+      observedDurationSeconds,
+      l1DistanceThresholdPct: 0.01,
+      singleSidedEmpty: metric(singleCount, singleDuration),
+      doubleSidedEmpty: metric(doubleCount, doubleDuration),
+      l1DistanceExceeded: metric(distanceCount, distanceDuration),
+      incidents,
+      history,
+    },
+  };
+}
+
 function riskReasonFor(status: RiskStatus) {
   const reasons: Record<RiskStatus, string> = {
     normal_quote: "fair value fresh, two-sided book healthy, budget inside guardrails",
@@ -1158,7 +1326,7 @@ function withMockFlash(marketItem: Market, index: number): Market {
 }
 
 const mockMarkets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))]
-  .map((marketItem, index) => retimeMarket(withMockFlash(marketItem, index)));
+  .map((marketItem, index) => withMockExperienceQuality(retimeMarket(withMockFlash(marketItem, index)), index));
 
 const filterOptions = [
   { id: "all", label: "全部", tag: null },
@@ -1358,6 +1526,32 @@ function singleMarketSlippageBuckets(buckets: SingleMarketSlippageDistribution) 
   });
 }
 
+function percentValue(value: string | number | null | undefined): number | null {
+  const parsed = numberValue(value);
+  if (parsed === null) return null;
+  return Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
+}
+
+function apiSlippageNotionalBuckets(
+  buckets: Array<{
+    bucket?: string | null;
+    trade_count?: string | number | null;
+    avg_slippage?: string | number | null;
+    avg_trade_slippage?: string | number | null;
+  }> | null | undefined,
+): SlippageNotionalBucket[] {
+  if (!Array.isArray(buckets)) return [];
+  return buckets.map((bucket) => {
+    const avgSlippagePct = percentValue(bucket.avg_trade_slippage ?? bucket.avg_slippage);
+    return {
+      bucket: String(bucket.bucket ?? "unknown"),
+      tradeCount: numberValue(bucket.trade_count) ?? 0,
+      avgSlippagePct,
+      tone: slippageTone(avgSlippagePct),
+    };
+  });
+}
+
 function mapSingleMarketMetrics(payload: SingleMarketRealtimePayload): SingleMarketMetrics | null {
   if (payload.code !== 0 || !payload.data) return null;
   const business = payload.data.business;
@@ -1372,6 +1566,7 @@ function mapSingleMarketMetrics(payload: SingleMarketRealtimePayload): SingleMar
       ? null
       : (numberValue(slippage.avg_trade_slippage) ?? 0) * 100,
     slippageBuckets: singleMarketSlippageBuckets(slippage?.distribution),
+    slippageNotionalBuckets: apiSlippageNotionalBuckets(slippage?.distribution_by_notional),
   };
 }
 
@@ -1422,6 +1617,63 @@ function flashKindStats(
       numberValue(flash?.[`${prefix}_actual_pairs_observed`])
       ?? numberValue(nested?.actual_pairs_observed),
     activePairs: numberValue(flash?.active_pairs_by_kind?.[kind]),
+  };
+}
+
+function dashboardIncidentMetric(
+  metric: DashboardIncidentMetric | null | undefined,
+  observedDurationSeconds: number,
+): ExperienceIncidentMetric {
+  const durationSeconds = numberValue(metric?.duration_s) ?? 0;
+  return {
+    count: numberValue(metric?.count) ?? 0,
+    durationSeconds,
+    durationRatio: numberValue(metric?.duration_ratio) ?? durationSeconds / Math.max(1, observedDurationSeconds),
+  };
+}
+
+function isExperienceIncidentKind(value: string | null | undefined): value is ExperienceIncidentKind {
+  return value === "single_sided_empty" || value === "double_sided_empty" || value === "l1_distance_exceeded";
+}
+
+function mapExperienceQuality(
+  quality: DashboardRealtimeItem["experience_quality"],
+  startAt: string,
+  endAt: string,
+) {
+  if (!quality) return undefined;
+  const start = timestamp(startAt);
+  const end = timestamp(endAt);
+  const observedDurationSeconds = numberValue(quality.observed_duration_s) ?? Math.max(60, Math.round((Math.min(Date.now(), end) - start) / 1000));
+  const incidents = (quality.incidents ?? []).flatMap((incident) => {
+    if (!isExperienceIncidentKind(incident.type)) return [];
+    const incidentTs = clampTimestamp(apiTimestamp(incident.ts, start), start, end);
+    return [{
+      ts: incidentTs,
+      time: formatAxisTime(incidentTs, startAt, endAt),
+      kind: incident.type,
+      durationSeconds: numberValue(incident.duration_s) ?? 0,
+      valuePct: percentValue(incident.value_pct),
+    } satisfies ExperienceIncident];
+  });
+  const history = (quality.history ?? []).map((point) => {
+    const pointTs = clampTimestamp(apiTimestamp(point.ts, start), start, end);
+    return {
+      ts: pointTs,
+      time: formatAxisTime(pointTs, startAt, endAt),
+      slippagePct: percentValue(point.slippage_pct),
+      impactPct: percentValue(point.impact_pct),
+    } satisfies ExperienceHistoryPoint;
+  });
+
+  return {
+    observedDurationSeconds,
+    l1DistanceThresholdPct: numberValue(quality.l1_distance_threshold_pct) ?? 0.01,
+    singleSidedEmpty: dashboardIncidentMetric(quality.single_sided_empty, observedDurationSeconds),
+    doubleSidedEmpty: dashboardIncidentMetric(quality.double_sided_empty, observedDurationSeconds),
+    l1DistanceExceeded: dashboardIncidentMetric(quality.l1_distance_exceeded, observedDurationSeconds),
+    incidents,
+    history,
   };
 }
 
@@ -1530,12 +1782,14 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
     endInMinutes: endMinutes(endAt),
     series,
     slippageBuckets: apiSlippageBuckets(item.backend_required?.slippage_distribution),
+    slippageNotionalBuckets: apiSlippageNotionalBuckets(item.backend_required?.slippage_distribution_by_notional),
     bidLevels: apiLevels(item.orderbook_quality?.yes, "bids"),
     askLevels: apiLevels(item.orderbook_quality?.yes, "asks"),
     noBidLevels: apiLevels(item.orderbook_quality?.no, "bids"),
     noAskLevels: apiLevels(item.orderbook_quality?.no, "asks"),
     events,
     liquidityHistory: liquidityHistory.length ? liquidityHistory : undefined,
+    experienceQuality: mapExperienceQuality(item.experience_quality, startAt, endAt),
     flash: {
       actualPairsPerHour: numberValue(item.flash?.actual_pairs_per_hour),
       actualAvgIntervalS: numberValue(item.flash?.actual_avg_interval_s),
@@ -1727,6 +1981,7 @@ export default function Home() {
       </section>
 
       <MarketOverview
+        markets={markets}
         filteredMarkets={filteredMarkets}
         marketCount={markets.length}
         visibleMarket={visibleMarket}
@@ -1815,6 +2070,7 @@ export default function Home() {
 }
 
 function MarketOverview({
+  markets,
   filteredMarkets,
   marketCount,
   visibleMarket,
@@ -1824,6 +2080,7 @@ function MarketOverview({
   setQuery,
   setActiveId,
 }: {
+  markets: Market[];
   filteredMarkets: Market[];
   marketCount: number;
   visibleMarket: Market;
@@ -1906,7 +2163,158 @@ function MarketOverview({
           );
         })}
       </div>
+
+      <MarketOverviewSummary markets={markets} setActiveId={setActiveId} />
     </section>
+  );
+}
+
+type OverviewRankMetric = "grossVolume" | "avgSlippage" | "singleSidedEmpty" | "l1DistanceExceeded";
+
+const overviewRankOptions: Array<{ id: OverviewRankMetric; label: string }> = [
+  { id: "grossVolume", label: "成交额" },
+  { id: "avgSlippage", label: "平均滑点" },
+  { id: "singleSidedEmpty", label: "单边空" },
+  { id: "l1DistanceExceeded", label: "L1 超距" },
+];
+
+function overviewMetricValue(marketItem: Market, metric: OverviewRankMetric) {
+  if (metric === "grossVolume") return marketItem.grossVolume;
+  if (metric === "avgSlippage") return marketItem.avgSlippage ?? -1;
+  if (metric === "singleSidedEmpty") return marketItem.experienceQuality?.singleSidedEmpty.count ?? -1;
+  return marketItem.experienceQuality?.l1DistanceExceeded.count ?? -1;
+}
+
+function overviewMetricLabel(value: number, metric: OverviewRankMetric) {
+  if (value < 0) return "待接入";
+  if (metric === "grossVolume") return currency(value);
+  if (metric === "avgSlippage") return `${value.toFixed(1)}%`;
+  return `${Math.round(value)} 次`;
+}
+
+function MarketOverviewSummary({ markets, setActiveId }: { markets: Market[]; setActiveId: (value: string) => void }) {
+  const [rankMetric, setRankMetric] = useState<OverviewRankMetric>("avgSlippage");
+  const abnormalMarkets = markets.filter((marketItem) => statusMeta[marketItem.riskStatus].tone !== "ok");
+  const singleSidedEvents = markets.reduce((total, marketItem) => total + (marketItem.experienceQuality?.singleSidedEmpty.count ?? 0), 0);
+  const l1DistanceEvents = markets.reduce((total, marketItem) => total + (marketItem.experienceQuality?.l1DistanceExceeded.count ?? 0), 0);
+  const rankings = [...markets]
+    .sort((left, right) => overviewMetricValue(right, rankMetric) - overviewMetricValue(left, rankMetric))
+    .slice(0, 5);
+  const statusCounts = Object.entries(
+    markets.reduce<Partial<Record<RiskStatus, number>>>((counts, marketItem) => ({
+      ...counts,
+      [marketItem.riskStatus]: (counts[marketItem.riskStatus] ?? 0) + 1,
+    }), {}),
+  ).sort(([, left], [, right]) => (right ?? 0) - (left ?? 0));
+
+  return (
+    <div className="overview-diagnostics" aria-label="总体市场指标与排名">
+      <div className="overview-summary-grid">
+        <TinyStat label="Live Markets" value={`${markets.length}`} tone="ok" />
+        <TinyStat label="Attention Markets" value={`${abnormalMarkets.length}`} tone={abnormalMarkets.length ? "warn" : "ok"} />
+        <TinyStat label="Single-side Empty" value={`${singleSidedEvents} 次`} tone={singleSidedEvents ? "warn" : "ok"} />
+        <TinyStat label="L1 Distance > 1%" value={`${l1DistanceEvents} 次`} tone={l1DistanceEvents ? "bad" : "ok"} />
+      </div>
+      <div className="overview-ranking">
+        <div className="overview-ranking-head">
+          <div>
+            <p className="section-label">Cross-market Ranking</p>
+            <strong>市场排名</strong>
+          </div>
+          <div className="rank-tabs" aria-label="切换总体指标排名">
+            {overviewRankOptions.map((option) => (
+              <button key={option.id} className={rankMetric === option.id ? "active" : ""} type="button" onClick={() => setRankMetric(option.id)}>
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="ranking-list">
+          {rankings.map((marketItem, index) => {
+            const value = overviewMetricValue(marketItem, rankMetric);
+            return (
+              <button key={marketItem.id} type="button" onClick={() => setActiveId(marketItem.id)}>
+                <span>{index + 1}</span>
+                <strong>{marketItem.event}</strong>
+                <em>{overviewMetricLabel(value, rankMetric)}</em>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="overview-statuses" aria-label="当前市场风控状态分布">
+        {statusCounts.map(([status, count]) => {
+          const meta = statusMeta[status as RiskStatus];
+          return <span key={status} className={meta.tone} title={riskStatusDescriptions[status as RiskStatus]}>{meta.label} <b>{count}</b></span>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function durationLabel(totalSeconds: number) {
+  const minutes = Math.max(0, Math.round(totalSeconds / 60));
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours < 24) return remainder ? `${hours} 小时 ${remainder} 分` : `${hours} 小时`;
+  const days = Math.floor(hours / 24);
+  return `${days} 天 ${hours % 24} 小时`;
+}
+
+function MarketLifecycle({ market }: { market: Market }) {
+  const totalSeconds = Math.max(0, Math.round((timestamp(market.endAt) - timestamp(market.startAt)) / 1000));
+  const remainingSeconds = Math.max(0, market.endInMinutes * 60);
+  const elapsedSeconds = Math.max(0, totalSeconds - remainingSeconds);
+  return (
+    <div className="market-lifecycle" aria-label="市场生命周期">
+      <span><small>开盘时间</small><strong>{formatAxisTime(timestamp(market.startAt), market.startAt, market.endAt)}</strong></span>
+      <span><small>已运行</small><strong>{durationLabel(elapsedSeconds)}</strong></span>
+      <span><small>距离结算</small><strong>{durationLabel(remainingSeconds)}</strong></span>
+    </div>
+  );
+}
+
+const experienceIncidentLabels: Record<ExperienceIncidentKind, string> = {
+  single_sided_empty: "单边空盘",
+  double_sided_empty: "双边空盘",
+  l1_distance_exceeded: "L1 距离超限",
+};
+
+function incidentMetricText(metric: ExperienceIncidentMetric | undefined) {
+  if (!metric) return "待接入";
+  return `${metric.count} 次 · ${metric.durationSeconds}s · ${(metric.durationRatio * 100).toFixed(1)}%`;
+}
+
+function ExperienceIncidentTimeline({ market }: { market: Market }) {
+  const start = timestamp(market.startAt);
+  const end = timestamp(market.endAt);
+  const duration = Math.max(1, end - start);
+  const incidents = market.experienceQuality?.incidents ?? [];
+  return (
+    <div className="experience-incident-panel panel">
+      <div className="panel-title">
+        <span><Activity size={16} /> 体验异常时间轴</span>
+        <small>{incidents.length ? `${incidents.length} events` : "等待策略埋点"}</small>
+      </div>
+      <div className="experience-incident-timeline">
+        <div className="experience-incident-boundary">
+          <span>{formatAxisTime(start, market.startAt, market.endAt)}</span>
+          <span>{formatAxisTime(end, market.startAt, market.endAt)}</span>
+        </div>
+        {incidents.map((incident, index) => (
+          <div
+            key={`${incident.kind}-${incident.ts}-${index}`}
+            className={`experience-incident-node ${incident.kind} ${index % 2 === 0 ? "label-top" : "label-bottom"}`}
+            style={{ left: `${Math.min(94, Math.max(5, ((incident.ts - start) / duration) * 100))}%` }}
+            title={`${experienceIncidentLabels[incident.kind]} · 持续 ${incident.durationSeconds}s${incident.valuePct ? ` · ${incident.valuePct.toFixed(2)}%` : ""}`}
+          >
+            <span />
+            <strong>{experienceIncidentLabels[incident.kind]}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1922,6 +2330,7 @@ function MacroBoard({
   return (
     <>
       <BoardChartToolbar title="Business Trend" timeframe={timeframe} setTimeframe={setTimeframe} />
+      <MarketLifecycle market={visibleMarket} />
 
       <div className="macro-business-grid">
         <div className="panel">
@@ -2000,7 +2409,22 @@ function ExperienceBoard({
 
   return (
     <>
+      <BoardChartToolbar title="Experience Quality" timeframe={timeframe} setTimeframe={setTimeframe} />
+      <MarketLifecycle market={visibleMarket} />
+
       <div className="detail-grid experience-detail-grid">
+        <div className="panel experience-quality-panel">
+          <div className="panel-title">
+            <span><AlertTriangle size={16} /> 盘口可用性</span>
+            <small>次数 · 时长 · 运行占比</small>
+          </div>
+          <div className="micro-grid experience-quality-grid">
+            <TinyStat label="Single-side Empty" value={incidentMetricText(visibleMarket.experienceQuality?.singleSidedEmpty)} tone={(visibleMarket.experienceQuality?.singleSidedEmpty.count ?? 0) > 0 ? "warn" : "ok"} />
+            <TinyStat label="Double-side Empty" value={incidentMetricText(visibleMarket.experienceQuality?.doubleSidedEmpty)} tone={(visibleMarket.experienceQuality?.doubleSidedEmpty.count ?? 0) > 0 ? "bad" : "ok"} />
+            <TinyStat label="L1 Distance > 1%" value={incidentMetricText(visibleMarket.experienceQuality?.l1DistanceExceeded)} tone={(visibleMarket.experienceQuality?.l1DistanceExceeded.count ?? 0) > 0 ? "bad" : "ok"} />
+          </div>
+        </div>
+
         <div className="panel">
           <div className="panel-title">
             <span><Gauge size={16} /> 闪单参数监控</span>
@@ -2033,7 +2457,7 @@ function ExperienceBoard({
           </div>
         </div>
 
-        <div className="panel chart-panel">
+        <div className="panel chart-panel slippage-count-panel">
           <div className="panel-title">
             <span><TimerReset size={16} /> Slippage Dist</span>
             <small>filled orders</small>
@@ -2055,6 +2479,68 @@ function ExperienceBoard({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <ExperienceIncidentTimeline market={visibleMarket} />
+
+      <div className="experience-analytics-grid">
+        <div className="panel chart-panel">
+          <div className="panel-title">
+            <span><LineChart size={16} /> 滑点与交易冲击变化</span>
+            <small>{visibleMarket.experienceQuality?.history.length ? timeframe : "等待时序数据"}</small>
+          </div>
+          <div className="chart-frame compact-chart">
+            {visibleMarket.experienceQuality?.history.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={visibleMarket.experienceQuality.history}>
+                  <CartesianGrid stroke="#242833" vertical={false} />
+                  <XAxis
+                    dataKey="ts"
+                    type="number"
+                    domain={[timestamp(visibleMarket.startAt), timestamp(visibleMarket.endAt)]}
+                    ticks={axisTicks(visibleMarket.startAt, visibleMarket.endAt)}
+                    tickFormatter={(value) => formatAxisTime(Number(value), visibleMarket.startAt, visibleMarket.endAt)}
+                    tickLine={false}
+                    axisLine={false}
+                    stroke="#798191"
+                    fontSize={11}
+                  />
+                  <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} unit="%" />
+                  <Tooltip content={<ChartTooltip />} />
+                  {(visibleMarket.experienceQuality.incidents ?? []).map((incident) => (
+                    <ReferenceLine key={`${incident.kind}-${incident.ts}`} x={incident.ts} stroke={incident.kind === "l1_distance_exceeded" ? "#ff5c6c" : "#ffb020"} strokeDasharray="3 3" />
+                  ))}
+                  <Line type="monotone" dataKey="slippagePct" name="Slippage" stroke="#ffb020" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="impactPct" name="Impact" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">等待策略端提供滑点与交易冲击时序</div>}
+          </div>
+        </div>
+
+        <div className="panel chart-panel">
+          <div className="panel-title">
+            <span><TimerReset size={16} /> 按单笔金额分层滑点</span>
+            <small>{visibleMarket.slippageNotionalBuckets?.length ? "notional buckets" : "等待后端数据"}</small>
+          </div>
+          <div className="chart-frame compact-chart">
+            {visibleMarket.slippageNotionalBuckets?.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={visibleMarket.slippageNotionalBuckets}>
+                  <CartesianGrid stroke="#242833" vertical={false} />
+                  <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                  <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} unit="%" />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="avgSlippagePct" name="Avg Slippage" radius={[3, 3, 0, 0]}>
+                    {visibleMarket.slippageNotionalBuckets.map((entry) => (
+                      <Cell key={entry.bucket} fill={entry.tone === "good" ? "#20d49b" : entry.tone === "warn" ? "#ffb020" : "#ff5c6c"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">等待后端按成交金额区间返回滑点分布</div>}
           </div>
         </div>
       </div>
@@ -2084,6 +2570,9 @@ function ExperienceBoard({
                 />
                 <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
+                {(visibleMarket.experienceQuality?.incidents ?? []).map((incident) => (
+                  <ReferenceLine key={`${incident.kind}-${incident.ts}`} x={incident.ts} stroke={incident.kind === "l1_distance_exceeded" ? "#ff5c6c" : "#ffb020"} strokeDasharray="3 3" />
+                ))}
                 <Area type="monotone" dataKey="availableLiquidity" name="Liquidity" fill="#20d49b33" stroke="#20d49b" strokeWidth={2} dot={<LiquidityEventDot />} />
                 <Line type="monotone" dataKey="initialBaseline" name="Initial Baseline" stroke="#4cc9f0" strokeDasharray="4 4" strokeWidth={2} dot={false} />
               </ComposedChart>
@@ -2156,7 +2645,14 @@ function RiskBoard({
               {statusMeta[visibleMarket.riskStatus].tone === "ok" ? <CircleDot size={18} /> : <AlertTriangle size={18} />}
             </div>
             <div>
-              <strong>{statusMeta[visibleMarket.quoteMode].label}</strong>
+              <strong
+                className="status-label has-tooltip"
+                data-tooltip={riskStatusDescriptions[visibleMarket.quoteMode]}
+                tabIndex={0}
+                title={riskStatusDescriptions[visibleMarket.quoteMode]}
+              >
+                {statusMeta[visibleMarket.quoteMode].label}
+              </strong>
               <p>{visibleMarket.riskReason}</p>
             </div>
           </div>
@@ -2288,6 +2784,11 @@ function Meter({ label, value, figure, tone = "warn" }: { label: string; value: 
 }
 
 const tinyStatDescriptions: Record<string, string> = {
+  "Live Markets": "当前仍在实时看板范围内的市场数量。",
+  "Attention Markets": "当前风控状态不是正常摆单，或数据新鲜度异常的市场数量。",
+  "Single-side Empty": "观察窗口内 YES 或 NO 仅一侧订单簿为空的次数、累计持续秒数，以及占市场已运行时长的比例。",
+  "Double-side Empty": "观察窗口内 YES 与 NO 两侧订单簿同时为空的次数、累计持续秒数，以及占市场已运行时长的比例。",
+  "L1 Distance > 1%": "闪单价格与当时订单簿一档价格距离超过 1% 的次数、累计持续秒数，以及占市场已运行时长的比例。",
   "Gross Volume": "当前选中市场的累计双边成交额，用于观察这个市场本身的交易规模。",
   "Net Volume": "当前选中市场剔除刷量或内部成交后的真实成交额；未知时显示 unknown。",
   "Trader Count": "当前选中市场内参与过有效交易或关键交互的用户数量。",
@@ -2296,7 +2797,7 @@ const tinyStatDescriptions: Record<string, string> = {
   "Avg Flash Interval": "策略端最近观测到的闪单 pair 平均间隔，用于判断闪单是否按预期 cadence 运行。",
   "Active Pairs": "当前市场正在存活的闪单挂单对数，以及配置允许的最大挂单对数。",
   "Tier-1 Freq": "一档贴近操作的目标触发频率，文档口径约为每 12 秒一次，即 300 次/小时。",
-  "Mid Insert Freq": "中间档位插入的目标触发频率，文档口径约为每 10 秒随机插入一次，即 360 次/小时。",
+  "Mid Freq": "中间档位插入的实际触发频率，按观测窗口折算为每小时次数。",
   "L1 Distance": "闪单生成价格相对当前订单簿一档位置的距离；策略端尚未提供时显示 missing。",
   "Max Live Pairs": "同一市场同一时刻允许存在的最大 Bot 挂单对数，用于控制并发挂单和保证金占用。",
   "Avg Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",

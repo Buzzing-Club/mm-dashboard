@@ -34,6 +34,7 @@ test("server-renders the market-making dashboard shell", async () => {
   assert.match(html, /Market Overview/);
   assert.match(html, /总体市场筛选/);
   assert.match(html, /单市场信息/);
+  assert.match(html, /Cross-market Ranking/);
   assert.match(html, /data-source-loading/);
 });
 
@@ -61,6 +62,13 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /initial_liquidity_source/);
   assert.match(page, /yes_book_liquidity/);
   assert.match(page, /label_zh/);
+  assert.match(page, /experience_quality/);
+  assert.match(page, /single_sided_empty/);
+  assert.match(page, /double_sided_empty/);
+  assert.match(page, /l1_distance_exceeded/);
+  assert.match(page, /slippage_distribution_by_notional/);
+  assert.match(page, /MarketOverviewSummary/);
+  assert.match(page, /ExperienceIncidentTimeline/);
   assert.match(route, /STRATEGY_DASHBOARD_API/);
   assert.match(route, /CF_ACCESS_CLIENT_ID/);
   assert.match(route, /CF-Access-Client-Secret/);
