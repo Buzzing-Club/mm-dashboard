@@ -392,6 +392,19 @@ const MOCK_OBSERVATION_AT = Date.parse("2026-08-28T18:59:30+08:00");
 const MINUTE_MS = 60 * 1000;
 const DASHBOARD_REFRESH_MS = 30_000;
 const MARKET_LIST_LIMIT = 80;
+const MOCK_STRATEGY_CALIBRATION = {
+  askTotalQtyPerOutcome: 30,
+  bidTotalCash: 16,
+  qMax: 80,
+  reduceOnlyRatio: 0.75,
+  emptyConfirmSeconds: 4,
+  emptyAlertSeconds: 30,
+  flashPairsPerMinute: 9.2,
+  flashMaxPairsTotal: 5,
+  flashTier1DistanceTicks: 1,
+  flashMidMinLevel: 2,
+  flashMidMaxLevel: 5,
+} as const;
 
 function marketWindow(endInMinutes: number, elapsedSinceStartMinutes = 240) {
   const endMs = MOCK_OBSERVATION_AT + endInMinutes * MINUTE_MS;
@@ -936,7 +949,7 @@ function buildLevels(bestPrice: number, side: "bid" | "ask", liquidity: number) 
   }));
 }
 
-function buildSlippageBuckets(avgSlippage: number | null) {
+function buildSlippageBuckets(avgSlippage: number | null, sampleSize = 80) {
   if (avgSlippage === null) {
     return [
       { bucket: "0-1%", count: 0, tone: "good" as const },
@@ -947,13 +960,16 @@ function buildSlippageBuckets(avgSlippage: number | null) {
     ];
   }
 
-  const load = Math.max(8, Math.round(40 + avgSlippage * 7));
+  const load = Math.max(8, Math.round(sampleSize * 1.35));
+  const badShare = Math.min(0.26, Math.max(0.03, avgSlippage / 34));
+  const warnShare = Math.min(0.34, Math.max(0.14, avgSlippage / 22));
+  const goodShare = 1 - badShare - warnShare;
   return [
-    { bucket: "0-1%", count: Math.max(2, Math.round(load * 0.24)), tone: "good" as const },
-    { bucket: "1-2%", count: Math.max(4, Math.round(load * 0.34)), tone: "good" as const },
-    { bucket: "2-4%", count: Math.max(2, Math.round(load * 0.23)), tone: "warn" as const },
-    { bucket: "4-8%", count: Math.max(1, Math.round(load * 0.13)), tone: "bad" as const },
-    { bucket: ">8%", count: Math.max(0, Math.round(load * 0.06)), tone: "bad" as const },
+    { bucket: "0-1%", count: Math.max(1, Math.round(load * goodShare * 0.42)), tone: "good" as const },
+    { bucket: "1-2%", count: Math.max(1, Math.round(load * goodShare * 0.58)), tone: "good" as const },
+    { bucket: "2-4%", count: Math.max(1, Math.round(load * warnShare)), tone: "warn" as const },
+    { bucket: "4-8%", count: Math.max(1, Math.round(load * badShare * 0.72)), tone: "bad" as const },
+    { bucket: ">8%", count: Math.max(0, Math.round(load * badShare * 0.28)), tone: "bad" as const },
   ];
 }
 
@@ -964,14 +980,37 @@ function slippageTone(value: number | null): "good" | "warn" | "bad" {
   return "bad";
 }
 
-function buildSlippageNotionalBuckets(avgSlippage: number | null, index: number): SlippageNotionalBucket[] {
+function buildSlippageNotionalBuckets(
+  avgSlippage: number | null,
+  marketItem: Market,
+  index: number,
+): SlippageNotionalBucket[] {
   if (avgSlippage === null) return [];
+  const observedTrades = Math.max(12, Math.round(marketItem.traderCount * (1.45 + (index % 4) * 0.12)));
+  const depthPressure = Math.min(1.9, Math.max(0.85, 520 / Math.max(180, marketItem.liquidity)));
   return [
-    { bucket: "$0-25", tradeCount: 38 + (index % 8), avgSlippagePct: Number((avgSlippage * 0.72).toFixed(1)) },
-    { bucket: "$25-100", tradeCount: 24 + (index % 6), avgSlippagePct: Number((avgSlippage * 0.91).toFixed(1)) },
-    { bucket: "$100-500", tradeCount: 9 + (index % 5), avgSlippagePct: Number((avgSlippage * 1.18).toFixed(1)) },
-    { bucket: "$500+", tradeCount: 2 + (index % 3), avgSlippagePct: Number((avgSlippage * 1.56).toFixed(1)) },
+    { bucket: "$0-25", tradeCount: Math.round(observedTrades * 0.56), avgSlippagePct: Number((avgSlippage * 0.58).toFixed(1)) },
+    { bucket: "$25-100", tradeCount: Math.round(observedTrades * 0.29), avgSlippagePct: Number((avgSlippage * 0.88).toFixed(1)) },
+    { bucket: "$100-500", tradeCount: Math.max(1, Math.round(observedTrades * 0.12)), avgSlippagePct: Number((avgSlippage * 1.34 * depthPressure).toFixed(1)) },
+    { bucket: "$500+", tradeCount: Math.max(1, Math.round(observedTrades * 0.03)), avgSlippagePct: Number((avgSlippage * 2.05 * depthPressure).toFixed(1)) },
   ].map((bucket) => ({ ...bucket, tone: slippageTone(bucket.avgSlippagePct) }));
+}
+
+function deriveMockSlippage(marketItem: Market, index: number) {
+  if (!marketItem.mid || !marketItem.spread || marketItem.riskStatus === "orderbook_missing") return null;
+  const halfSpreadPct = (marketItem.spread / (2 * marketItem.mid)) * 100;
+  const liquidityPressure = Math.min(1.55, Math.max(0.72, 480 / Math.max(180, marketItem.liquidity)));
+  const statePressure: Partial<Record<RiskStatus, number>> = {
+    inventory_adjusted_quote: 1.08,
+    reduce_only: 1.28,
+    endgame_quote: 1.18,
+    budget_limited: 1.32,
+    data_delay: 1.24,
+    adverse_flow_protection: 1.38,
+    negrisk_group_protection: 1.3,
+  };
+  const sampleNoise = 0.94 + (index % 5) * 0.025;
+  return Number(Math.min(18, Math.max(0.35, halfSpreadPct * liquidityPressure * (statePressure[marketItem.riskStatus] ?? 1) * sampleNoise)).toFixed(1));
 }
 
 function withMockExperienceQuality(marketItem: Market, index: number): Market {
@@ -979,13 +1018,19 @@ function withMockExperienceQuality(marketItem: Market, index: number): Market {
   const end = timestamp(marketItem.endAt);
   const observedEnd = clampTimestamp(MOCK_OBSERVATION_AT, start, end);
   const observedDurationSeconds = Math.max(60, Math.round((observedEnd - start) / 1000));
-  const stressed = statusMeta[marketItem.riskStatus].tone !== "ok";
-  const singleCount = marketItem.riskStatus === "orderbook_missing" ? 6 : stressed ? 2 + (index % 3) : index % 2;
-  const doubleCount = marketItem.riskStatus === "orderbook_missing" ? 3 : stressed ? index % 2 : 0;
-  const distanceCount = stressed ? 2 + (index % 4) : index % 3;
-  const singleDuration = singleCount * (8 + (index % 5) * 3);
-  const doubleDuration = doubleCount * (6 + (index % 4) * 4);
-  const distanceDuration = distanceCount * (7 + (index % 6) * 2);
+  const avgSlippage = deriveMockSlippage(marketItem, index);
+  const singleSideRisk = new Set<RiskStatus>(["size_limited", "price_boundary_limited", "reduce_only"]);
+  const flashDistanceRisk = new Set<RiskStatus>(["data_delay", "budget_limited", "adverse_flow_protection", "negrisk_group_protection"]);
+  const isMissing = marketItem.riskStatus === "orderbook_missing";
+  const inventoryNearReduceOnly = Math.abs(marketItem.inventory) >= MOCK_STRATEGY_CALIBRATION.qMax * MOCK_STRATEGY_CALIBRATION.reduceOnlyRatio;
+  const singleCount = isMissing ? 1 : singleSideRisk.has(marketItem.riskStatus) || inventoryNearReduceOnly ? 1 + (index % 2) : index % 7 === 0 ? 1 : 0;
+  const doubleCount = isMissing ? 1 : 0;
+  const distanceCount = flashDistanceRisk.has(marketItem.riskStatus) ? 1 + (index % 3) : index % 5 === 0 ? 1 : 0;
+  const singleDuration = singleCount * (MOCK_STRATEGY_CALIBRATION.emptyConfirmSeconds + 2 + (index % 5) * 2);
+  const doubleDuration = doubleCount
+    ? Math.max(MOCK_STRATEGY_CALIBRATION.emptyAlertSeconds, marketItem.staleSeconds)
+    : 0;
+  const distanceDuration = distanceCount * (5 + (index % 4) * 3);
   const incidentSpecs: Array<{ kind: ExperienceIncidentKind; count: number; duration: number; progress: number }> = [
     { kind: "single_sided_empty", count: singleCount, duration: singleDuration, progress: 0.22 },
     { kind: "double_sided_empty", count: doubleCount, duration: doubleDuration, progress: 0.48 },
@@ -1005,11 +1050,11 @@ function withMockExperienceQuality(marketItem: Market, index: number): Market {
     })
   ));
   const history = lifecyclePoints(marketItem.startAt, marketItem.endAt, marketItem.series.length).map((point, pointIndex) => {
-    const baseSlippage = marketItem.avgSlippage ?? 0;
+    const baseSlippage = avgSlippage ?? 0;
     const wave = ((pointIndex + index) % 4 - 1.5) * 0.16;
     return {
       ...point,
-      slippagePct: marketItem.avgSlippage === null ? null : Number(Math.max(0, baseSlippage * (0.72 + pointIndex * 0.045 + wave)).toFixed(2)),
+      slippagePct: avgSlippage === null ? null : Number(Math.max(0, baseSlippage * (0.72 + pointIndex * 0.045 + wave)).toFixed(2)),
       impactPct: marketItem.askSlope === null || marketItem.bidSlope === null
         ? null
         : Number(Math.max(0, marketItem.spread * 100 * (0.62 + pointIndex * 0.08 + wave)).toFixed(2)),
@@ -1023,7 +1068,9 @@ function withMockExperienceQuality(marketItem: Market, index: number): Market {
 
   return {
     ...marketItem,
-    slippageNotionalBuckets: buildSlippageNotionalBuckets(marketItem.avgSlippage, index),
+    avgSlippage,
+    slippageBuckets: buildSlippageBuckets(avgSlippage, marketItem.traderCount),
+    slippageNotionalBuckets: buildSlippageNotionalBuckets(avgSlippage, marketItem, index),
     experienceQuality: {
       observedDurationSeconds,
       l1DistanceThresholdPct: 0.01,
@@ -1163,9 +1210,22 @@ function buildLiquidityHistory(market: Market): LiquidityHistoryPoint[] {
     return market.liquidityHistory;
   }
 
+  const baselineRatio: Partial<Record<RiskStatus, number>> = {
+    normal_quote: 0.96,
+    inventory_adjusted_quote: 1.12,
+    reduce_only: 1.42,
+    endgame_quote: 1.36,
+    budget_limited: 1.48,
+    data_delay: 1.3,
+    adverse_flow_protection: 1.55,
+    negrisk_group_protection: 1.45,
+    orderbook_missing: 1,
+  };
   const initialLiquidity = market.liquidity
-    ? Math.round(market.liquidity * 0.72)
-    : Math.max(140, Math.round(market.grossVolume / 64));
+    ? Math.round(market.liquidity * (baselineRatio[market.riskStatus] ?? 1.08))
+    : market.riskStatus === "orderbook_missing"
+      ? Math.max(45, Math.round(market.grossVolume / 260))
+      : Math.max(140, Math.round(market.grossVolume / 64));
   const liquidityChange = market.liquidity - initialLiquidity;
   const stressed = statusMeta[market.riskStatus].tone !== "ok";
   const points = market.series;
@@ -1235,9 +1295,8 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
     : tone === "ok"
       ? "live"
       : "degraded";
-  const qMax = 80;
+  const qMax = MOCK_STRATEGY_CALIBRATION.qMax;
   const maxLossBudget = 30;
-  const liquidity = seed.riskStatus === "orderbook_missing" ? 0 : Math.max(160, Math.round(seed.volume / 31));
   const spread = seed.riskStatus === "orderbook_missing"
     ? 0
     : seed.riskStatus === "normal_quote"
@@ -1248,6 +1307,14 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
   const mid = seed.riskStatus === "orderbook_missing"
     ? 0
     : Math.min(0.82, Math.max(0.18, 0.47 + ((index % 11) - 5) * 0.027));
+  const strategyLiquidityFloor = mid
+    ? MOCK_STRATEGY_CALIBRATION.askTotalQtyPerOutcome * 2
+      + (MOCK_STRATEGY_CALIBRATION.bidTotalCash / 2) / mid
+      + (MOCK_STRATEGY_CALIBRATION.bidTotalCash / 2) / (1 - mid)
+    : 0;
+  const liquidity = seed.riskStatus === "orderbook_missing"
+    ? 0
+    : Math.max(Math.round(strategyLiquidityFloor * (2.1 + (index % 4) * 0.45)), Math.round(seed.volume / 31));
   const bestBid = mid ? Number(Math.max(0.01, mid - spread / 2).toFixed(2)) : 0;
   const bestAsk = mid ? Number(Math.min(0.99, mid + spread / 2).toFixed(2)) : 0;
   const washRatio = index % 9 === 0 ? null : Number((0.06 + (index % 6) * 0.025).toFixed(2));
@@ -1300,13 +1367,30 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
 }
 
 function withMockFlash(marketItem: Market, index: number): Market {
-  if (marketItem.flash || marketItem.riskStatus === "orderbook_missing" || marketItem.status === "paused") {
+  if (marketItem.flash) {
     return marketItem;
   }
-  const tier1PairsPerHour = 240 + (index % 5) * 24;
-  const midPairsPerHour = 120 + (index % 4) * 18;
-  const tier1ActivePairs = 1 + (index % 2);
-  const midActivePairs = 1 + (index % 3);
+  const quoteBlocked = new Set<RiskStatus>([
+    "orderbook_missing",
+    "paused",
+    "endgame_quote",
+    "budget_limited",
+    "adverse_flow_protection",
+    "negrisk_group_protection",
+  ]).has(marketItem.riskStatus);
+  const recentlyBlocked = quoteBlocked || marketItem.riskStatus === "data_delay" || marketItem.riskStatus === "reduce_only";
+  const measuredPairsPerHour = MOCK_STRATEGY_CALIBRATION.flashPairsPerMinute * 60;
+  const throughputFactor = recentlyBlocked ? 0.38 + (index % 3) * 0.08 : 0.9 + (index % 4) * 0.035;
+  const totalPairsPerHour = Math.round(measuredPairsPerHour * throughputFactor);
+  const tier1Share = 0.48 + (index % 3) * 0.02;
+  const tier1PairsPerHour = Math.round(totalPairsPerHour * tier1Share);
+  const midPairsPerHour = totalPairsPerHour - tier1PairsPerHour;
+  const tier1ActivePairs = quoteBlocked ? 0 : index % 3 === 0 ? 2 : 1;
+  const midActivePairs = quoteBlocked ? 0 : Math.min(3, 1 + (index % 3));
+  const latestWasTier1 = index % 3 !== 1;
+  const l1DistanceTicks = latestWasTier1
+    ? MOCK_STRATEGY_CALIBRATION.flashTier1DistanceTicks
+    : MOCK_STRATEGY_CALIBRATION.flashMidMinLevel + (index % (MOCK_STRATEGY_CALIBRATION.flashMidMaxLevel - MOCK_STRATEGY_CALIBRATION.flashMidMinLevel + 1));
   return {
     ...marketItem,
     flash: {
@@ -1319,8 +1403,8 @@ function withMockFlash(marketItem: Market, index: number): Market {
       activePairs: tier1ActivePairs + midActivePairs,
       tier1ActivePairs,
       midActivePairs,
-      maxPairsTotal: 5,
-      l1DistanceTicks: 1 + (index % 4),
+      maxPairsTotal: MOCK_STRATEGY_CALIBRATION.flashMaxPairsTotal,
+      l1DistanceTicks,
     },
   };
 }

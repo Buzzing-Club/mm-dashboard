@@ -19,7 +19,19 @@ Mock 数据参考了这些本地材料：
 - `/Users/Admin/Documents/New project/pmmm/prd_market_dashboard_review.xml`
 - `/Users/Admin/Documents/New project/pmmm/risk_status_block.xml`
 - `/Users/Admin/Documents/New project/pmmm/research/market-spread-benchmark/README.md`
+- `/Users/Admin/Documents/New project/pmmm/research/market-spread-benchmark/benchmark_research_v1.md`
+- `/Users/Admin/Documents/New project/buzzing-mm-system/docs/FLASH_BOT.md`（`preview`）
+- `/Users/Admin/Documents/New project/buzzing-mm-system/src/buzzing_mm/runtime/strategy_template.py`（`preview`）
+- `/Users/Admin/Documents/New project/buzzing-mm-system/src/buzzing_mm/strategy/passive.py`（`preview`）
 - `/Users/Admin/Documents/New project/pmmm/AGENTS.md`
+
+Mock 的策略校准口径：
+
+- 普通做市模板以 `ask_total_qty=30`、`bid_total_cash=16`、`q_max=80`、`reduce_only_ratio=0.75` 为基准。
+- Flash 以生产实测约 `9.2 pair/min/market` 为总吞吐基准；Tier1 与 Mid 近似交替，当前活跃 pair 不超过 5。Tier1 通常距 L1 一档，Mid 位于第 2-5 档。
+- 空盘按策略的 4 秒确认、30 秒告警门槛生成。正常市场只允许偶发短事件；盘口缺失市场表现为一次持续事件。
+- 滑点由当前 spread、mid、盘口流动性和策略状态联合推导，并按成交金额递增；它不是与盘口无关的随机数。
+- 外部市场研究只用于约束合理范围：低成交预测市场买入 overround 中位数约 3.4%，低流动性长尾显著更宽。
 
 后续真实 API 可先按当前 `Market` 类型替换数据源：
 
