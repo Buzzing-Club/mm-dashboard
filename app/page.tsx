@@ -164,6 +164,18 @@ type Market = {
     midActivePairs: number | null;
     maxPairsTotal: number | null;
     l1DistanceTicks: number | null;
+    tier1ConfiguredIntervalS?: [number, number] | null;
+    midConfiguredIntervalS?: [number, number] | null;
+  };
+  backendData?: {
+    grossVolume: boolean;
+    netVolume: boolean;
+    traderCount: boolean;
+    pnl: boolean;
+    washRatio: boolean;
+    avgSlippage: boolean;
+    slippageDistribution: boolean;
+    businessTrend: boolean;
   };
 };
 
@@ -192,6 +204,7 @@ type DashboardRealtimeItem = {
     event_title?: string | null;
   };
   lifecycle?: {
+    create_time?: string | number | null;
     start_time?: string | number | null;
     end_time?: string | number | null;
     runtime_state?: string | null;
@@ -261,6 +274,12 @@ type DashboardRealtimeItem = {
     }>;
   };
   flash?: {
+    configured_frequency?: {
+      tier1_interval_min_s?: string | number | null;
+      tier1_interval_max_s?: string | number | null;
+      mid_interval_min_s?: string | number | null;
+      mid_interval_max_s?: string | number | null;
+    } | null;
     actual_pairs_observed?: string | number | null;
     actual_pairs_per_hour?: string | number | null;
     actual_avg_interval_s?: string | number | null;
@@ -373,7 +392,10 @@ type SingleMarketRealtimePayload = {
 type SingleMarketMetrics = Pick<
   Market,
   "avgSlippage" | "grossVolume" | "netVolume" | "pnl" | "slippageBuckets" | "slippageNotionalBuckets" | "traderCount" | "washRatio"
-> & { experienceHistory: ExperienceHistoryPoint[] };
+> & {
+  experienceHistory: ExperienceHistoryPoint[];
+  backendData: NonNullable<Market["backendData"]>;
+};
 
 type SingleMarketSlippageDistribution = NonNullable<
   NonNullable<SingleMarketRealtimePayload["data"]>["slippage"]
@@ -1642,6 +1664,8 @@ function isoTime(value: string | number | null | undefined, fallback: number) {
 
 function optionalIsoTime(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return null;
+  const numeric = numberValue(value);
+  if (numeric !== null && numeric <= 0) return null;
   const millis = apiTimestamp(value, Number.NaN);
   return Number.isFinite(millis) ? new Date(millis).toISOString() : null;
 }
@@ -1712,7 +1736,7 @@ function apiLevels(side?: DashboardBookSide, key: "bids" | "asks" = "bids") {
 function apiSlippageBuckets(
   buckets: Array<{ bucket: string; count: number; tone?: "good" | "warn" | "bad" }> | null | undefined,
 ) {
-  if (!Array.isArray(buckets)) return buildSlippageBuckets(null);
+  if (!Array.isArray(buckets)) return [];
   return buckets.map((bucket) => ({
     bucket: String(bucket.bucket),
     count: Number.isFinite(Number(bucket.count)) ? Number(bucket.count) : 0,
@@ -1727,7 +1751,7 @@ function apiSlippageBuckets(
 }
 
 function singleMarketSlippageBuckets(buckets: SingleMarketSlippageDistribution) {
-  if (!Array.isArray(buckets)) return buildSlippageBuckets(null);
+  if (!Array.isArray(buckets)) return [];
   return buckets.map((bucket) => {
     const label = String(bucket.bucket ?? "");
     return {
@@ -1783,6 +1807,16 @@ function mapSingleMarketMetrics(payload: SingleMarketRealtimePayload): SingleMar
       : (numberValue(slippage.avg_trade_slippage) ?? 0) * 100,
     slippageBuckets: singleMarketSlippageBuckets(slippage?.distribution),
     slippageNotionalBuckets: apiSlippageNotionalBuckets(slippage?.distribution_by_notional),
+    backendData: {
+      grossVolume: business?.gross_volume !== null && business?.gross_volume !== undefined,
+      netVolume: business?.net_volume !== null && business?.net_volume !== undefined,
+      traderCount: business?.trader_count !== null && business?.trader_count !== undefined,
+      pnl: payload.data.pnl?.current_pnl !== null && payload.data.pnl?.current_pnl !== undefined,
+      washRatio: business?.wash_ratio !== null && business?.wash_ratio !== undefined,
+      avgSlippage: slippage?.avg_trade_slippage !== null && slippage?.avg_trade_slippage !== undefined,
+      slippageDistribution: Array.isArray(slippage?.distribution),
+      businessTrend: false,
+    },
     experienceHistory: (slippage?.history ?? []).flatMap((point) => {
       const pointTs = apiTimestamp(point.ts, Number.NaN);
       if (!Number.isFinite(pointTs)) return [];
@@ -1931,7 +1965,13 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
   if (!conditionId) return null;
 
   const now = Date.now();
-  const startAt = isoTime(item.lifecycle?.start_time, now - 4 * 60 * MINUTE_MS);
+  const configuredStart = numberValue(item.lifecycle?.start_time);
+  const startAt = isoTime(
+    configuredStart !== null && configuredStart > 0
+      ? item.lifecycle?.start_time
+      : item.lifecycle?.create_time,
+    now - 4 * 60 * MINUTE_MS,
+  );
   const endAt = isoTime(item.lifecycle?.end_time, now + 2 * 60 * MINUTE_MS);
   const riskStatus = statusValue(item.quote_state?.risk_status);
   const quoteMode = statusValue(item.quote_state?.quote_mode ?? item.quote_state?.risk_status);
@@ -1939,14 +1979,13 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
   const bestAsk = numberValue(item.orderbook_quality?.best_ask) ?? 0;
   const mid = numberValue(item.orderbook_quality?.mid) ?? (bestBid && bestAsk ? (bestBid + bestAsk) / 2 : 0);
   const spread = numberValue(item.orderbook_quality?.spread) ?? (bestBid && bestAsk ? bestAsk - bestBid : 0);
-  const strategyNotional = numberValue(item.strategy_account_metrics?.total_fill_notional);
-  const grossVolume = numberValue(item.backend_required?.gross_volume) ?? strategyNotional ?? 0;
-  const pnl = numberValue(item.backend_required?.current_pnl) ?? 0;
+  const grossVolumeValue = numberValue(item.backend_required?.gross_volume);
+  const pnlValue = numberValue(item.backend_required?.current_pnl);
+  const traderCountValue = numberValue(item.backend_required?.trader_count);
+  const grossVolume = grossVolumeValue ?? 0;
+  const pnl = pnlValue ?? 0;
   const washRatio = numberValue(item.backend_required?.wash_ratio);
-  const traderCount =
-    numberValue(item.backend_required?.trader_count)
-    ?? numberValue(item.strategy_account_metrics?.match_count)
-    ?? 0;
+  const traderCount = traderCountValue ?? 0;
   const liquidity =
     numberValue(item.liquidity?.current_strategy_liquidity)
     ?? numberValue(item.liquidity?.current_book_liquidity)
@@ -2002,6 +2041,10 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
     ? numberValue(rawL1Distance.max_distance_ticks)
     : numberValue(rawL1Distance);
   const phase = settlementPhase(item.lifecycle?.settlement_phase);
+  const tier1ConfiguredMin = numberValue(item.flash?.configured_frequency?.tier1_interval_min_s);
+  const tier1ConfiguredMax = numberValue(item.flash?.configured_frequency?.tier1_interval_max_s);
+  const midConfiguredMin = numberValue(item.flash?.configured_frequency?.mid_interval_min_s);
+  const midConfiguredMax = numberValue(item.flash?.configured_frequency?.mid_interval_max_s);
 
   return {
     id: conditionId,
@@ -2067,6 +2110,22 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
       midActivePairs: midFlash.activePairs,
       maxPairsTotal: numberValue(item.flash?.max_pairs_total),
       l1DistanceTicks,
+      tier1ConfiguredIntervalS: tier1ConfiguredMin !== null && tier1ConfiguredMax !== null
+        ? [tier1ConfiguredMin, tier1ConfiguredMax]
+        : null,
+      midConfiguredIntervalS: midConfiguredMin !== null && midConfiguredMax !== null
+        ? [midConfiguredMin, midConfiguredMax]
+        : null,
+    },
+    backendData: {
+      grossVolume: grossVolumeValue !== null,
+      netVolume: numberValue(item.backend_required?.net_volume) !== null,
+      traderCount: traderCountValue !== null,
+      pnl: pnlValue !== null,
+      washRatio: washRatio !== null,
+      avgSlippage: numberValue(item.backend_required?.avg_slippage) !== null,
+      slippageDistribution: Array.isArray(item.backend_required?.slippage_distribution),
+      businessTrend: false,
     },
   };
 }
@@ -2418,9 +2477,9 @@ function MarketOverview({
               </div>
               <p>{marketItem.market} · {compactIdentifier(marketItem.id)}</p>
               <div className="market-row-metrics">
-                <span>{currency(marketItem.grossVolume)}</span>
-                <span className={marketItem.pnl >= 0 ? "positive" : "negative"}>
-                  {signedCurrency(marketItem.pnl)}
+                <span>{marketItem.backendData?.grossVolume === false ? "成交额待接入" : currency(marketItem.grossVolume)}</span>
+                <span className={marketItem.backendData?.pnl === false ? "" : marketItem.pnl >= 0 ? "positive" : "negative"}>
+                  {marketItem.backendData?.pnl === false ? "PnL 待接入" : signedCurrency(marketItem.pnl)}
                 </span>
                 <span>{marketItem.staleSeconds}s</span>
               </div>
@@ -2444,7 +2503,7 @@ const overviewRankOptions: Array<{ id: OverviewRankMetric; label: string }> = [
 ];
 
 function overviewMetricValue(marketItem: Market, metric: OverviewRankMetric) {
-  if (metric === "grossVolume") return marketItem.grossVolume;
+  if (metric === "grossVolume") return marketItem.backendData?.grossVolume === false ? -1 : marketItem.grossVolume;
   if (metric === "avgSlippage") return marketItem.avgSlippage ?? -1;
   if (metric === "singleSidedEmpty") return marketItem.experienceQuality?.singleSidedEmpty.count ?? -1;
   return marketItem.experienceQuality?.l1DistanceExceeded.count ?? -1;
@@ -2634,10 +2693,10 @@ function MacroBoard({
             <small>selected market</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Gross Volume" value={currency(visibleMarket.grossVolume)} tone="ok" />
+            <TinyStat label="Gross Volume" value={visibleMarket.backendData?.grossVolume === false ? "unknown" : currency(visibleMarket.grossVolume)} tone={visibleMarket.backendData?.grossVolume === false ? "warn" : "ok"} />
             <TinyStat label="Net Volume" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
-            <TinyStat label="Trader Count" value={visibleMarket.traderCount.toLocaleString()} tone="ok" />
-            <TinyStat label="Current PnL" value={signedCurrency(visibleMarket.pnl)} tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+            <TinyStat label="Trader Count" value={visibleMarket.backendData?.traderCount === false ? "unknown" : visibleMarket.traderCount.toLocaleString()} tone={visibleMarket.backendData?.traderCount === false ? "warn" : "ok"} />
+            <TinyStat label="Current PnL" value={visibleMarket.backendData?.pnl === false ? "unknown" : signedCurrency(visibleMarket.pnl)} tone={visibleMarket.backendData?.pnl === false ? "warn" : visibleMarket.pnl >= 0 ? "ok" : "bad"} />
           </div>
         </div>
 
@@ -2647,7 +2706,9 @@ function MacroBoard({
             <small>{timeframe}</small>
           </div>
           <div className="chart-frame macro-chart-frame">
-            <ResponsiveContainer width="100%" height="100%">
+            {visibleMarket.backendData?.businessTrend === false ? (
+              <div className="chart-empty">等待后端提供按市场、按时间窗口聚合的成交额 / PnL / Wash 时序</div>
+            ) : <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={visibleMarket.series}>
                 <CartesianGrid stroke="#242833" vertical={false} />
                 <XAxis
@@ -2668,7 +2729,7 @@ function MacroBoard({
                 <Line yAxisId="right" type="monotone" dataKey="pnl" stroke="#d7f75b" strokeWidth={2} dot={false} />
                 <Line yAxisId="right" type="monotone" dataKey="wash" stroke="#4cc9f0" strokeWidth={2} dot={false} />
               </ComposedChart>
-            </ResponsiveContainer>
+            </ResponsiveContainer>}
           </div>
         </div>
       </div>
@@ -2701,6 +2762,16 @@ function ExperienceBoard({
   const midActivePairs = visibleMarket.flash?.midActivePairs;
   const maxPairs = visibleMarket.flash?.maxPairsTotal;
   const l1Distance = visibleMarket.flash?.l1DistanceTicks;
+  const tier1ConfiguredInterval = visibleMarket.flash?.tier1ConfiguredIntervalS;
+  const midConfiguredInterval = visibleMarket.flash?.midConfiguredIntervalS;
+  const flashFrequencyText = (
+    actual: number | null | undefined,
+    configured: [number, number] | null | undefined,
+  ) => {
+    if (actual !== null && actual !== undefined) return `${Math.round(actual)} / h`;
+    if (!configured) return "missing";
+    return `${configured[0]}-${configured[1]}s target`;
+  };
 
   return (
     <>
@@ -2726,8 +2797,8 @@ function ExperienceBoard({
             <small>tier-1 / mid insertion</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Tier-1 Freq" value={tier1FlashFreq === null || tier1FlashFreq === undefined ? "missing" : `${Math.round(tier1FlashFreq)} / h`} tone={tier1FlashFreq ? "ok" : "warn"} />
-            <TinyStat label="Mid Freq" value={midFlashFreq === null || midFlashFreq === undefined ? "missing" : `${Math.round(midFlashFreq)} / h`} tone={midFlashFreq ? "ok" : "warn"} />
+            <TinyStat label="Tier-1 Freq" value={flashFrequencyText(tier1FlashFreq, tier1ConfiguredInterval)} tone={tier1FlashFreq || tier1ConfiguredInterval ? "ok" : "warn"} />
+            <TinyStat label="Mid Freq" value={flashFrequencyText(midFlashFreq, midConfiguredInterval)} tone={midFlashFreq || midConfiguredInterval ? "ok" : "warn"} />
             <TinyStat label="L1 Distance" value={l1Distance === null || l1Distance === undefined ? "missing" : `${l1Distance} ticks`} tone={l1Distance !== null && l1Distance !== undefined ? "ok" : "warn"} />
             <TinyStat label="Active Pairs" value={activePairs === null || activePairs === undefined ? "missing" : `${activePairs}${maxPairs ? ` / ${maxPairs}` : ""}`} tone={activePairs !== null && activePairs !== undefined ? "ok" : "warn"} />
           </div>
@@ -2758,7 +2829,7 @@ function ExperienceBoard({
             <small>filled orders</small>
           </div>
           <div className="chart-frame mini-chart">
-            <ResponsiveContainer width="100%" height="100%">
+            {visibleMarket.slippageBuckets.length ? <ResponsiveContainer width="100%" height="100%">
               <BarChart data={visibleMarket.slippageBuckets}>
                 <CartesianGrid stroke="#242833" vertical={false} />
                 <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
@@ -2773,7 +2844,7 @@ function ExperienceBoard({
                   ))}
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+            </ResponsiveContainer> : <div className="chart-empty">等待后端提供真实成交滑点分布</div>}
           </div>
         </div>
       </div>
@@ -2811,7 +2882,7 @@ function ExperienceBoard({
                   <Line type="monotone" dataKey="impactPct" name="Impact" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls />
                 </ComposedChart>
               </ResponsiveContainer>
-            ) : <div className="chart-empty">等待策略端提供滑点与交易冲击时序</div>}
+            ) : <div className="chart-empty">等待后端提供成交时刻基准价与滑点时序</div>}
           </div>
         </div>
 

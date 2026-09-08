@@ -60,6 +60,8 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /mid_actual_pairs_per_hour/);
   assert.match(page, /active_pairs_by_kind/);
   assert.match(page, /initial_liquidity_source/);
+  assert.match(page, /create_time/);
+  assert.match(page, /configured_frequency/);
   assert.match(page, /yes_book_liquidity/);
   assert.match(page, /label_zh/);
   assert.match(page, /experience_quality/);
@@ -69,6 +71,10 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /slippage_distribution_by_notional/);
   assert.match(page, /MarketOverviewSummary/);
   assert.match(page, /ExperienceIncidentTimeline/);
+  assert.match(page, /成交额待接入/);
+  assert.match(page, /等待后端提供按市场、按时间窗口聚合的成交额 \/ PnL \/ Wash 时序/);
+  assert.match(page, /等待后端提供真实成交滑点分布/);
+  assert.match(page, /等待后端提供成交时刻基准价与滑点时序/);
   assert.match(route, /STRATEGY_DASHBOARD_API/);
   assert.match(route, /CF_ACCESS_CLIENT_ID/);
   assert.match(route, /CF-Access-Client-Secret/);
