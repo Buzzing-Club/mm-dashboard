@@ -278,7 +278,14 @@ type DashboardRealtimeItem = {
     active_pairs?: string | number | null;
     active_pairs_by_kind?: Record<string, string | number | null | undefined> | null;
     max_pairs_total?: string | number | null;
-    l1_distance_ticks?: string | number | null;
+    l1_distance_ticks?: string | number | {
+      min_distance_ticks?: string | number | null;
+      max_distance_ticks?: string | number | null;
+      avg_distance_ticks?: string | number | null;
+      min_distance_pct?: string | number | null;
+      max_distance_pct?: string | number | null;
+      avg_distance_pct?: string | number | null;
+    } | null;
   };
   dependencies?: {
     runtime_snapshot_age_s?: string | number | null;
@@ -354,6 +361,11 @@ type SingleMarketRealtimePayload = {
         trade_count?: string | number | null;
         avg_trade_slippage?: string | number | null;
       }> | null;
+      history?: Array<{
+        ts?: string | number | null;
+        slippage_pct?: string | number | null;
+        impact_pct?: string | number | null;
+      }> | null;
     };
   } | null;
 };
@@ -361,7 +373,7 @@ type SingleMarketRealtimePayload = {
 type SingleMarketMetrics = Pick<
   Market,
   "avgSlippage" | "grossVolume" | "netVolume" | "pnl" | "slippageBuckets" | "slippageNotionalBuckets" | "traderCount" | "washRatio"
->;
+> & { experienceHistory: ExperienceHistoryPoint[] };
 
 type SingleMarketSlippageDistribution = NonNullable<
   NonNullable<SingleMarketRealtimePayload["data"]>["slippage"]
@@ -1771,14 +1783,47 @@ function mapSingleMarketMetrics(payload: SingleMarketRealtimePayload): SingleMar
       : (numberValue(slippage.avg_trade_slippage) ?? 0) * 100,
     slippageBuckets: singleMarketSlippageBuckets(slippage?.distribution),
     slippageNotionalBuckets: apiSlippageNotionalBuckets(slippage?.distribution_by_notional),
+    experienceHistory: (slippage?.history ?? []).flatMap((point) => {
+      const pointTs = apiTimestamp(point.ts, Number.NaN);
+      if (!Number.isFinite(pointTs)) return [];
+      return [{
+        ts: pointTs,
+        time: "",
+        slippagePct: percentValue(point.slippage_pct),
+        impactPct: percentValue(point.impact_pct),
+      }];
+    }),
   };
 }
 
 function applySingleMarketMetrics(marketItem: Market, metrics: SingleMarketMetrics | undefined) {
   if (!metrics) return marketItem;
+  const { experienceHistory, ...marketMetrics } = metrics;
+  const boundedExperienceHistory = experienceHistory.map((point) => {
+    const pointTs = clampTimestamp(point.ts, timestamp(marketItem.startAt), timestamp(marketItem.endAt));
+    return {
+      ...point,
+      ts: pointTs,
+      time: formatAxisTime(pointTs, marketItem.startAt, marketItem.endAt),
+    };
+  });
   return {
     ...marketItem,
-    ...metrics,
+    ...marketMetrics,
+    experienceQuality: boundedExperienceHistory.length
+      ? {
+          ...(marketItem.experienceQuality ?? {
+            observedDurationSeconds: 0,
+            l1DistanceThresholdPct: 0.01,
+            singleSidedEmpty: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            doubleSidedEmpty: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            l1DistanceExceeded: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            incidents: [],
+            history: [],
+          }),
+          history: boundedExperienceHistory,
+        }
+      : marketItem.experienceQuality,
   };
 }
 
@@ -1952,6 +1997,10 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
 
   const tier1Flash = flashKindStats(item.flash, "tier1");
   const midFlash = flashKindStats(item.flash, "mid");
+  const rawL1Distance = item.flash?.l1_distance_ticks;
+  const l1DistanceTicks = typeof rawL1Distance === "object" && rawL1Distance !== null
+    ? numberValue(rawL1Distance.max_distance_ticks)
+    : numberValue(rawL1Distance);
   const phase = settlementPhase(item.lifecycle?.settlement_phase);
 
   return {
@@ -2017,7 +2066,7 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
       tier1ActivePairs: tier1Flash.activePairs,
       midActivePairs: midFlash.activePairs,
       maxPairsTotal: numberValue(item.flash?.max_pairs_total),
-      l1DistanceTicks: numberValue(item.flash?.l1_distance_ticks),
+      l1DistanceTicks,
     },
   };
 }
