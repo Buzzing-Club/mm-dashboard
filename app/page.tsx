@@ -2418,12 +2418,14 @@ type ReviewData = {
   funnel: Array<{ stage: string; count: number; conversion: number }>;
   toxicity: Array<{ kind: string; count: number; color: string }>;
   pnlAttribution: Array<{ name: string; value: number; color: string }>;
-  pricing: Array<{ minute: string; price: number; stableCenter: number }>;
+  pricing: Array<{ tradeIndex: number; price: number; openingPrice: number }>;
   quoteAttempts: Array<{ bucket: string; count: number }>;
   averageScore: number;
   favorableRate: number;
-  convergenceMinutes: number;
-  openingAdverseFills: number;
+  openingPrice: number;
+  mae10: number;
+  mae30: number;
+  mae100: number;
 };
 
 function reviewSeed(market: Market) {
@@ -2444,13 +2446,20 @@ function buildReviewData(market: Market): ReviewData {
   const slippageLoss = Number(-Math.max(3, market.grossVolume * 0.00034).toFixed(1));
   const fees = Number(-Math.max(1.2, market.grossVolume * 0.00008).toFixed(1));
   const inventoryIncome = Number((market.pnl - spreadIncome - slippageLoss - fees).toFixed(1));
-  const stableCenter = Number(Math.min(0.92, Math.max(0.08, market.mid || 0.5)).toFixed(3));
-  const openingOffset = ((seed % 13) - 6) / 100;
-  const pricing = [0, 5, 10, 20, 35, 60].map((minute, index) => ({
-    minute: `${minute}m`,
-    price: Number(Math.min(0.99, Math.max(0.01, stableCenter + openingOffset * Math.exp(-index * 0.58) + (index % 2 ? 0.006 : -0.003))).toFixed(3)),
-    stableCenter,
-  }));
+  const openingPrice = Number(Math.min(0.92, Math.max(0.08, market.mid || 0.5)).toFixed(3));
+  const amplitude = 0.014 + (seed % 6) * 0.0015;
+  const openingBias = ((seed % 5) - 2) * 0.0012;
+  const pricing = Array.from({ length: 100 }, (_, index) => {
+    const tradeIndex = index + 1;
+    const centeredMove = Math.sin(tradeIndex * 1.47 + seed * 0.01)
+      * amplitude
+      * (1 + 0.24 * Math.cos(tradeIndex * 0.23));
+    const price = Math.min(0.99, Math.max(0.01, openingPrice + centeredMove + openingBias * Math.exp(-index / 28)));
+    return { tradeIndex, price: Number(price.toFixed(4)), openingPrice };
+  });
+  const mae = (sampleSize: number) => Number((pricing
+    .slice(0, sampleSize)
+    .reduce((total, point) => total + Math.abs(point.price - openingPrice), 0) / sampleSize * 100).toFixed(2));
 
   return {
     funnel: [
@@ -2479,8 +2488,10 @@ function buildReviewData(market: Market): ReviewData {
     ],
     averageScore: Number(((favorable - adverse) / completed * 1.8).toFixed(2)),
     favorableRate: Number((favorable / completed * 100).toFixed(1)),
-    convergenceMinutes: 12 + (seed % 16),
-    openingAdverseFills: 2 + (seed % 7),
+    openingPrice,
+    mae10: mae(10),
+    mae30: mae(30),
+    mae100: mae(100),
   };
 }
 
@@ -2494,12 +2505,12 @@ function ReviewDashboard({
   setActiveId: (value: string) => void;
 }) {
   const review = useMemo(() => buildReviewData(visibleMarket), [visibleMarket]);
-  const [reviewFocus, setReviewFocus] = useState<"all" | "opening" | "endgame">("all");
+  const [reviewFocus, setReviewFocus] = useState<"all" | "opening" | "intraday" | "endgame">("all");
   const completedTrades = review.funnel.at(-1)?.count ?? 0;
   const cancellationRate = ((review.funnel[2].count - review.funnel[3].count) / review.funnel[2].count) * 100;
   const effectiveInterval = visibleMarket.flash?.actualAvgIntervalS ?? 12;
   const liquidityChanges = visibleMarket.liquidityHistory?.filter((point) => point.liquidityReason).length ?? 0;
-  const focusReviewSection = (focus: "all" | "opening" | "endgame", targetId: string) => {
+  const focusReviewSection = (focus: "all" | "opening" | "intraday" | "endgame", targetId: string) => {
     setReviewFocus(focus);
     window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
@@ -2517,10 +2528,11 @@ function ReviewDashboard({
             {markets.map((market) => <option key={market.id} value={market.id}>{market.event}</option>)}
           </select>
         </label>
-        <div className="review-period" aria-label="复盘时间范围">
-          <button className={reviewFocus === "all" ? "active" : ""} type="button" onClick={() => focusReviewSection("all", "review-all")}>全生命周期</button>
-          <button className={reviewFocus === "opening" ? "active" : ""} type="button" onClick={() => focusReviewSection("opening", "review-opening")}>开盘</button>
-          <button className={reviewFocus === "endgame" ? "active" : ""} type="button" onClick={() => focusReviewSection("endgame", "review-stages")}>结算前</button>
+        <div className="review-period" aria-label="Review 阶段快速定位">
+          <button className={reviewFocus === "all" ? "active" : ""} type="button" onClick={() => focusReviewSection("all", "review-all")}>全部</button>
+          <button className={reviewFocus === "opening" ? "active" : ""} type="button" onClick={() => focusReviewSection("opening", "review-opening")}>开盘定价</button>
+          <button className={reviewFocus === "intraday" ? "active" : ""} type="button" onClick={() => focusReviewSection("intraday", "review-intraday")}>盘中调整</button>
+          <button className={reviewFocus === "endgame" ? "active" : ""} type="button" onClick={() => focusReviewSection("endgame", "review-endgame")}>尾盘挂单</button>
         </div>
       </div>
 
@@ -2602,7 +2614,7 @@ function ReviewDashboard({
         <div className="review-summary-grid review-summary-strategy">
           <ReviewMetric label="有利成交占比" value={`${review.favorableRate}%`} note="1 分钟后继成交 Score 口径" tone={review.favorableRate >= 50 ? "ok" : "warn"} />
           <ReviewMetric label="净 PnL" value={signedCurrency(visibleMarket.pnl)} note="价差 + 库存 - 滑点 - 费用" tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
-          <ReviewMetric label="开盘收敛" value={`${review.convergenceMinutes}m`} note={`${review.openingAdverseFills} 笔开盘不利成交`} tone={review.convergenceMinutes <= 20 ? "ok" : "warn"} />
+          <ReviewMetric label="开盘 MAE100" value={`${review.mae100.toFixed(2)}c`} note="前 100 笔成交相对开盘价" tone={review.mae100 <= 3 ? "ok" : "warn"} />
         </div>
 
         <div className="review-grid">
@@ -2643,35 +2655,51 @@ function ReviewDashboard({
           </div>
         </div>
 
-        <div className="review-grid review-grid-pricing" id="review-opening">
-          <div className="panel review-panel">
-            <div className="panel-title">
-              <span><LineChart size={16} /> 开盘定价准确性</span>
-              <small>开盘后 60 分钟</small>
-            </div>
-            <div className="review-pricing-frame">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={review.pricing} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
-                  <CartesianGrid stroke="#252a33" vertical={false} />
-                  <XAxis dataKey="minute" stroke="#7e8796" tickLine={false} axisLine={false} />
-                  <YAxis domain={[0, 1]} stroke="#7e8796" tickLine={false} axisLine={false} />
-                  <Tooltip content={<ReviewTooltip />} />
-                  <Line type="monotone" dataKey="stableCenter" name="稳定中心价" stroke="#7e8796" strokeDasharray="5 5" dot={false} />
-                  <Line type="monotone" dataKey="price" name="市场价格" stroke="#4cc9f0" strokeWidth={2.5} dot={{ r: 3, fill: "#4cc9f0" }} />
-                </ComposedChart>
-              </ResponsiveContainer>
+        <div className="review-phases">
+          <div className="panel review-phase-card review-phase-opening" id="review-opening">
+            <ReviewPhaseHeader index="01" eyebrow="Opening Pricing" title="开盘定价合理性" description="判断前 100 笔成交是否持续围绕开盘价格" tone={review.mae100 <= 3 ? "ok" : "warn"} result={review.mae100 <= 3 ? "合理" : "需复核"} />
+            <div className="review-opening-layout">
+              <div className="review-mae-summary">
+                <div className="review-opening-price"><span>开盘价格</span><strong>{review.openingPrice.toFixed(3)}</strong></div>
+                <div className="review-mae-grid">
+                  <ReviewEvidence label="MAE10" value={`${review.mae10.toFixed(2)}c`} note="前 10 笔" />
+                  <ReviewEvidence label="MAE30" value={`${review.mae30.toFixed(2)}c`} note="前 30 笔" />
+                  <ReviewEvidence label="MAE100" value={`${review.mae100.toFixed(2)}c`} note="前 100 笔" />
+                </div>
+                <p>MAE N = 前 N 笔成交价与开盘价绝对偏差的均值。首版演示判断线为 3c。</p>
+              </div>
+              <div className="review-pricing-frame">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={review.pricing} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
+                    <CartesianGrid stroke="#252a33" vertical={false} />
+                    <XAxis dataKey="tradeIndex" ticks={[1, 10, 30, 60, 100]} tickFormatter={(value) => `#${value}`} stroke="#7e8796" tickLine={false} axisLine={false} />
+                    <YAxis domain={["dataMin - 0.02", "dataMax + 0.02"]} tickFormatter={(value) => Number(value).toFixed(3)} stroke="#7e8796" tickLine={false} axisLine={false} />
+                    <Tooltip content={<ReviewTooltip />} />
+                    <Line type="monotone" dataKey="openingPrice" name="开盘价" stroke="#ffb020" strokeDasharray="5 5" dot={false} />
+                    <Line type="monotone" dataKey="price" name="成交价" stroke="#4cc9f0" strokeWidth={2} dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
-          <div className="panel review-panel" id="review-stages">
-            <div className="panel-title">
-              <span><TimerReset size={16} /> 分阶段策略 Review</span>
-              <small>strategy history</small>
+          <div className="review-phase-pair">
+            <div className="panel review-phase-card" id="review-intraday">
+              <ReviewPhaseHeader index="02" eyebrow="Intraday Adjustment" title="盘中调整合理性" description="观察调整节奏与流动性变化" tone="ok" result="正常" />
+              <div className="review-evidence-grid">
+                <ReviewEvidence label="MarketLifecycleMode" value="NORMAL" note="完整双边梯度" />
+                <ReviewEvidence label="effective_interval" value={`${effectiveInterval.toFixed(1)}s`} note="有效刷量间隔" />
+                <ReviewEvidence label="流动性调整" value={`${liquidityChanges} 次`} note="结构化原因事件" />
+              </div>
             </div>
-            <div className="review-stage-list">
-              <ReviewStage title="开盘阶段" mode="NORMAL" metric={`${review.convergenceMinutes}m 收敛`} result={review.convergenceMinutes <= 20 ? "符合预期" : "需复核定价"} tone={review.convergenceMinutes <= 20 ? "ok" : "warn"} />
-              <ReviewStage title="盘中调整" mode="NORMAL" metric={`${effectiveInterval.toFixed(1)}s 有效间隔`} result={`${liquidityChanges} 次流动性调整`} tone="ok" />
-              <ReviewStage title="结算前" mode={visibleMarket.endInMinutes < 60 ? "WAITING_RESULT" : "NORMAL"} metric={`${visibleMarket.endInMinutes}m to end`} result={statusMeta[visibleMarket.quoteMode].label} tone={visibleMarket.endInMinutes < 60 ? "warn" : "ok"} />
+
+            <div className="panel review-phase-card" id="review-endgame">
+              <ReviewPhaseHeader index="03" eyebrow="Endgame Quoting" title="尾盘挂单合理性" description="检查结算前生命周期模式与挂单状态" tone={visibleMarket.endInMinutes < 60 ? "warn" : "ok"} result={statusMeta[visibleMarket.quoteMode].label} />
+              <div className="review-evidence-grid">
+                <ReviewEvidence label="MarketLifecycleMode" value={visibleMarket.endInMinutes < 60 ? "WAITING_RESULT" : "NORMAL"} note="尾盘生命周期模式" />
+                <ReviewEvidence label="距离结束" value={`${visibleMarket.endInMinutes}m`} note="计划结束时间口径" />
+                <ReviewEvidence label="当前挂单模式" value={statusMeta[visibleMarket.quoteMode].short} note="策略端 quote_mode" />
+              </div>
             </div>
           </div>
         </div>
@@ -2699,8 +2727,18 @@ function ReviewMetric({ label, value, note, tone }: { label: string; value: stri
   return <div className={`review-metric ${tone}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>;
 }
 
-function ReviewStage({ title, mode, metric, result, tone }: { title: string; mode: string; metric: string; result: string; tone: "ok" | "warn" }) {
-  return <div className="review-stage"><span className={`event-dot ${tone}`} /><div><strong>{title}</strong><small>{mode}</small></div><em>{metric}</em><b className={tone}>{result}</b></div>;
+function ReviewPhaseHeader({ index, eyebrow, title, description, tone, result }: { index: string; eyebrow: string; title: string; description: string; tone: "ok" | "warn"; result: string }) {
+  return (
+    <div className="review-phase-header">
+      <span className="review-phase-index">{index}</span>
+      <div><small>{eyebrow}</small><h3>{title}</h3><p>{description}</p></div>
+      <span className={`state-chip ${tone}`}>{result}</span>
+    </div>
+  );
+}
+
+function ReviewEvidence({ label, value, note }: { label: string; value: string; note: string }) {
+  return <div className="review-evidence"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>;
 }
 
 function ReviewSource({ name, owner, state, tone }: { name: string; owner: string; state: string; tone: "ok" | "warn" }) {

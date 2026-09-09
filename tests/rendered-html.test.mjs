@@ -76,7 +76,12 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /市场活跃度与成交漏斗/);
   assert.match(page, /订单流毒性/);
   assert.match(page, /盈亏归因/);
-  assert.match(page, /开盘定价准确性/);
+  assert.match(page, /开盘定价合理性/);
+  assert.match(page, /MAE10/);
+  assert.match(page, /MAE30/);
+  assert.match(page, /MAE100/);
+  assert.match(page, /盘中调整合理性/);
+  assert.match(page, /尾盘挂单合理性/);
   assert.match(page, /MarketLifecycleMode 历史/);
   assert.match(page, /成交额待接入/);
   assert.match(page, /等待后端提供按市场、按时间窗口聚合的成交额 \/ PnL \/ Wash 时序/);

@@ -1855,7 +1855,7 @@ h3 {
 
 .review-period {
   display: inline-grid;
-  grid-template-columns: repeat(3, auto);
+  grid-template-columns: repeat(4, auto);
   gap: 3px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -1953,10 +1953,6 @@ h3 {
 
 .review-grid-activity {
   grid-template-columns: minmax(520px, 1.3fr) minmax(320px, 0.7fr);
-}
-
-.review-grid-pricing {
-  grid-template-columns: minmax(560px, 1.35fr) minmax(380px, 0.65fr);
 }
 
 .review-panel,
@@ -2084,42 +2080,141 @@ h3 {
   height: 236px;
 }
 
-.review-stage-list {
+.review-phases {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
-.review-stage {
+.review-phase-card {
+  min-width: 0;
+  padding: 12px;
+}
+
+.review-phase-opening {
+  border-top-color: rgba(76, 201, 240, 0.48);
+}
+
+.review-phase-header {
   display: grid;
-  grid-template-columns: 8px minmax(112px, 0.8fr) minmax(110px, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  min-height: 58px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #0b0d11;
-  padding: 8px 10px;
+  gap: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--line);
 }
 
-.review-stage > div {
+.review-phase-index {
   display: grid;
-  gap: 4px;
-}
-
-.review-stage small,
-.review-stage em {
-  color: var(--muted);
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #0b0d11;
+  color: var(--text-soft);
   font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.review-phase-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.review-phase-header small,
+.review-phase-header p {
+  color: var(--muted);
   font-size: 10px;
-  font-style: normal;
 }
 
-.review-stage b {
-  font-size: 11px;
+.review-phase-header small {
+  font-family: var(--font-geist-mono), monospace;
+  text-transform: uppercase;
 }
 
-.review-stage b.ok { color: var(--green); }
-.review-stage b.warn { color: var(--amber); }
+.review-phase-header h3 {
+  font-size: 15px;
+}
+
+.review-opening-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.62fr) minmax(520px, 1.38fr);
+  align-items: stretch;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.review-mae-summary {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.review-opening-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-opening-price strong {
+  color: var(--foreground);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 24px;
+}
+
+.review-mae-grid,
+.review-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.review-evidence {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 11px;
+}
+
+.review-evidence + .review-evidence {
+  border-left: 1px solid var(--line);
+}
+
+.review-evidence span,
+.review-evidence small,
+.review-mae-summary > p {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.review-evidence strong {
+  overflow: hidden;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-mae-summary > p {
+  line-height: 1.55;
+}
+
+.review-phase-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.review-phase-pair .review-evidence-grid {
+  margin-top: 12px;
+}
 
 .review-readiness-grid {
   display: grid;
@@ -2279,7 +2374,8 @@ h3 {
   .review-market-heading,
   .review-grid,
   .review-grid-activity,
-  .review-grid-pricing {
+  .review-opening-layout,
+  .review-phase-pair {
     grid-template-columns: 1fr;
   }
 
@@ -2378,7 +2474,7 @@ h3 {
   }
 
   .review-period {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .review-summary-grid,
@@ -2400,12 +2496,27 @@ h3 {
     display: none;
   }
 
-  .review-stage {
-    grid-template-columns: 8px minmax(100px, 1fr) auto;
+  .review-phase-header {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
   }
 
-  .review-stage em {
-    grid-column: 2 / -1;
+  .review-phase-index {
+    width: 32px;
+    height: 32px;
+  }
+
+  .review-phase-header p {
+    grid-column: 1 / -1;
+  }
+
+  .review-mae-grid,
+  .review-evidence-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-evidence + .review-evidence {
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .market-list,
