@@ -2535,122 +2535,147 @@ function ReviewDashboard({
         <MarketLifecycle market={visibleMarket} />
       </div>
 
-      <div className="review-summary-grid">
-        <ReviewMetric label="访问到成交" value={`${review.funnel.at(-1)?.conversion.toFixed(1)}%`} note={`${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交`} tone="ok" />
-        <ReviewMetric label="有利成交占比" value={`${review.favorableRate}%`} note={`1 分钟后继成交 Score 口径`} tone={review.favorableRate >= 50 ? "ok" : "warn"} />
-        <ReviewMetric label="净 PnL" value={signedCurrency(visibleMarket.pnl)} note="价差 + 库存 - 滑点 - 费用" tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
-        <ReviewMetric label="开盘收敛" value={`${review.convergenceMinutes}m`} note={`${review.openingAdverseFills} 笔开盘不利成交`} tone={review.convergenceMinutes <= 20 ? "ok" : "warn"} />
-        <ReviewMetric label="取消率" value={`${cancellationRate.toFixed(1)}%`} note="尝试报价后未提交订单" tone={cancellationRate <= 35 ? "ok" : "warn"} />
-      </div>
-
-      <div className="review-grid review-grid-activity">
-        <div className="panel review-panel">
-          <div className="panel-title">
-            <span><BarChart3 size={16} /> 市场活跃度与成交漏斗</span>
-            <small>需要前端行为埋点</small>
-          </div>
-          <div className="review-funnel">
-            {review.funnel.map((item) => (
-              <div key={item.stage}>
-                <span>{item.stage}</span>
-                <div><i style={{ width: `${item.conversion}%` }} /></div>
-                <strong>{item.count}</strong>
-                <em>{item.conversion.toFixed(1)}%</em>
-              </div>
-            ))}
+      <section className="review-domain review-domain-activity" aria-labelledby="review-activity-title">
+        <div className="review-domain-header">
+          <span className="review-domain-icon"><BarChart3 size={19} /></span>
+          <div>
+            <p className="section-label">Review Area 01</p>
+            <h2 id="review-activity-title">市场活跃度复盘</h2>
+            <small>用户访问、交易意向、试价与成交转化</small>
           </div>
         </div>
 
-        <div className="panel review-panel">
-          <div className="panel-title">
-            <span><Gauge size={16} /> 试价金额分布</span>
-            <small>quote attempts</small>
-          </div>
-          <div className="review-bar-frame">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={review.quoteAttempts} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
-                <CartesianGrid stroke="#252a33" vertical={false} />
-                <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
-                <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
-                <Tooltip content={<ReviewTooltip />} />
-                <Bar dataKey="count" name="尝试次数" fill="#4cc9f0" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <p className="review-footnote">大额试价需结合用户余额分层判断，不能直接视为异常。</p>
-        </div>
-      </div>
-
-      <div className="review-grid">
-        <div className="panel review-panel">
-          <div className="panel-title">
-            <span><Activity size={16} /> 订单流毒性</span>
-            <small>成交后 1 分钟观察窗</small>
-          </div>
-          <div className="review-kpi-row">
-            <span><small>平均 Score</small><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
-            <span><small>有利成交</small><strong>{review.favorableRate}%</strong></span>
-            <span><small>样本</small><strong>{completedTrades}</strong></span>
-          </div>
-          <div className="review-bar-frame compact">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={review.toxicity} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
-                <CartesianGrid stroke="#252a33" vertical={false} />
-                <XAxis dataKey="kind" stroke="#7e8796" tickLine={false} axisLine={false} />
-                <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
-                <Tooltip content={<ReviewTooltip />} />
-                <Bar dataKey="count" name="成交笔数" radius={[3, 3, 0, 0]}>{review.toxicity.map((item) => <Cell key={item.kind} fill={item.color} />)}</Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="review-summary-grid review-summary-activity">
+          <ReviewMetric label="访问到成交" value={`${review.funnel.at(-1)?.conversion.toFixed(1)}%`} note={`${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交`} tone="ok" />
+          <ReviewMetric label="取消率" value={`${cancellationRate.toFixed(1)}%`} note="尝试报价后未提交订单" tone={cancellationRate <= 35 ? "ok" : "warn"} />
         </div>
 
-        <div className="panel review-panel">
-          <div className="panel-title">
-            <span><LineChart size={16} /> 盈亏归因</span>
-            <small>PnL attribution</small>
+        <div className="review-grid review-grid-activity">
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><BarChart3 size={16} /> 市场活跃度与成交漏斗</span>
+              <small>需要前端行为埋点</small>
+            </div>
+            <div className="review-funnel">
+              {review.funnel.map((item) => (
+                <div key={item.stage}>
+                  <span>{item.stage}</span>
+                  <div><i style={{ width: `${item.conversion}%` }} /></div>
+                  <strong>{item.count}</strong>
+                  <em>{item.conversion.toFixed(1)}%</em>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="review-attribution-list">
-            {review.pnlAttribution.map((item) => (
-              <div key={item.name}><i style={{ background: item.color }} /><span>{item.name}</span><strong className={item.value >= 0 ? "positive" : "negative"}>{signedCurrency(item.value)}</strong></div>
-            ))}
-            <div className="total"><i /><span>净 PnL</span><strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong></div>
+
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><Gauge size={16} /> 试价金额分布</span>
+              <small>quote attempts</small>
+            </div>
+            <div className="review-bar-frame">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={review.quoteAttempts} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                  <CartesianGrid stroke="#252a33" vertical={false} />
+                  <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <Tooltip content={<ReviewTooltip />} />
+                  <Bar dataKey="count" name="尝试次数" fill="#4cc9f0" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="review-footnote">大额试价需结合用户余额分层判断，不能直接视为异常。</p>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="review-grid review-grid-pricing" id="review-opening">
-        <div className="panel review-panel" id="review-stages">
-          <div className="panel-title">
-            <span><LineChart size={16} /> 开盘定价准确性</span>
-            <small>开盘后 60 分钟</small>
-          </div>
-          <div className="review-pricing-frame">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={review.pricing} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
-                <CartesianGrid stroke="#252a33" vertical={false} />
-                <XAxis dataKey="minute" stroke="#7e8796" tickLine={false} axisLine={false} />
-                <YAxis domain={[0, 1]} stroke="#7e8796" tickLine={false} axisLine={false} />
-                <Tooltip content={<ReviewTooltip />} />
-                <Line type="monotone" dataKey="stableCenter" name="稳定中心价" stroke="#7e8796" strokeDasharray="5 5" dot={false} />
-                <Line type="monotone" dataKey="price" name="市场价格" stroke="#4cc9f0" strokeWidth={2.5} dot={{ r: 3, fill: "#4cc9f0" }} />
-              </ComposedChart>
-            </ResponsiveContainer>
+      <section className="review-domain review-domain-strategy" aria-labelledby="review-strategy-title">
+        <div className="review-domain-header">
+          <span className="review-domain-icon"><ShieldAlert size={19} /></span>
+          <div>
+            <p className="section-label">Review Area 02</p>
+            <h2 id="review-strategy-title">策略合理性复盘</h2>
+            <small>成交质量、盈亏来源、开盘定价与阶段策略</small>
           </div>
         </div>
 
-        <div className="panel review-panel">
-          <div className="panel-title">
-            <span><TimerReset size={16} /> 分阶段策略 Review</span>
-            <small>strategy history</small>
+        <div className="review-summary-grid review-summary-strategy">
+          <ReviewMetric label="有利成交占比" value={`${review.favorableRate}%`} note="1 分钟后继成交 Score 口径" tone={review.favorableRate >= 50 ? "ok" : "warn"} />
+          <ReviewMetric label="净 PnL" value={signedCurrency(visibleMarket.pnl)} note="价差 + 库存 - 滑点 - 费用" tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+          <ReviewMetric label="开盘收敛" value={`${review.convergenceMinutes}m`} note={`${review.openingAdverseFills} 笔开盘不利成交`} tone={review.convergenceMinutes <= 20 ? "ok" : "warn"} />
+        </div>
+
+        <div className="review-grid">
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><Activity size={16} /> 订单流毒性</span>
+              <small>成交后 1 分钟观察窗</small>
+            </div>
+            <div className="review-kpi-row">
+              <span><small>平均 Score</small><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
+              <span><small>有利成交</small><strong>{review.favorableRate}%</strong></span>
+              <span><small>样本</small><strong>{completedTrades}</strong></span>
+            </div>
+            <div className="review-bar-frame compact">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={review.toxicity} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                  <CartesianGrid stroke="#252a33" vertical={false} />
+                  <XAxis dataKey="kind" stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <Tooltip content={<ReviewTooltip />} />
+                  <Bar dataKey="count" name="成交笔数" radius={[3, 3, 0, 0]}>{review.toxicity.map((item) => <Cell key={item.kind} fill={item.color} />)}</Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-          <div className="review-stage-list">
-            <ReviewStage title="开盘阶段" mode="NORMAL" metric={`${review.convergenceMinutes}m 收敛`} result={review.convergenceMinutes <= 20 ? "符合预期" : "需复核定价"} tone={review.convergenceMinutes <= 20 ? "ok" : "warn"} />
-            <ReviewStage title="盘中调整" mode="NORMAL" metric={`${effectiveInterval.toFixed(1)}s 有效间隔`} result={`${liquidityChanges} 次流动性调整`} tone="ok" />
-            <ReviewStage title="结算前" mode={visibleMarket.endInMinutes < 60 ? "WAITING_RESULT" : "NORMAL"} metric={`${visibleMarket.endInMinutes}m to end`} result={statusMeta[visibleMarket.quoteMode].label} tone={visibleMarket.endInMinutes < 60 ? "warn" : "ok"} />
+
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><LineChart size={16} /> 盈亏归因</span>
+              <small>PnL attribution</small>
+            </div>
+            <div className="review-attribution-list">
+              {review.pnlAttribution.map((item) => (
+                <div key={item.name}><i style={{ background: item.color }} /><span>{item.name}</span><strong className={item.value >= 0 ? "positive" : "negative"}>{signedCurrency(item.value)}</strong></div>
+              ))}
+              <div className="total"><i /><span>净 PnL</span><strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong></div>
+            </div>
           </div>
         </div>
-      </div>
+
+        <div className="review-grid review-grid-pricing" id="review-opening">
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><LineChart size={16} /> 开盘定价准确性</span>
+              <small>开盘后 60 分钟</small>
+            </div>
+            <div className="review-pricing-frame">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={review.pricing} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
+                  <CartesianGrid stroke="#252a33" vertical={false} />
+                  <XAxis dataKey="minute" stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <YAxis domain={[0, 1]} stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <Tooltip content={<ReviewTooltip />} />
+                  <Line type="monotone" dataKey="stableCenter" name="稳定中心价" stroke="#7e8796" strokeDasharray="5 5" dot={false} />
+                  <Line type="monotone" dataKey="price" name="市场价格" stroke="#4cc9f0" strokeWidth={2.5} dot={{ r: 3, fill: "#4cc9f0" }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="panel review-panel" id="review-stages">
+            <div className="panel-title">
+              <span><TimerReset size={16} /> 分阶段策略 Review</span>
+              <small>strategy history</small>
+            </div>
+            <div className="review-stage-list">
+              <ReviewStage title="开盘阶段" mode="NORMAL" metric={`${review.convergenceMinutes}m 收敛`} result={review.convergenceMinutes <= 20 ? "符合预期" : "需复核定价"} tone={review.convergenceMinutes <= 20 ? "ok" : "warn"} />
+              <ReviewStage title="盘中调整" mode="NORMAL" metric={`${effectiveInterval.toFixed(1)}s 有效间隔`} result={`${liquidityChanges} 次流动性调整`} tone="ok" />
+              <ReviewStage title="结算前" mode={visibleMarket.endInMinutes < 60 ? "WAITING_RESULT" : "NORMAL"} metric={`${visibleMarket.endInMinutes}m to end`} result={statusMeta[visibleMarket.quoteMode].label} tone={visibleMarket.endInMinutes < 60 ? "warn" : "ok"} />
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="panel review-readiness">
         <div className="panel-title">

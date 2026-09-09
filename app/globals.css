@@ -1750,6 +1750,61 @@ h3 {
   margin-top: 10px;
 }
 
+.review-domain {
+  --review-domain-accent: var(--cyan);
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 16px 0 6px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.review-domain-strategy {
+  --review-domain-accent: var(--amber);
+  margin-top: 12px;
+}
+
+.review-domain-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px 4px;
+}
+
+.review-domain-header::after {
+  height: 1px;
+  flex: 1;
+  margin-left: 8px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--review-domain-accent) 55%, transparent), transparent);
+  content: "";
+}
+
+.review-domain-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--review-domain-accent) 45%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--review-domain-accent) 9%, #0b0d11);
+  color: var(--review-domain-accent);
+}
+
+.review-domain-header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.review-domain-header h2 {
+  font-size: 18px;
+}
+
+.review-domain-header small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .review-toolbar,
 .review-market-heading,
 .review-metric,
@@ -1853,6 +1908,14 @@ h3 {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
+}
+
+.review-summary-grid.review-summary-activity {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.review-summary-grid.review-summary-strategy {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .review-metric {
@@ -2321,6 +2384,11 @@ h3 {
   .review-summary-grid,
   .review-readiness-grid,
   .review-kpi-row {
+    grid-template-columns: 1fr;
+  }
+
+  .review-summary-grid.review-summary-activity,
+  .review-summary-grid.review-summary-strategy {
     grid-template-columns: 1fr;
   }
 
