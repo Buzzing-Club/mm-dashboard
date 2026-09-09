@@ -2073,11 +2073,6 @@ h3 {
   font-weight: 800;
 }
 
-.review-pricing-frame {
-  width: 100%;
-  height: 236px;
-}
-
 .review-phases {
   display: grid;
   gap: 10px;
@@ -2088,7 +2083,7 @@ h3 {
   padding: 12px;
 }
 
-.review-phase-opening {
+.review-phase-premarket {
   border-top-color: rgba(76, 201, 240, 0.48);
 }
 
@@ -2136,37 +2131,58 @@ h3 {
   font-size: 15px;
 }
 
-.review-opening-layout {
+.review-phase-meta {
+  display: flex !important;
+  align-items: flex-end;
+  gap: 8px !important;
+}
+
+.review-phase-meta > small {
+  white-space: nowrap;
+}
+
+.review-phase-body,
+.review-postmarket-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 0.62fr) minmax(520px, 1.38fr);
+  grid-template-columns: minmax(520px, 1.35fr) minmax(260px, 0.65fr);
   align-items: stretch;
-  gap: 16px;
+  gap: 12px;
   margin-top: 12px;
 }
 
-.review-mae-summary {
-  display: grid;
-  align-content: start;
-  gap: 12px;
+.review-phase-body-wide {
+  grid-template-columns: minmax(580px, 1.45fr) minmax(260px, 0.55fr);
 }
 
-.review-opening-price {
+.review-postmarket-grid {
+  grid-template-columns: minmax(520px, 1.05fr) minmax(440px, 0.95fr);
+}
+
+.review-stage-chart {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  height: 248px;
+  gap: 8px;
+}
+
+.review-subtitle {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
+  gap: 12px;
   color: var(--muted);
   font-size: 12px;
 }
 
-.review-opening-price strong {
-  color: var(--foreground);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 24px;
+.review-subtitle small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.review-mae-grid,
 .review-evidence-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2186,8 +2202,7 @@ h3 {
 }
 
 .review-evidence span,
-.review-evidence small,
-.review-mae-summary > p {
+.review-evidence small {
   color: var(--muted);
   font-size: 10px;
 }
@@ -2200,18 +2215,62 @@ h3 {
   white-space: nowrap;
 }
 
-.review-mae-summary > p {
-  line-height: 1.55;
+.review-evidence-stack {
+  grid-template-columns: 1fr;
+  align-content: stretch;
 }
 
-.review-phase-pair {
+.review-evidence-stack .review-evidence {
+  align-content: center;
+}
+
+.review-evidence-stack .review-evidence + .review-evidence {
+  border-top: 1px solid var(--line);
+  border-left: 0;
+}
+
+.review-endgame-detail {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  gap: 12px;
 }
 
-.review-phase-pair .review-evidence-grid {
-  margin-top: 12px;
+.review-endgame-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.review-audit {
+  min-width: 0;
+}
+
+.review-audit-head,
+.review-audit-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) minmax(52px, 0.7fr) minmax(48px, 0.6fr) minmax(72px, 0.8fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+.review-audit-head {
+  margin-top: 7px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.review-audit-row {
+  border-bottom: 1px solid var(--line);
+  color: var(--text-soft);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
+.review-audit-row strong {
+  color: var(--green);
 }
 
 .review-definition {
@@ -2378,8 +2437,9 @@ h3 {
   .review-market-heading,
   .review-grid,
   .review-grid-activity,
-  .review-opening-layout,
-  .review-phase-pair {
+  .review-phase-body,
+  .review-phase-body-wide,
+  .review-postmarket-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2508,7 +2568,6 @@ h3 {
     grid-column: 1 / -1;
   }
 
-  .review-mae-grid,
   .review-evidence-grid {
     grid-template-columns: 1fr;
   }
