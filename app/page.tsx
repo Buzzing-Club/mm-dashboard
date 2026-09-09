@@ -2283,20 +2283,20 @@ export default function Home() {
   return (
     <main className="terminal-shell">
       <section className="topbar">
-        <div className="brand-block">
-          <div className="brand-mark">MM</div>
-          <div>
-            <p className="eyebrow">Market Making Console</p>
-            <h1>{workspaceView === "realtime" ? "实时市场看板" : "做市 Review"}</h1>
-          </div>
-        </div>
-
-        <nav className="console-view-tabs" aria-label="切换实时看板与做市复盘">
+        <nav className="console-workspaces" aria-label="切换实时看板与做市复盘">
           <button className={workspaceView === "realtime" ? "active" : ""} type="button" onClick={() => setWorkspaceView("realtime")}>
-            实时市场看板
+            <span className="brand-mark">MM</span>
+            <span className="workspace-label">
+              <small>Market Making Console</small>
+              <strong>实时市场看板</strong>
+            </span>
           </button>
           <button className={workspaceView === "review" ? "active" : ""} type="button" onClick={() => setWorkspaceView("review")}>
-            做市 Review
+            <span className="workspace-mark"><LineChart size={19} /></span>
+            <span className="workspace-label">
+              <small>Strategy Review</small>
+              <strong>做市 Review</strong>
+            </span>
           </button>
         </nav>
 

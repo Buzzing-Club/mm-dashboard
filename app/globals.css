@@ -146,35 +146,71 @@ h3 {
   justify-content: flex-end;
 }
 
-.console-view-tabs {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(132px, 1fr));
-  gap: 3px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #0b0d11;
-  padding: 3px;
+.console-workspaces {
+  display: flex;
+  align-self: stretch;
+  gap: 8px;
+  min-width: 0;
 }
 
-.console-view-tabs button {
-  min-height: 34px;
-  border: 0;
-  border-radius: 5px;
+.console-workspaces > button {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  min-width: 248px;
+  gap: 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
+  padding: 5px 10px 5px 5px;
+  text-align: left;
 }
 
-.console-view-tabs button:hover {
-  color: var(--foreground);
+.console-workspaces > button:hover {
+  border-color: var(--line);
+  background: #0b0d11;
 }
 
-.console-view-tabs button.active {
-  background: var(--panel-3);
+.console-workspaces > button.active {
+  border-color: var(--line-strong);
+  background: var(--panel-2);
   box-shadow: inset 0 -2px 0 var(--green);
   color: var(--foreground);
+}
+
+.workspace-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #0c0f13;
+  color: var(--cyan);
+}
+
+.workspace-label {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.workspace-label small {
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.workspace-label strong {
+  overflow: hidden;
+  font-size: 20px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .feed-pill {
@@ -2168,9 +2204,12 @@ h3 {
     flex-wrap: wrap;
   }
 
-  .console-view-tabs {
-    order: 3;
+  .console-workspaces {
     width: 100%;
+  }
+
+  .console-workspaces > button {
+    flex: 1;
   }
 
   .review-toolbar,
@@ -2238,7 +2277,7 @@ h3 {
 
   .brand-block,
   .topbar-actions,
-  .console-view-tabs {
+  .console-workspaces {
     width: 100%;
   }
 
@@ -2246,8 +2285,29 @@ h3 {
     justify-content: flex-start;
   }
 
-  .console-view-tabs {
+  .console-workspaces {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .console-workspaces > button {
+    grid-template-columns: 32px minmax(0, 1fr);
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .console-workspaces .brand-mark,
+  .workspace-mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .workspace-label strong {
+    font-size: 15px;
+  }
+
+  .workspace-label small {
+    font-size: 8px;
   }
 
   .review-toolbar {
