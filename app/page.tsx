@@ -49,6 +49,7 @@ type RiskStatus =
   | "paused";
 
 type BoardId = "macro" | "experience" | "risk";
+type WorkspaceView = "realtime" | "review";
 type OutcomeSide = "yes" | "no";
 type ExperienceIncidentKind = "single_sided_empty" | "double_sided_empty" | "l1_distance_exceeded";
 type SettlementPhase = "none" | "announcing" | "ruling1" | "dispute1" | "ruling2" | "dispute2" | "claimable" | "unknown";
@@ -2154,6 +2155,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [liveClock, setLiveClock] = useState("--:--:--");
   const [activeBoard, setActiveBoard] = useState<BoardId>("macro");
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("realtime");
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
 
   useEffect(() => {
@@ -2285,14 +2287,23 @@ export default function Home() {
           <div className="brand-mark">MM</div>
           <div>
             <p className="eyebrow">Market Making Console</p>
-            <h1>实时市场看板</h1>
+            <h1>{workspaceView === "realtime" ? "实时市场看板" : "做市 Review"}</h1>
           </div>
         </div>
 
+        <nav className="console-view-tabs" aria-label="切换实时看板与做市复盘">
+          <button className={workspaceView === "realtime" ? "active" : ""} type="button" onClick={() => setWorkspaceView("realtime")}>
+            实时市场看板
+          </button>
+          <button className={workspaceView === "review" ? "active" : ""} type="button" onClick={() => setWorkspaceView("review")}>
+            做市 Review
+          </button>
+        </nav>
+
         <div className="topbar-actions">
-          <div className={`feed-pill data-source-${dataSource.mode}`} title={dataSource.detail}>
+          <div className={`feed-pill data-source-${workspaceView === "review" ? "mock" : dataSource.mode}`} title={workspaceView === "review" ? "Review 首版使用与策略参数一致的演示数据" : dataSource.detail}>
             <Radio size={15} />
-            <span>{dataSource.label}</span>
+            <span>{workspaceView === "review" ? "REVIEW MOCK" : dataSource.label}</span>
             <strong>{liveClock}</strong>
           </div>
           <button className="icon-button" type="button" title="刷新" onClick={() => setRefreshTick((value) => value + 1)}>
@@ -2304,6 +2315,14 @@ export default function Home() {
         </div>
       </section>
 
+      {workspaceView === "review" ? (
+        <ReviewDashboard
+          markets={markets}
+          visibleMarket={visibleMarket}
+          setActiveId={setActiveId}
+        />
+      ) : (
+        <>
       <MarketOverview
         markets={markets}
         filteredMarkets={filteredMarkets}
@@ -2389,8 +2408,283 @@ export default function Home() {
           />
         )}
       </section>
+        </>
+      )}
     </main>
   );
+}
+
+type ReviewData = {
+  funnel: Array<{ stage: string; count: number; conversion: number }>;
+  toxicity: Array<{ kind: string; count: number; color: string }>;
+  pnlAttribution: Array<{ name: string; value: number; color: string }>;
+  pricing: Array<{ minute: string; price: number; stableCenter: number }>;
+  quoteAttempts: Array<{ bucket: string; count: number }>;
+  averageScore: number;
+  favorableRate: number;
+  convergenceMinutes: number;
+  openingAdverseFills: number;
+};
+
+function reviewSeed(market: Market) {
+  return market.id.split("").reduce((total, character) => total + character.charCodeAt(0), 0);
+}
+
+function buildReviewData(market: Market): ReviewData {
+  const seed = reviewSeed(market);
+  const visits = 420 + (seed % 170);
+  const interactions = Math.round(visits * (0.54 + (seed % 7) / 100));
+  const quoteAttempts = Math.round(interactions * (0.7 + (seed % 5) / 100));
+  const submitted = Math.round(quoteAttempts * (0.58 + (seed % 9) / 100));
+  const completed = Math.max(18, Math.round(submitted * (0.68 + (seed % 6) / 100)));
+  const favorable = Math.round(completed * (0.46 + (seed % 5) / 100));
+  const adverse = Math.round(completed * (0.27 + (seed % 6) / 100));
+  const neutral = Math.max(0, completed - favorable - adverse);
+  const spreadIncome = Number(Math.max(8, market.grossVolume * 0.0012).toFixed(1));
+  const slippageLoss = Number(-Math.max(3, market.grossVolume * 0.00034).toFixed(1));
+  const fees = Number(-Math.max(1.2, market.grossVolume * 0.00008).toFixed(1));
+  const inventoryIncome = Number((market.pnl - spreadIncome - slippageLoss - fees).toFixed(1));
+  const stableCenter = Number(Math.min(0.92, Math.max(0.08, market.mid || 0.5)).toFixed(3));
+  const openingOffset = ((seed % 13) - 6) / 100;
+  const pricing = [0, 5, 10, 20, 35, 60].map((minute, index) => ({
+    minute: `${minute}m`,
+    price: Number(Math.min(0.99, Math.max(0.01, stableCenter + openingOffset * Math.exp(-index * 0.58) + (index % 2 ? 0.006 : -0.003))).toFixed(3)),
+    stableCenter,
+  }));
+
+  return {
+    funnel: [
+      { stage: "进入市场", count: visits, conversion: 100 },
+      { stage: "交易互动", count: interactions, conversion: (interactions / visits) * 100 },
+      { stage: "尝试报价", count: quoteAttempts, conversion: (quoteAttempts / visits) * 100 },
+      { stage: "提交订单", count: submitted, conversion: (submitted / visits) * 100 },
+      { stage: "完成成交", count: completed, conversion: (completed / visits) * 100 },
+    ],
+    toxicity: [
+      { kind: "有利成交", count: favorable, color: "#20d49b" },
+      { kind: "中性成交", count: neutral, color: "#7e8796" },
+      { kind: "不利成交", count: adverse, color: "#ff5c6c" },
+    ],
+    pnlAttribution: [
+      { name: "价差收入", value: spreadIncome, color: "#20d49b" },
+      { name: "库存收益", value: inventoryIncome, color: inventoryIncome >= 0 ? "#4cc9f0" : "#ff5c6c" },
+      { name: "滑点损失", value: slippageLoss, color: "#ff5c6c" },
+      { name: "费用", value: fees, color: "#ffb020" },
+    ],
+    pricing,
+    quoteAttempts: [
+      { bucket: "2-10u", count: Math.round(quoteAttempts * 0.68) },
+      { bucket: "10-100u", count: Math.round(quoteAttempts * 0.24) },
+      { bucket: ">100u", count: Math.round(quoteAttempts * 0.08) },
+    ],
+    averageScore: Number(((favorable - adverse) / completed * 1.8).toFixed(2)),
+    favorableRate: Number((favorable / completed * 100).toFixed(1)),
+    convergenceMinutes: 12 + (seed % 16),
+    openingAdverseFills: 2 + (seed % 7),
+  };
+}
+
+function ReviewDashboard({
+  markets,
+  visibleMarket,
+  setActiveId,
+}: {
+  markets: Market[];
+  visibleMarket: Market;
+  setActiveId: (value: string) => void;
+}) {
+  const review = useMemo(() => buildReviewData(visibleMarket), [visibleMarket]);
+  const [reviewFocus, setReviewFocus] = useState<"all" | "opening" | "endgame">("all");
+  const completedTrades = review.funnel.at(-1)?.count ?? 0;
+  const cancellationRate = ((review.funnel[2].count - review.funnel[3].count) / review.funnel[2].count) * 100;
+  const effectiveInterval = visibleMarket.flash?.actualAvgIntervalS ?? 12;
+  const liquidityChanges = visibleMarket.liquidityHistory?.filter((point) => point.liquidityReason).length ?? 0;
+  const focusReviewSection = (focus: "all" | "opening" | "endgame", targetId: string) => {
+    setReviewFocus(focus);
+    window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+
+  return (
+    <section className="review-workspace" id="review-all">
+      <div className="review-toolbar">
+        <div>
+          <p className="section-label">Post-trade Strategy Review</p>
+          <strong>单市场全生命周期复盘</strong>
+        </div>
+        <label className="review-market-select">
+          <span>复盘市场</span>
+          <select value={visibleMarket.id} onChange={(event) => setActiveId(event.target.value)}>
+            {markets.map((market) => <option key={market.id} value={market.id}>{market.event}</option>)}
+          </select>
+        </label>
+        <div className="review-period" aria-label="复盘时间范围">
+          <button className={reviewFocus === "all" ? "active" : ""} type="button" onClick={() => focusReviewSection("all", "review-all")}>全生命周期</button>
+          <button className={reviewFocus === "opening" ? "active" : ""} type="button" onClick={() => focusReviewSection("opening", "review-opening")}>开盘</button>
+          <button className={reviewFocus === "endgame" ? "active" : ""} type="button" onClick={() => focusReviewSection("endgame", "review-stages")}>结算前</button>
+        </div>
+      </div>
+
+      <div className="review-market-heading">
+        <div>
+          <div className="title-line">
+            <h2>{visibleMarket.event}</h2>
+            <span className="state-chip warn">演示复盘</span>
+          </div>
+          <p>{visibleMarket.market} · {visibleMarket.category} · {compactIdentifier(visibleMarket.id)}</p>
+        </div>
+        <MarketLifecycle market={visibleMarket} />
+      </div>
+
+      <div className="review-summary-grid">
+        <ReviewMetric label="访问到成交" value={`${review.funnel.at(-1)?.conversion.toFixed(1)}%`} note={`${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交`} tone="ok" />
+        <ReviewMetric label="有利成交占比" value={`${review.favorableRate}%`} note={`1 分钟后继成交 Score 口径`} tone={review.favorableRate >= 50 ? "ok" : "warn"} />
+        <ReviewMetric label="净 PnL" value={signedCurrency(visibleMarket.pnl)} note="价差 + 库存 - 滑点 - 费用" tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+        <ReviewMetric label="开盘收敛" value={`${review.convergenceMinutes}m`} note={`${review.openingAdverseFills} 笔开盘不利成交`} tone={review.convergenceMinutes <= 20 ? "ok" : "warn"} />
+        <ReviewMetric label="取消率" value={`${cancellationRate.toFixed(1)}%`} note="尝试报价后未提交订单" tone={cancellationRate <= 35 ? "ok" : "warn"} />
+      </div>
+
+      <div className="review-grid review-grid-activity">
+        <div className="panel review-panel">
+          <div className="panel-title">
+            <span><BarChart3 size={16} /> 市场活跃度与成交漏斗</span>
+            <small>需要前端行为埋点</small>
+          </div>
+          <div className="review-funnel">
+            {review.funnel.map((item) => (
+              <div key={item.stage}>
+                <span>{item.stage}</span>
+                <div><i style={{ width: `${item.conversion}%` }} /></div>
+                <strong>{item.count}</strong>
+                <em>{item.conversion.toFixed(1)}%</em>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel review-panel">
+          <div className="panel-title">
+            <span><Gauge size={16} /> 试价金额分布</span>
+            <small>quote attempts</small>
+          </div>
+          <div className="review-bar-frame">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={review.quoteAttempts} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                <CartesianGrid stroke="#252a33" vertical={false} />
+                <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
+                <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
+                <Tooltip content={<ReviewTooltip />} />
+                <Bar dataKey="count" name="尝试次数" fill="#4cc9f0" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="review-footnote">大额试价需结合用户余额分层判断，不能直接视为异常。</p>
+        </div>
+      </div>
+
+      <div className="review-grid">
+        <div className="panel review-panel">
+          <div className="panel-title">
+            <span><Activity size={16} /> 订单流毒性</span>
+            <small>成交后 1 分钟观察窗</small>
+          </div>
+          <div className="review-kpi-row">
+            <span><small>平均 Score</small><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
+            <span><small>有利成交</small><strong>{review.favorableRate}%</strong></span>
+            <span><small>样本</small><strong>{completedTrades}</strong></span>
+          </div>
+          <div className="review-bar-frame compact">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={review.toxicity} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                <CartesianGrid stroke="#252a33" vertical={false} />
+                <XAxis dataKey="kind" stroke="#7e8796" tickLine={false} axisLine={false} />
+                <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
+                <Tooltip content={<ReviewTooltip />} />
+                <Bar dataKey="count" name="成交笔数" radius={[3, 3, 0, 0]}>{review.toxicity.map((item) => <Cell key={item.kind} fill={item.color} />)}</Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="panel review-panel">
+          <div className="panel-title">
+            <span><LineChart size={16} /> 盈亏归因</span>
+            <small>PnL attribution</small>
+          </div>
+          <div className="review-attribution-list">
+            {review.pnlAttribution.map((item) => (
+              <div key={item.name}><i style={{ background: item.color }} /><span>{item.name}</span><strong className={item.value >= 0 ? "positive" : "negative"}>{signedCurrency(item.value)}</strong></div>
+            ))}
+            <div className="total"><i /><span>净 PnL</span><strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="review-grid review-grid-pricing" id="review-opening">
+        <div className="panel review-panel" id="review-stages">
+          <div className="panel-title">
+            <span><LineChart size={16} /> 开盘定价准确性</span>
+            <small>开盘后 60 分钟</small>
+          </div>
+          <div className="review-pricing-frame">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={review.pricing} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
+                <CartesianGrid stroke="#252a33" vertical={false} />
+                <XAxis dataKey="minute" stroke="#7e8796" tickLine={false} axisLine={false} />
+                <YAxis domain={[0, 1]} stroke="#7e8796" tickLine={false} axisLine={false} />
+                <Tooltip content={<ReviewTooltip />} />
+                <Line type="monotone" dataKey="stableCenter" name="稳定中心价" stroke="#7e8796" strokeDasharray="5 5" dot={false} />
+                <Line type="monotone" dataKey="price" name="市场价格" stroke="#4cc9f0" strokeWidth={2.5} dot={{ r: 3, fill: "#4cc9f0" }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="panel review-panel">
+          <div className="panel-title">
+            <span><TimerReset size={16} /> 分阶段策略 Review</span>
+            <small>strategy history</small>
+          </div>
+          <div className="review-stage-list">
+            <ReviewStage title="开盘阶段" mode="NORMAL" metric={`${review.convergenceMinutes}m 收敛`} result={review.convergenceMinutes <= 20 ? "符合预期" : "需复核定价"} tone={review.convergenceMinutes <= 20 ? "ok" : "warn"} />
+            <ReviewStage title="盘中调整" mode="NORMAL" metric={`${effectiveInterval.toFixed(1)}s 有效间隔`} result={`${liquidityChanges} 次流动性调整`} tone="ok" />
+            <ReviewStage title="结算前" mode={visibleMarket.endInMinutes < 60 ? "WAITING_RESULT" : "NORMAL"} metric={`${visibleMarket.endInMinutes}m to end`} result={statusMeta[visibleMarket.quoteMode].label} tone={visibleMarket.endInMinutes < 60 ? "warn" : "ok"} />
+          </div>
+        </div>
+      </div>
+
+      <div className="panel review-readiness">
+        <div className="panel-title">
+          <span><Database size={16} /> Review 数据准备度</span>
+          <small>首版接口规划</small>
+        </div>
+        <div className="review-readiness-grid">
+          <ReviewSource name="页面访问 / 交易互动 / 试价 / 取消" owner="前端行为埋点" state="待接入" tone="warn" />
+          <ReviewSource name="逐笔成交与下一笔成交价格" owner="后端成交历史" state="待接入" tone="warn" />
+          <ReviewSource name="价差 / 库存 / 滑点 PnL 分解" owner="后端 + 策略" state="待接入" tone="warn" />
+          <ReviewSource name="MarketLifecycleMode 历史" owner="策略端" state="待接入" tone="warn" />
+          <ReviewSource name="effective_interval 历史" owner="策略端" state="已有当前值" tone="ok" />
+          <ReviewSource name="订单簿与流动性调整历史" owner="策略端" state="部分已有" tone="ok" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReviewMetric({ label, value, note, tone }: { label: string; value: string; note: string; tone: "ok" | "warn" | "bad" }) {
+  return <div className={`review-metric ${tone}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>;
+}
+
+function ReviewStage({ title, mode, metric, result, tone }: { title: string; mode: string; metric: string; result: string; tone: "ok" | "warn" }) {
+  return <div className="review-stage"><span className={`event-dot ${tone}`} /><div><strong>{title}</strong><small>{mode}</small></div><em>{metric}</em><b className={tone}>{result}</b></div>;
+}
+
+function ReviewSource({ name, owner, state, tone }: { name: string; owner: string; state: string; tone: "ok" | "warn" }) {
+  return <div className="review-source"><div><strong>{name}</strong><small>{owner}</small></div><span className={`state-chip ${tone}`}>{state}</span></div>;
+}
+
+function ReviewTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number | string; color?: string }>; label?: string | number }) {
+  if (!active || !payload?.length) return null;
+  return <div className="chart-tooltip"><strong>{label}</strong>{payload.map((item, index) => <span key={`${item.name}-${index}`}><i style={{ background: item.color ?? "#4cc9f0" }} />{item.name}: {item.value}</span>)}</div>;
 }
 
 function MarketOverview({

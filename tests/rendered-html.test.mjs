@@ -31,6 +31,7 @@ test("server-renders the market-making dashboard shell", async () => {
   const html = await response.text();
   assert.match(html, /<title>Market Making Realtime Dashboard<\/title>/i);
   assert.match(html, /实时市场看板/);
+  assert.match(html, /做市 Review/);
   assert.match(html, /Market Overview/);
   assert.match(html, /总体市场筛选/);
   assert.match(html, /单市场信息/);
@@ -71,6 +72,12 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /slippage_distribution_by_notional/);
   assert.match(page, /MarketOverviewSummary/);
   assert.match(page, /ExperienceIncidentTimeline/);
+  assert.match(page, /ReviewDashboard/);
+  assert.match(page, /市场活跃度与成交漏斗/);
+  assert.match(page, /订单流毒性/);
+  assert.match(page, /盈亏归因/);
+  assert.match(page, /开盘定价准确性/);
+  assert.match(page, /MarketLifecycleMode 历史/);
   assert.match(page, /成交额待接入/);
   assert.match(page, /等待后端提供按市场、按时间窗口聚合的成交额 \/ PnL \/ Wash 时序/);
   assert.match(page, /等待后端提供真实成交滑点分布/);
