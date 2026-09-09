@@ -1808,8 +1808,7 @@ h3 {
 .review-toolbar,
 .review-market-heading,
 .review-metric,
-.review-panel,
-.review-readiness {
+.review-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(16, 18, 22, 0.94);
@@ -1955,8 +1954,7 @@ h3 {
   grid-template-columns: minmax(520px, 1.3fr) minmax(320px, 0.7fr);
 }
 
-.review-panel,
-.review-readiness {
+.review-panel {
   min-width: 0;
   padding: 12px;
 }
@@ -2216,44 +2214,50 @@ h3 {
   margin-top: 12px;
 }
 
-.review-readiness-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+.review-definition {
+  position: relative;
+  display: inline-block;
+  overflow: visible !important;
+  width: fit-content;
+  cursor: help;
+  text-decoration: underline dotted rgba(126, 135, 150, 0.72);
+  text-underline-offset: 4px;
 }
 
-.review-source {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-  gap: 12px;
-  border: 1px solid var(--line);
+.review-definition::after {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: min(340px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
   border-radius: 7px;
-  background: #0b0d11;
-  padding: 9px 10px;
-}
-
-.review-source > div {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-
-.review-source strong,
-.review-source small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.review-source strong {
+  background: #171b22;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
+  color: var(--foreground);
+  content: attr(data-tooltip);
   font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: normal;
 }
 
-.review-source small {
-  color: var(--muted);
-  font-size: 10px;
+.review-definition:hover::after,
+.review-definition:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.review-summary-grid .review-metric:last-child .review-definition::after,
+.review-evidence:last-child .review-definition::after {
+  right: 0;
+  left: auto;
 }
 
 @media (max-width: 1440px), (max-height: 820px) {
@@ -2383,10 +2387,6 @@ h3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .review-readiness-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .board-switcher {
     grid-template-columns: 1fr;
   }
@@ -2478,7 +2478,6 @@ h3 {
   }
 
   .review-summary-grid,
-  .review-readiness-grid,
   .review-kpi-row {
     grid-template-columns: 1fr;
   }

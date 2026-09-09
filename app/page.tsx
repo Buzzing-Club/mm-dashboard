@@ -2624,9 +2624,9 @@ function ReviewDashboard({
               <small>成交后 1 分钟观察窗</small>
             </div>
             <div className="review-kpi-row">
-              <span><small>平均 Score</small><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
-              <span><small>有利成交</small><strong>{review.favorableRate}%</strong></span>
-              <span><small>样本</small><strong>{completedTrades}</strong></span>
+              <span><ReviewDefinition label="平均 Score" /><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
+              <span><ReviewDefinition label="有利成交" /><strong>{review.favorableRate}%</strong></span>
+              <span><ReviewDefinition label="毒性样本" /><strong>{completedTrades}</strong></span>
             </div>
             <div className="review-bar-frame compact">
               <ResponsiveContainer width="100%" height="100%">
@@ -2648,9 +2648,9 @@ function ReviewDashboard({
             </div>
             <div className="review-attribution-list">
               {review.pnlAttribution.map((item) => (
-                <div key={item.name}><i style={{ background: item.color }} /><span>{item.name}</span><strong className={item.value >= 0 ? "positive" : "negative"}>{signedCurrency(item.value)}</strong></div>
+                <div key={item.name}><i style={{ background: item.color }} /><ReviewDefinition label={item.name} /><strong className={item.value >= 0 ? "positive" : "negative"}>{signedCurrency(item.value)}</strong></div>
               ))}
-              <div className="total"><i /><span>净 PnL</span><strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong></div>
+              <div className="total"><i /><ReviewDefinition label="净 PnL" /><strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong></div>
             </div>
           </div>
         </div>
@@ -2660,7 +2660,7 @@ function ReviewDashboard({
             <ReviewPhaseHeader index="01" eyebrow="Opening Pricing" title="开盘定价合理性" description="判断前 100 笔成交是否持续围绕开盘价格" tone={review.mae100 <= 3 ? "ok" : "warn"} result={review.mae100 <= 3 ? "合理" : "需复核"} />
             <div className="review-opening-layout">
               <div className="review-mae-summary">
-                <div className="review-opening-price"><span>开盘价格</span><strong>{review.openingPrice.toFixed(3)}</strong></div>
+                <div className="review-opening-price"><ReviewDefinition label="开盘价格" /><strong>{review.openingPrice.toFixed(3)}</strong></div>
                 <div className="review-mae-grid">
                   <ReviewEvidence label="MAE10" value={`${review.mae10.toFixed(2)}c`} note="前 10 笔" />
                   <ReviewEvidence label="MAE30" value={`${review.mae30.toFixed(2)}c`} note="前 30 笔" />
@@ -2705,26 +2705,12 @@ function ReviewDashboard({
         </div>
       </section>
 
-      <div className="panel review-readiness">
-        <div className="panel-title">
-          <span><Database size={16} /> Review 数据准备度</span>
-          <small>首版接口规划</small>
-        </div>
-        <div className="review-readiness-grid">
-          <ReviewSource name="页面访问 / 交易互动 / 试价 / 取消" owner="前端行为埋点" state="待接入" tone="warn" />
-          <ReviewSource name="逐笔成交与下一笔成交价格" owner="后端成交历史" state="待接入" tone="warn" />
-          <ReviewSource name="价差 / 库存 / 滑点 PnL 分解" owner="后端 + 策略" state="待接入" tone="warn" />
-          <ReviewSource name="MarketLifecycleMode 历史" owner="策略端" state="待接入" tone="warn" />
-          <ReviewSource name="effective_interval 历史" owner="策略端" state="已有当前值" tone="ok" />
-          <ReviewSource name="订单簿与流动性调整历史" owner="策略端" state="部分已有" tone="ok" />
-        </div>
-      </div>
     </section>
   );
 }
 
 function ReviewMetric({ label, value, note, tone }: { label: string; value: string; note: string; tone: "ok" | "warn" | "bad" }) {
-  return <div className={`review-metric ${tone}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>;
+  return <div className={`review-metric ${tone}`}><ReviewDefinition label={label} /><strong>{value}</strong><small>{note}</small></div>;
 }
 
 function ReviewPhaseHeader({ index, eyebrow, title, description, tone, result }: { index: string; eyebrow: string; title: string; description: string; tone: "ok" | "warn"; result: string }) {
@@ -2738,11 +2724,45 @@ function ReviewPhaseHeader({ index, eyebrow, title, description, tone, result }:
 }
 
 function ReviewEvidence({ label, value, note }: { label: string; value: string; note: string }) {
-  return <div className="review-evidence"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>;
+  return <div className="review-evidence"><ReviewDefinition label={label} /><strong>{value}</strong><small>{note}</small></div>;
 }
 
-function ReviewSource({ name, owner, state, tone }: { name: string; owner: string; state: string; tone: "ok" | "warn" }) {
-  return <div className="review-source"><div><strong>{name}</strong><small>{owner}</small></div><span className={`state-chip ${tone}`}>{state}</span></div>;
+const reviewDefinitionDescriptions: Record<string, string> = {
+  "访问到成交": "完成成交数量 ÷ 进入市场次数。首版按同一市场、同一复盘周期统计，用于观察从访问到实际成交的整体转化。",
+  "取消率": "（尝试报价次数 - 提交订单次数）÷ 尝试报价次数，表示用户产生交易意向后没有最终提交订单的比例。",
+  "有利成交占比": "订单流 Score > 0 的成交数 ÷ 纳入毒性判断的成交样本数。数值越高，做市成交后的价格变化越有利。",
+  "净 PnL": "价差收入 + 库存收益 - 滑点损失 - 费用，表示该市场在复盘周期内的最终做市盈亏。",
+  "开盘 MAE100": "前 100 笔成交价与开盘价绝对偏差的均值，单位为 cent；越低表示早期成交越集中在开盘价附近。",
+  "平均 Score": "每笔成交后观察 1 分钟内的下一笔成交：被动卖出取本次价减下一笔价，被动买入取下一笔价减本次价；正值有利，负值不利。",
+  "有利成交": "订单流 Score 大于 0 的成交比例。Score 等于 0 的成交计入中性样本。",
+  "毒性样本": "纳入订单流毒性判断的成交数量；没有后继成交的样本 Score 记为 0。",
+  "价差收入": "做市订单买卖价差带来的收益，不包含持仓价格变化和交易费用。",
+  "库存收益": "持仓期间市场价格变化带来的盈亏，与成交价差收入分开统计。",
+  "滑点损失": "实际成交相对成交时基准价产生的不利价格偏差所对应的损失。",
+  "费用": "交易、结算及其他可归属于该市场的费用合计。",
+  "开盘价格": "市场进入可交易状态后采用的首个有效基准价格。MAE10、MAE30 和 MAE100 均以此价格计算。",
+  "MAE10": "前 10 笔成交价与开盘价绝对偏差的平均值，单位为 cent。",
+  "MAE30": "前 30 笔成交价与开盘价绝对偏差的平均值，单位为 cent。",
+  "MAE100": "前 100 笔成交价与开盘价绝对偏差的平均值，单位为 cent。",
+  "MarketLifecycleMode": "策略对市场生命周期的判断：NORMAL 为正常双边报价，WAITING_RESULT 为撤掉普通报价等待结果，RESULT_TAIL_YES/NO 为仅保留结果尾盘允许的一侧。",
+  "effective_interval": "策略实际执行刷量或报价循环的有效平均间隔，区别于配置中的目标间隔。",
+  "流动性调整": "复盘周期内策略主动改变挂单总量的次数；正式数据应同时记录增加或减少的结构化原因。",
+  "距离结束": "当前时间到市场计划结束时间的剩余分钟数。",
+  "当前挂单模式": "策略当前实际采用的 quote_mode，例如正常双边、库存倾斜、只减风险、等待结果或暂停。",
+};
+
+function ReviewDefinition({ label }: { label: string }) {
+  const description = reviewDefinitionDescriptions[label];
+  return (
+    <span
+      className={description ? "review-definition" : undefined}
+      data-tooltip={description}
+      tabIndex={description ? 0 : undefined}
+      title={description}
+    >
+      {label}
+    </span>
+  );
 }
 
 function ReviewTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number | string; color?: string }>; label?: string | number }) {

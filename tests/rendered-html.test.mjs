@@ -82,7 +82,9 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /MAE100/);
   assert.match(page, /盘中调整合理性/);
   assert.match(page, /尾盘挂单合理性/);
-  assert.match(page, /MarketLifecycleMode 历史/);
+  assert.match(page, /MarketLifecycleMode/);
+  assert.match(page, /reviewDefinitionDescriptions/);
+  assert.doesNotMatch(page, /Review 数据准备度/);
   assert.match(page, /成交额待接入/);
   assert.match(page, /等待后端提供按市场、按时间窗口聚合的成交额 \/ PnL \/ Wash 时序/);
   assert.match(page, /等待后端提供真实成交滑点分布/);
