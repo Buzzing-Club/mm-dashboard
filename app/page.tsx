@@ -2466,7 +2466,8 @@ function buildReviewData(market: Market): ReviewData {
   const inventoryIncome = Number((market.pnl - spreadIncome - slippageLoss - fees).toFixed(1));
   const normalTransitions = 8 + (seed % 3);
   const invalidTransitions = seed % 4 === 0 ? 1 : 0;
-  const transitionTotal = normalTransitions + invalidTransitions;
+  const waitingTransitions = seed % 7 === 0 ? 1 : 0;
+  const transitionTotal = normalTransitions + invalidTransitions + waitingTransitions;
   const clockScale = Number((0.72 + (seed % 5) * 0.05).toFixed(2));
 
   return {
@@ -2499,7 +2500,7 @@ function buildReviewData(market: Market): ReviewData {
       convergence: [
         { mode: "正常报价", count: normalTransitions, color: "#20d49b" },
         { mode: "无效暂停", count: invalidTransitions, color: "#ffb020" },
-        { mode: "等待结果", count: seed % 7 === 0 ? 1 : 0, color: "#7e8796" },
+        { mode: "等待结果", count: waitingTransitions, color: "#7e8796" },
       ],
       normalRate: Number((normalTransitions / transitionTotal * 100).toFixed(1)),
       clockScale,
@@ -2703,7 +2704,7 @@ function ReviewDashboard({
 
         <div className="review-phases">
           <div className="panel review-phase-card review-phase-premarket" id="review-premarket">
-            <ReviewPhaseHeader index="01" eyebrow="Premarket" title="盘前 · 接管与收敛" description="市场未开盘至策略恢复正常报价" tone={review.premarket.normalRate >= 90 ? "ok" : "warn"} result={review.premarket.normalRate >= 90 ? "收敛正常" : "需检查"} source="Prometheus · 15m" />
+            <ReviewPhaseHeader index="01" eyebrow="Premarket" title="盘前 · 接管与收敛" description="市场未开盘至策略恢复正常报价" tone={review.premarket.normalRate >= 90 ? "ok" : "warn"} result={review.premarket.normalRate >= 90 ? "收敛正常" : "需检查"} source="Preview 策略汇总 · Prometheus · 15m" />
             <div className="review-phase-body">
               <div className="review-stage-chart">
                 <div className="review-subtitle"><ReviewDefinition label="启动收敛落点分布" /><small>任务从待接管状态转入的生命周期模式</small></div>
@@ -2726,7 +2727,7 @@ function ReviewDashboard({
           </div>
 
           <div className="panel review-phase-card" id="review-intraday">
-            <ReviewPhaseHeader index="02" eyebrow="Intraday" title="盘中 · 报价活动与时间推进" description="NORMAL 双边报价期间的活动、决策与时间语义" tone={plannedShare >= 90 ? "ok" : "warn"} result={`${plannedShare.toFixed(1)}% 已计划`} source="Prometheus · 15m" />
+            <ReviewPhaseHeader index="02" eyebrow="Intraday" title="盘中 · 报价活动与时间推进" description="NORMAL 双边报价期间的活动、决策与时间语义" tone={plannedShare >= 90 ? "ok" : "warn"} result={`${plannedShare.toFixed(1)}% 已计划`} source="Preview 策略汇总 · Prometheus · 15m" />
             <div className="review-phase-body review-phase-body-wide">
               <div className="review-stage-chart review-stage-chart-wide">
                 <div className="review-subtitle"><ReviewDefinition label="报价活动 × 尾盘距离" /><small>按生命周期模式与 TTE 桶堆叠</small></div>
@@ -2753,7 +2754,7 @@ function ReviewDashboard({
           </div>
 
           <div className="panel review-phase-card" id="review-postmarket">
-            <ReviewPhaseHeader index="03" eyebrow="Endgame / Postmarket" title="尾盘 / 盘后 · 退出流转与库存退出" description="从尾盘进入等待结果、结果尾盘、争议与最终结束" tone="ok" result="持续减仓" source="Prometheus + 订单审计 · 1h" />
+            <ReviewPhaseHeader index="03" eyebrow="Endgame / Postmarket" title="尾盘 / 盘后 · 退出流转与库存退出" description="从尾盘进入等待结果、结果尾盘、争议与最终结束" tone="ok" result="持续减仓" source="Preview 策略汇总 · Prometheus + 订单审计 · 1h" />
             <div className="review-postmarket-grid">
               <div className="review-stage-chart">
                 <div className="review-subtitle"><ReviewDefinition label="阶段到达分布" /><small>排除 pending_authority 的状态迁移</small></div>

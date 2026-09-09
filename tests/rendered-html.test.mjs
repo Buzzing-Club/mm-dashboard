@@ -82,6 +82,7 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /Planned 决策/);
   assert.match(page, /尾盘 \/ 盘后 · 退出流转与库存退出/);
   assert.match(page, /waiting_result_reduce_only_sell/);
+  assert.match(page, /Preview 策略汇总/);
   assert.doesNotMatch(page, /开盘定价合理性/);
   assert.doesNotMatch(page, /MAE100/);
   assert.match(page, /reviewDefinitionDescriptions/);
