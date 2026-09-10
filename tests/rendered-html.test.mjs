@@ -115,6 +115,10 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.doesNotMatch(page, /id: "attention", label: "异常"/);
   assert.match(page, /ExperienceIncidentTimeline/);
   assert.match(page, /ReviewDashboard/);
+  assert.match(page, /搜索复盘市场/);
+  assert.match(page, /按市场类别筛选复盘市场/);
+  assert.match(page, /reviewMarketResults/);
+  assert.doesNotMatch(page, /className="review-market-select"/);
   assert.match(page, /市场活跃度与成交漏斗/);
   assert.match(page, /订单流毒性/);
   assert.match(page, /盈亏归因/);
