@@ -89,6 +89,9 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.match(page, /slippage_distribution_by_notional/);
   assert.match(page, /MarketOverviewSummary/);
   assert.match(page, /riskStatusFilter/);
+  assert.match(page, /categoryMarkets/);
+  assert.match(page, /statusScopeMarkets=\{categoryMarkets\}/);
+  assert.match(page, /setRiskStatusFilter\(null\)/);
   assert.match(page, /aria-pressed=\{activeStatus === typedStatus\}/);
   assert.match(page, /市场类别与状态筛选/);
   assert.match(page, /全部状态/);

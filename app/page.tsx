@@ -2406,27 +2406,33 @@ export default function Home() {
     };
   }, [refreshTick]);
 
-  const filteredMarkets = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+  const categoryMarkets = useMemo(() => {
     const selectedFilter = filterOptions.find((option) => option.id === filter);
 
-    return markets
-      .filter((marketItem) => {
-        if (selectedFilter?.tag) return marketItem.tags.includes(selectedFilter.tag);
-        return true;
-      })
+    if (!selectedFilter?.tag) return markets;
+    return markets.filter((marketItem) => marketItem.tags.includes(selectedFilter.tag));
+  }, [filter, markets]);
+
+  const effectiveRiskStatusFilter = riskStatusFilter && categoryMarkets.some((marketItem) => marketItem.riskStatus === riskStatusFilter)
+    ? riskStatusFilter
+    : null;
+
+  const filteredMarkets = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return categoryMarkets
       .filter((marketItem) => {
         if (!normalizedQuery) return true;
         return `${marketItem.event} ${marketItem.market} ${marketItem.category} ${marketItem.tags.join(" ")} ${marketItem.id}`
           .toLowerCase()
           .includes(normalizedQuery);
       })
-      .filter((marketItem) => !riskStatusFilter || marketItem.riskStatus === riskStatusFilter)
+      .filter((marketItem) => !effectiveRiskStatusFilter || marketItem.riskStatus === effectiveRiskStatusFilter)
       .sort((a, b) => {
         const severity = { bad: 0, warn: 1, muted: 2, ok: 3 };
         return severity[statusMeta[a.riskStatus].tone] - severity[statusMeta[b.riskStatus].tone];
       });
-  }, [filter, markets, query, riskStatusFilter]);
+  }, [categoryMarkets, effectiveRiskStatusFilter, query]);
 
   const activeMarket = markets.find((marketItem) => marketItem.id === activeId) ?? markets[0];
   const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
@@ -2531,13 +2537,13 @@ export default function Home() {
       ) : (
         <>
       <MarketOverview
-        markets={markets}
+        statusScopeMarkets={categoryMarkets}
         filteredMarkets={filteredMarkets}
         marketCount={markets.length}
         visibleMarket={visibleMarket}
         filter={filter}
         setFilter={setFilter}
-        riskStatusFilter={riskStatusFilter}
+        riskStatusFilter={effectiveRiskStatusFilter}
         setRiskStatusFilter={setRiskStatusFilter}
         query={query}
         setQuery={setQuery}
@@ -3067,7 +3073,7 @@ function ReviewTooltip({ active, payload, label }: { active?: boolean; payload?:
 }
 
 function MarketOverview({
-  markets,
+  statusScopeMarkets,
   filteredMarkets,
   marketCount,
   visibleMarket,
@@ -3079,7 +3085,7 @@ function MarketOverview({
   setQuery,
   setActiveId,
 }: {
-  markets: Market[];
+  statusScopeMarkets: Market[];
   filteredMarkets: Market[];
   marketCount: number;
   visibleMarket: Market;
@@ -3132,7 +3138,10 @@ function MarketOverview({
                 key={option.id}
                 className={filter === option.id ? "active" : ""}
                 type="button"
-                onClick={() => setFilter(option.id)}
+                onClick={() => {
+                  setFilter(option.id);
+                  setRiskStatusFilter(null);
+                }}
               >
                 {option.label}
               </button>
@@ -3140,7 +3149,7 @@ function MarketOverview({
           </div>
         </div>
         <MarketStatusFilters
-          markets={markets}
+          markets={statusScopeMarkets}
           activeStatus={riskStatusFilter}
           onStatusChange={setRiskStatusFilter}
         />
