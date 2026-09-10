@@ -1597,8 +1597,7 @@ const mockMarkets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, i
   });
 
 const filterOptions = [
-  { id: "all", label: "全部", tag: null },
-  { id: "attention", label: "异常", tag: null },
+  { id: "all", label: "全部类别", tag: null },
   { id: "weather", label: "Weather", tag: "Weather" },
   { id: "economy", label: "Economy", tag: "Economy" },
   { id: "politics", label: "Politics", tag: "Politics" },
@@ -2413,9 +2412,6 @@ export default function Home() {
 
     return markets
       .filter((marketItem) => {
-        if (filter === "attention") {
-          return statusMeta[marketItem.riskStatus].tone !== "ok" || marketItem.staleSeconds > 60;
-        }
         if (selectedFilter?.tag) return marketItem.tags.includes(selectedFilter.tag);
         return true;
       })
@@ -3127,23 +3123,31 @@ function MarketOverview({
         />
       </div>
 
-      <div className="segmented">
-        {filterOptions.map((option) => (
-          <button
-            key={option.id}
-            className={filter === option.id ? "active" : ""}
-            type="button"
-            onClick={() => {
-              setFilter(option.id);
-              setRiskStatusFilter(null);
-            }}
-          >
-            {option.label}
-          </button>
-        ))}
+      <div className="overview-filter-stack" aria-label="市场类别与状态筛选">
+        <div className="overview-filter-row">
+          <span>市场类别</span>
+          <div className="segmented category-filters">
+            {filterOptions.map((option) => (
+              <button
+                key={option.id}
+                className={filter === option.id ? "active" : ""}
+                type="button"
+                onClick={() => setFilter(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <MarketStatusFilters
+          markets={markets}
+          activeStatus={riskStatusFilter}
+          onStatusChange={setRiskStatusFilter}
+        />
       </div>
 
       <div className="market-list">
+        {!displayedMarkets.length ? <div className="market-list-empty">当前类别与状态组合下没有市场</div> : null}
         {displayedMarkets.map((marketItem) => {
           const meta = statusMeta[marketItem.riskStatus];
           return (
@@ -3172,18 +3176,56 @@ function MarketOverview({
         })}
       </div>
 
-      <MarketOverviewSummary
-        markets={filteredMarkets}
-        statusMarkets={markets}
-        activeStatus={riskStatusFilter}
-        setActiveId={setActiveId}
-        onStatusChange={(status) => {
-          setRiskStatusFilter(status === riskStatusFilter ? null : status);
-          setFilter("all");
-          setQuery("");
-        }}
-      />
+      <MarketOverviewSummary markets={filteredMarkets} setActiveId={setActiveId} />
     </section>
+  );
+}
+
+function MarketStatusFilters({
+  markets,
+  activeStatus,
+  onStatusChange,
+}: {
+  markets: Market[];
+  activeStatus: RiskStatus | null;
+  onStatusChange: (status: RiskStatus | null) => void;
+}) {
+  const statusCounts = Object.entries(
+    markets.reduce<Partial<Record<RiskStatus, number>>>((counts, marketItem) => ({
+      ...counts,
+      [marketItem.riskStatus]: (counts[marketItem.riskStatus] ?? 0) + 1,
+    }), {}),
+  ).sort(([leftStatus, leftCount], [rightStatus, rightCount]) => {
+    if (leftStatus === "normal_quote") return -1;
+    if (rightStatus === "normal_quote") return 1;
+    return (rightCount ?? 0) - (leftCount ?? 0);
+  });
+
+  return (
+    <div className="overview-filter-row">
+      <span>市场状态</span>
+      <div className="status-filters" aria-label="按市场风控状态筛选">
+        <button className={!activeStatus ? "active" : ""} type="button" aria-pressed={!activeStatus} onClick={() => onStatusChange(null)}>
+          全部状态 <b>{markets.length}</b>
+        </button>
+        {statusCounts.map(([status, count]) => {
+          const typedStatus = status as RiskStatus;
+          const meta = statusMeta[typedStatus];
+          return (
+            <button
+              key={status}
+              className={`${meta.tone} ${activeStatus === typedStatus ? "active" : ""}`}
+              type="button"
+              aria-pressed={activeStatus === typedStatus}
+              title={riskStatusDescriptions[typedStatus]}
+              onClick={() => onStatusChange(typedStatus)}
+            >
+              {meta.label} <b>{count}</b>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -3210,19 +3252,7 @@ function overviewMetricLabel(value: number, metric: OverviewRankMetric) {
   return `${Math.round(value)} 次`;
 }
 
-function MarketOverviewSummary({
-  markets,
-  statusMarkets,
-  activeStatus,
-  setActiveId,
-  onStatusChange,
-}: {
-  markets: Market[];
-  statusMarkets: Market[];
-  activeStatus: RiskStatus | null;
-  setActiveId: (value: string) => void;
-  onStatusChange: (status: RiskStatus) => void;
-}) {
+function MarketOverviewSummary({ markets, setActiveId }: { markets: Market[]; setActiveId: (value: string) => void }) {
   const [rankMetric, setRankMetric] = useState<OverviewRankMetric>("avgSlippage");
   const abnormalMarkets = markets.filter((marketItem) => statusMeta[marketItem.riskStatus].tone !== "ok");
   const singleSidedEvents = markets.reduce((total, marketItem) => total + (marketItem.experienceQuality?.singleSidedEmpty.count ?? 0), 0);
@@ -3230,12 +3260,6 @@ function MarketOverviewSummary({
   const rankings = [...markets]
     .sort((left, right) => overviewMetricValue(right, rankMetric) - overviewMetricValue(left, rankMetric))
     .slice(0, 5);
-  const statusCounts = Object.entries(
-    statusMarkets.reduce<Partial<Record<RiskStatus, number>>>((counts, marketItem) => ({
-      ...counts,
-      [marketItem.riskStatus]: (counts[marketItem.riskStatus] ?? 0) + 1,
-    }), {}),
-  ).sort(([, left], [, right]) => (right ?? 0) - (left ?? 0));
 
   return (
     <div className="overview-diagnostics" aria-label="总体市场指标与排名">
@@ -3271,24 +3295,6 @@ function MarketOverviewSummary({
             );
           })}
         </div>
-      </div>
-      <div className="overview-statuses" aria-label="当前市场风控状态分布">
-        {statusCounts.map(([status, count]) => {
-          const meta = statusMeta[status as RiskStatus];
-          const typedStatus = status as RiskStatus;
-          return (
-            <button
-              key={status}
-              className={`${meta.tone} ${activeStatus === typedStatus ? "active" : ""}`}
-              type="button"
-              aria-pressed={activeStatus === typedStatus}
-              title={`${riskStatusDescriptions[typedStatus]} 点击筛选该状态市场`}
-              onClick={() => onStatusChange(typedStatus)}
-            >
-              {meta.label} <b>{count}</b>
-            </button>
-          );
-        })}
       </div>
     </div>
   );

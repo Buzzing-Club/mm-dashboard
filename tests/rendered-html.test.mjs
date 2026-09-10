@@ -90,7 +90,9 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.match(page, /MarketOverviewSummary/);
   assert.match(page, /riskStatusFilter/);
   assert.match(page, /aria-pressed=\{activeStatus === typedStatus\}/);
-  assert.match(page, /点击筛选该状态市场/);
+  assert.match(page, /市场类别与状态筛选/);
+  assert.match(page, /全部状态/);
+  assert.doesNotMatch(page, /id: "attention", label: "异常"/);
   assert.match(page, /ExperienceIncidentTimeline/);
   assert.match(page, /ReviewDashboard/);
   assert.match(page, /市场活跃度与成交漏斗/);
