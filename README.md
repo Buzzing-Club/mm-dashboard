@@ -1,6 +1,14 @@
 # Market Making Realtime Dashboard
 
-预测市场做市实时看板原型。当前版本先用 mock 数据实现交互和信息架构，等后端与策略端 API 定稿后再替换数据源。
+预测市场做市实时看板与策略复盘界面。项目同时维护公开 Mock 演示和 Preview 真实数据联调两个环境。
+
+## 环境分支
+
+- `vercel-mock`：Vercel 公开演示，只使用源码内置 Mock。
+- `preview`：策略 Preview 主机上的真实接口联调环境，也是 GitHub 默认开发分支。
+- `main`：保留为未来正式环境的发布基线，当前不绑定部署。
+
+后端接手、合并和部署规则见 [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md)。
 
 ## 当前范围
 
@@ -94,11 +102,11 @@ http://localhost:3000/
 npm run build
 ```
 
-## Vercel 预览发布
+## Vercel Mock 发布
 
 当前 mock 数据已经随源码提交，主要在 `app/page.tsx` 的 `manualMarkets`、`prodMarketSeeds` 和 mock enrichment helper 中，不依赖后端环境变量。
 
-从 Vercel 导入 GitHub 仓库时使用：
+Vercel Production Branch 使用 `vercel-mock`。从 Vercel 导入 GitHub 仓库时使用：
 
 - Repository: `Buzzing-Club/mm-dashboard`
 - Framework Preset: `Next.js`
