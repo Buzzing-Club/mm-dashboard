@@ -49,6 +49,17 @@ test("keeps the dashboard API proxy explicit when upstream is missing", async ()
   assert.equal(payload.error, "STRATEGY_DASHBOARD_API is not configured");
 });
 
+test("validates and exposes the strategy Review proxy", async () => {
+  const invalid = await request("/api/dashboard/review?condition_id=invalid");
+  assert.equal(invalid.status, 400);
+
+  const conditionId = `0x${"b".repeat(64)}`;
+  const response = await request(`/api/dashboard/review?condition_id=${conditionId}`);
+  assert.equal(response.status, 503);
+  const payload = await response.json();
+  assert.equal(payload.error, "Strategy dashboard Review API is not configured");
+});
+
 test("keeps OpenAPI history and batch proxies protected by server credentials", async () => {
   const conditionId = `0x${"a".repeat(64)}`;
   const [historyResponse, batchResponse] = await Promise.all([
@@ -64,9 +75,10 @@ test("keeps OpenAPI history and batch proxies protected by server credentials", 
 });
 
 test("keeps dashboard code wired to the strategy and backend contracts", async () => {
-  const [page, route, historyRoute, batchRoute] = await Promise.all([
+  const [page, route, reviewRoute, historyRoute, batchRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/dashboard/realtime/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/dashboard/review/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/dashboard/market-history/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/dashboard/market-realtime-batch/route.ts", import.meta.url), "utf8"),
   ]);
@@ -107,7 +119,10 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.match(page, /Planned 决策/);
   assert.match(page, /尾盘 \/ 盘后 · 退出流转与库存退出/);
   assert.match(page, /waiting_result_reduce_only_sell/);
-  assert.match(page, /Preview 策略汇总/);
+  assert.match(page, /mm-dashboard-review\.v1/);
+  assert.match(page, /REVIEW API/);
+  assert.match(page, /策略 Review API · 持久决策投影/);
+  assert.match(page, /市场漏斗待接入/);
   assert.doesNotMatch(page, /开盘定价合理性/);
   assert.doesNotMatch(page, /MAE100/);
   assert.match(page, /reviewDefinitionDescriptions/);
@@ -126,6 +141,9 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.match(route, /CF_ACCESS_CLIENT_ID/);
   assert.match(route, /CF-Access-Client-Secret/);
   assert.match(route, /Dashboard upstream did not return JSON/);
+  assert.match(reviewRoute, /STRATEGY_DASHBOARD_REVIEW_API/);
+  assert.match(reviewRoute, /\/api\/dashboard\/review/);
+  assert.match(reviewRoute, /condition_id must be a 32-byte hex value/);
   assert.match(historyRoute, /include_pnl/);
   assert.match(historyRoute, /\/history/);
   assert.match(batchRoute, /include_slippage_distribution/);

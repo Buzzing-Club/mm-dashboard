@@ -2326,6 +2326,11 @@ export default function Home() {
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("realtime");
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
   const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
+  const [reviewSource, setReviewSource] = useState<ReviewSourceState>({
+    mode: "loading",
+    payload: null,
+    detail: "正在请求单市场 Review API",
+  });
 
   useEffect(() => {
     const updateClock = () => {
@@ -2491,8 +2496,51 @@ export default function Home() {
     return () => controller.abort();
   }, [refreshTick, timeframe, visibleMarketBase?.id]);
 
+  useEffect(() => {
+    if (workspaceView !== "review" || !visibleMarketBase?.id) return undefined;
+    const controller = new AbortController();
+
+    async function loadReview() {
+      setReviewSource({ mode: "loading", payload: null, detail: "正在请求单市场 Review API" });
+      try {
+        const params = new URLSearchParams({ condition_id: visibleMarketBase.id });
+        const response = await fetch(`/api/dashboard/review?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Review API ${response.status}`);
+        const payload = await response.json() as ReviewApiPayload;
+        if (!mapReviewApiPayload(payload)) throw new Error("Review API contract mismatch");
+        if (!controller.signal.aborted) {
+          setReviewSource({
+            mode: "api",
+            payload,
+            detail: "策略端 /api/dashboard/review · 单市场持久化事实",
+          });
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setReviewSource({
+          mode: "mock",
+          payload: null,
+          detail: error instanceof Error ? error.message : "Review API unavailable",
+        });
+      }
+    }
+
+    loadReview();
+    return () => controller.abort();
+  }, [refreshTick, visibleMarketBase?.id, workspaceView]);
+
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
+  const displayedSource = workspaceView === "review"
+    ? {
+      mode: reviewSource.mode,
+      label: reviewSource.mode === "api" ? "REVIEW API" : reviewSource.mode === "loading" ? "REVIEW LOADING" : "REVIEW MOCK",
+      detail: reviewSource.detail,
+    }
+    : dataSource;
   return (
     <main className="terminal-shell">
       <section className="topbar">
@@ -2514,9 +2562,9 @@ export default function Home() {
         </nav>
 
         <div className="topbar-actions">
-          <div className={`feed-pill data-source-${workspaceView === "review" ? "mock" : dataSource.mode}`} title={workspaceView === "review" ? "Review 首版使用与策略参数一致的演示数据" : dataSource.detail}>
+          <div className={`feed-pill data-source-${displayedSource.mode}`} title={displayedSource.detail}>
             <Radio size={15} />
-            <span>{workspaceView === "review" ? "REVIEW MOCK" : dataSource.label}</span>
+            <span>{displayedSource.label}</span>
             <strong>{liveClock}</strong>
           </div>
           <button className="icon-button" type="button" title="刷新" onClick={() => setRefreshTick((value) => value + 1)}>
@@ -2533,6 +2581,7 @@ export default function Home() {
           markets={markets}
           visibleMarket={visibleMarket}
           setActiveId={setActiveId}
+          reviewSource={reviewSource}
         />
       ) : (
         <>
@@ -2630,6 +2679,22 @@ export default function Home() {
 }
 
 type ReviewData = {
+  source: "api" | "mock";
+  availability: {
+    marketEngagement: boolean;
+    toxicity: boolean;
+    pnlAttribution: boolean;
+    premarketConvergence: boolean;
+    premarketClock: boolean;
+    premarketErrorRate: boolean;
+    tteObservations: boolean;
+    decisionRates: boolean;
+    settlementRisk: boolean;
+    endgameTransitions: boolean;
+    reduceOnly: boolean;
+    expiredRate: boolean;
+    audits: boolean;
+  };
   funnel: Array<{ stage: string; count: number; conversion: number }>;
   toxicity: Array<{ kind: string; count: number; color: string }>;
   pnlAttribution: Array<{ name: string; value: number; color: string }>;
@@ -2657,8 +2722,74 @@ type ReviewData = {
     reduceOnlyOrders: number;
     reduceOnlyQuantity: number;
     expiredActivityRate: number;
-    audits: Array<{ time: string; outcome: string; price: number; quantity: number }>;
+    audits: Array<{ time: string; outcome: string; price: number | null; quantity: number | null; status?: string }>;
   };
+};
+
+type ReviewApiPayload = {
+  contract_version?: string;
+  condition_id?: string;
+  coverage?: {
+    decision_count?: number;
+    reduce_only_audit_count?: number;
+  };
+  premarket?: {
+    convergence_by_mode?: Record<string, number>;
+    normal_rate_pct?: number | null;
+    clock?: {
+      scale?: number | null;
+      raw_tte_s?: number | null;
+      effective_tte_s?: number | null;
+    };
+    error_rate_per_min?: number | null;
+    availability?: {
+      convergence?: boolean;
+      clock?: boolean;
+      error_rate?: boolean;
+    };
+  };
+  intraday?: {
+    tte_observations?: Array<{
+      bucket?: string;
+      normal?: number;
+      waiting_result?: number;
+      result_tail?: number;
+    }>;
+    planned_rate_per_min?: number | null;
+    blocked_rate_per_min?: number | null;
+    settlement_risk_factor?: number | null;
+    availability?: {
+      tte_observations?: boolean;
+      decision_rates?: boolean;
+      settlement_risk?: boolean;
+    };
+  };
+  endgame?: {
+    transitions_by_mode?: Record<string, number>;
+    reduce_only_orders?: number;
+    reduce_only_quantity?: number;
+    expired_waiting_result_rate_per_min?: number | null;
+    audits?: Array<{
+      action_id?: number | string;
+      time?: string | null;
+      outcome?: string;
+      price?: number | null;
+      quantity?: number | null;
+      status?: string;
+    }>;
+    availability?: {
+      transitions?: boolean;
+      reduce_only?: boolean;
+      expired_waiting_result_rate?: boolean;
+      audits?: boolean;
+    };
+  };
+};
+
+type ReviewSourceState = {
+  mode: "loading" | "api" | "mock";
+  payload: ReviewApiPayload | null;
+  detail: string;
 };
 
 function reviewSeed(market: Market) {
@@ -2686,6 +2817,22 @@ function buildReviewData(market: Market): ReviewData {
   const clockScale = Number((0.72 + (seed % 5) * 0.05).toFixed(2));
 
   return {
+    source: "mock",
+    availability: {
+      marketEngagement: true,
+      toxicity: true,
+      pnlAttribution: true,
+      premarketConvergence: true,
+      premarketClock: true,
+      premarketErrorRate: true,
+      tteObservations: true,
+      decisionRates: true,
+      settlementRisk: true,
+      endgameTransitions: true,
+      reduceOnly: true,
+      expiredRate: true,
+      audits: true,
+    },
     funnel: [
       { stage: "进入市场", count: visits, conversion: 100 },
       { stage: "交易互动", count: interactions, conversion: (interactions / visits) * 100 },
@@ -2758,20 +2905,130 @@ function buildReviewData(market: Market): ReviewData {
   };
 }
 
+const reviewModePresentation: Record<string, { label: string; color: string }> = {
+  normal: { label: "正常报价", color: "#20d49b" },
+  invalid_paused: { label: "无效暂停", color: "#ffb020" },
+  waiting_result: { label: "等待结果", color: "#4cc9f0" },
+  result_tail_yes: { label: "YES 尾盘", color: "#20d49b" },
+  result_tail_no: { label: "NO 尾盘", color: "#a8db4d" },
+  disputed_paused: { label: "争议暂停", color: "#ffb020" },
+  final: { label: "结束", color: "#7e8796" },
+};
+
+const reviewBucketLabels: Record<string, string> = {
+  gt_60m: ">60m",
+  "60m_30m": "60-30m",
+  "30m_10m": "30-10m",
+  "10m_5m": "10-5m",
+  lt_5m: "<5m",
+  expired: "已过期",
+};
+
+function finiteReviewNumber(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapReviewApiPayload(payload: ReviewApiPayload): ReviewData | null {
+  if (payload.contract_version !== "mm-dashboard-review.v1") return null;
+  const premarketAvailability = payload.premarket?.availability;
+  const intradayAvailability = payload.intraday?.availability;
+  const endgameAvailability = payload.endgame?.availability;
+  const convergence = Object.entries(payload.premarket?.convergence_by_mode ?? {}).map(([mode, count]) => ({
+    mode: reviewModePresentation[mode]?.label ?? mode,
+    count: finiteReviewNumber(count),
+    color: reviewModePresentation[mode]?.color ?? "#7e8796",
+  }));
+  const transitions = Object.entries(payload.endgame?.transitions_by_mode ?? {}).map(([mode, count]) => ({
+    mode: reviewModePresentation[mode]?.label ?? mode,
+    count: finiteReviewNumber(count),
+    color: reviewModePresentation[mode]?.color ?? "#7e8796",
+  }));
+  const clockScale = finiteReviewNumber(payload.premarket?.clock?.scale);
+
+  return {
+    source: "api",
+    availability: {
+      marketEngagement: false,
+      toxicity: false,
+      pnlAttribution: false,
+      premarketConvergence: Boolean(premarketAvailability?.convergence),
+      premarketClock: Boolean(premarketAvailability?.clock),
+      premarketErrorRate: Boolean(premarketAvailability?.error_rate),
+      tteObservations: Boolean(intradayAvailability?.tte_observations),
+      decisionRates: Boolean(intradayAvailability?.decision_rates),
+      settlementRisk: Boolean(intradayAvailability?.settlement_risk),
+      endgameTransitions: Boolean(endgameAvailability?.transitions),
+      reduceOnly: Boolean(endgameAvailability?.reduce_only),
+      expiredRate: Boolean(endgameAvailability?.expired_waiting_result_rate),
+      audits: Boolean(endgameAvailability?.audits),
+    },
+    funnel: [],
+    toxicity: [],
+    pnlAttribution: [],
+    quoteAttempts: [],
+    averageScore: 0,
+    favorableRate: 0,
+    premarket: {
+      convergence,
+      normalRate: finiteReviewNumber(payload.premarket?.normal_rate_pct),
+      clockScale,
+      expectedScale: clockScale,
+      errorRate: finiteReviewNumber(payload.premarket?.error_rate_per_min),
+    },
+    intraday: {
+      tteActivity: (payload.intraday?.tte_observations ?? []).map((row) => ({
+        bucket: reviewBucketLabels[row.bucket ?? ""] ?? row.bucket ?? "--",
+        normal: finiteReviewNumber(row.normal),
+        waitingResult: finiteReviewNumber(row.waiting_result),
+        resultTail: finiteReviewNumber(row.result_tail),
+      })),
+      clockScale,
+      rawTteSeconds: finiteReviewNumber(payload.premarket?.clock?.raw_tte_s),
+      effectiveTteSeconds: finiteReviewNumber(payload.premarket?.clock?.effective_tte_s),
+      plannedRate: finiteReviewNumber(payload.intraday?.planned_rate_per_min),
+      blockedRate: finiteReviewNumber(payload.intraday?.blocked_rate_per_min),
+      settlementRisk: finiteReviewNumber(payload.intraday?.settlement_risk_factor),
+    },
+    endgame: {
+      transitions,
+      reduceOnlyOrders: finiteReviewNumber(payload.endgame?.reduce_only_orders),
+      reduceOnlyQuantity: finiteReviewNumber(payload.endgame?.reduce_only_quantity),
+      expiredActivityRate: finiteReviewNumber(payload.endgame?.expired_waiting_result_rate_per_min),
+      audits: (payload.endgame?.audits ?? []).map((audit) => ({
+        time: audit.time ? new Date(audit.time).toLocaleTimeString("zh-CN", { hour12: false }) : "--",
+        outcome: audit.outcome ?? "UNKNOWN",
+        price: numberValue(audit.price),
+        quantity: numberValue(audit.quantity),
+        status: audit.status,
+      })),
+    },
+  };
+}
+
 function ReviewDashboard({
   markets,
   visibleMarket,
   setActiveId,
+  reviewSource,
 }: {
   markets: Market[];
   visibleMarket: Market;
   setActiveId: (value: string) => void;
+  reviewSource: ReviewSourceState;
 }) {
-  const review = useMemo(() => buildReviewData(visibleMarket), [visibleMarket]);
+  const review = useMemo(
+    () => reviewSource.payload ? mapReviewApiPayload(reviewSource.payload) ?? buildReviewData(visibleMarket) : buildReviewData(visibleMarket),
+    [reviewSource.payload, visibleMarket],
+  );
   const [reviewFocus, setReviewFocus] = useState<"all" | "premarket" | "intraday" | "postmarket">("all");
   const completedTrades = review.funnel.at(-1)?.count ?? 0;
-  const cancellationRate = ((review.funnel[2].count - review.funnel[3].count) / review.funnel[2].count) * 100;
-  const plannedShare = review.intraday.plannedRate / (review.intraday.plannedRate + review.intraday.blockedRate) * 100;
+  const quoteAttemptCount = review.funnel[2]?.count ?? 0;
+  const submittedCount = review.funnel[3]?.count ?? 0;
+  const cancellationRate = quoteAttemptCount > 0 ? ((quoteAttemptCount - submittedCount) / quoteAttemptCount) * 100 : 0;
+  const decisionRateTotal = review.intraday.plannedRate + review.intraday.blockedRate;
+  const plannedShare = decisionRateTotal > 0 ? review.intraday.plannedRate / decisionRateTotal * 100 : 0;
+  const sourceChip = reviewSource.mode === "api" ? "真实复盘" : reviewSource.mode === "loading" ? "正在加载" : "演示复盘";
   const focusReviewSection = (focus: "all" | "premarket" | "intraday" | "postmarket", targetId: string) => {
     setReviewFocus(focus);
     window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -2802,7 +3059,7 @@ function ReviewDashboard({
         <div>
           <div className="title-line">
             <h2>{visibleMarket.event}</h2>
-            <span className="state-chip warn">演示复盘</span>
+            <span className={`state-chip ${reviewSource.mode === "api" ? "ok" : "warn"}`}>{sourceChip}</span>
           </div>
           <p>{visibleMarket.market} · {visibleMarket.category} · {compactIdentifier(visibleMarket.id)}</p>
         </div>
@@ -2820,8 +3077,8 @@ function ReviewDashboard({
         </div>
 
         <div className="review-summary-grid review-summary-activity">
-          <ReviewMetric label="访问到成交" value={`${review.funnel.at(-1)?.conversion.toFixed(1)}%`} note={`${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交`} tone="ok" />
-          <ReviewMetric label="取消率" value={`${cancellationRate.toFixed(1)}%`} note="尝试报价后未提交订单" tone={cancellationRate <= 35 ? "ok" : "warn"} />
+          <ReviewMetric label="访问到成交" value={review.availability.marketEngagement ? `${review.funnel.at(-1)?.conversion.toFixed(1)}%` : "待接入"} note={review.availability.marketEngagement ? `${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交` : "需要前端行为事件与后端成交"} tone={review.availability.marketEngagement ? "ok" : "warn"} />
+          <ReviewMetric label="取消率" value={review.availability.marketEngagement ? `${cancellationRate.toFixed(1)}%` : "待接入"} note={review.availability.marketEngagement ? "尝试报价后未提交订单" : "需要尝试报价与提交订单事件"} tone={review.availability.marketEngagement && cancellationRate <= 35 ? "ok" : "warn"} />
         </div>
 
         <div className="review-grid review-grid-activity">
@@ -2830,7 +3087,7 @@ function ReviewDashboard({
               <span><BarChart3 size={16} /> 市场活跃度与成交漏斗</span>
               <small>需要前端行为埋点</small>
             </div>
-            <div className="review-funnel">
+            {review.availability.marketEngagement ? <div className="review-funnel">
               {review.funnel.map((item) => (
                 <div key={item.stage}>
                   <span>{item.stage}</span>
@@ -2839,7 +3096,7 @@ function ReviewDashboard({
                   <em>{item.conversion.toFixed(1)}%</em>
                 </div>
               ))}
-            </div>
+            </div> : <ReviewUnavailable title="市场漏斗待接入" detail="策略端没有用户访问、交易互动与提交订单的完整行为链路。" />}
           </div>
 
           <div className="panel review-panel">
@@ -2847,7 +3104,7 @@ function ReviewDashboard({
               <span><Gauge size={16} /> 试价金额分布</span>
               <small>quote attempts</small>
             </div>
-            <div className="review-bar-frame">
+            {review.availability.marketEngagement ? <div className="review-bar-frame">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={review.quoteAttempts} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
@@ -2857,8 +3114,8 @@ function ReviewDashboard({
                   <Bar dataKey="count" name="尝试次数" fill="#4cc9f0" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            </div>
-            <p className="review-footnote">大额试价需结合用户余额分层判断，不能直接视为异常。</p>
+            </div> : <ReviewUnavailable title="试价分布待接入" detail="需要前端或后端按市场提供 quote attempt 金额与结果。" />}
+            {review.availability.marketEngagement ? <p className="review-footnote">大额试价需结合用户余额分层判断，不能直接视为异常。</p> : null}
           </div>
         </div>
       </section>
@@ -2874,9 +3131,9 @@ function ReviewDashboard({
         </div>
 
         <div className="review-summary-grid review-summary-strategy">
-          <ReviewMetric label="有利成交占比" value={`${review.favorableRate}%`} note="1 分钟后继成交 Score 口径" tone={review.favorableRate >= 50 ? "ok" : "warn"} />
-          <ReviewMetric label="净 PnL" value={signedCurrency(visibleMarket.pnl)} note="价差 + 库存 - 滑点 - 费用" tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
-          <ReviewMetric label="正常接管率" value={`${review.premarket.normalRate}%`} note="pending_authority 转入正常报价" tone={review.premarket.normalRate >= 90 ? "ok" : "warn"} />
+          <ReviewMetric label="有利成交占比" value={review.availability.toxicity ? `${review.favorableRate}%` : "待接入"} note={review.availability.toxicity ? "1 分钟后继成交 Score 口径" : "需要全市场成交与成交后价格"} tone={review.availability.toxicity && review.favorableRate >= 50 ? "ok" : "warn"} />
+          <ReviewMetric label="净 PnL" value={visibleMarket.backendData?.pnl === false ? "待接入" : signedCurrency(visibleMarket.pnl)} note={review.availability.pnlAttribution ? "价差 + 库存 - 滑点 - 费用" : "当前 PnL 可用，分项归因待后端提供"} tone={visibleMarket.backendData?.pnl === false ? "warn" : visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+          <ReviewMetric label="正常接管率" value={review.availability.premarketConvergence ? `${review.premarket.normalRate}%` : "无样本"} note="pending_authority 转入正常报价" tone={review.availability.premarketConvergence && review.premarket.normalRate >= 90 ? "ok" : "warn"} />
         </div>
 
         <div className="review-grid">
@@ -2885,7 +3142,7 @@ function ReviewDashboard({
               <span><Activity size={16} /> 订单流毒性</span>
               <small>成交后 1 分钟观察窗</small>
             </div>
-            <div className="review-kpi-row">
+            {review.availability.toxicity ? <><div className="review-kpi-row">
               <span><ReviewDefinition label="平均 Score" /><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
               <span><ReviewDefinition label="有利成交" /><strong>{review.favorableRate}%</strong></span>
               <span><ReviewDefinition label="毒性样本" /><strong>{completedTrades}</strong></span>
@@ -2900,7 +3157,7 @@ function ReviewDashboard({
                   <Bar dataKey="count" name="成交笔数" radius={[3, 3, 0, 0]}>{review.toxicity.map((item) => <Cell key={item.kind} fill={item.color} />)}</Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </div>
+            </div></> : <ReviewUnavailable title="订单流毒性待接入" detail="需要后端提供完整成交序列、成交方向，以及成交后 1 分钟的价格基准。" />}
           </div>
 
           <div className="panel review-panel">
@@ -2908,22 +3165,22 @@ function ReviewDashboard({
               <span><LineChart size={16} /> 盈亏归因</span>
               <small>PnL attribution</small>
             </div>
-            <div className="review-attribution-list">
+            {review.availability.pnlAttribution ? <div className="review-attribution-list">
               {review.pnlAttribution.map((item) => (
                 <div key={item.name}><i style={{ background: item.color }} /><ReviewDefinition label={item.name} /><strong className={item.value >= 0 ? "positive" : "negative"}>{signedCurrency(item.value)}</strong></div>
               ))}
               <div className="total"><i /><ReviewDefinition label="净 PnL" /><strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong></div>
-            </div>
+            </div> : <ReviewUnavailable title="盈亏归因待接入" detail="策略端有当前市场 PnL，但价差、库存、滑点和费用的完整分项需要后端成交与估值数据。" />}
           </div>
         </div>
 
         <div className="review-phases">
           <div className="panel review-phase-card review-phase-premarket" id="review-premarket">
-            <ReviewPhaseHeader index="01" eyebrow="Premarket" title="盘前 · 接管与收敛" description="市场未开盘至策略恢复正常报价" tone={review.premarket.normalRate >= 90 ? "ok" : "warn"} result={review.premarket.normalRate >= 90 ? "收敛正常" : "需检查"} source="Preview 策略汇总 · Prometheus · 15m" />
+            <ReviewPhaseHeader index="01" eyebrow="Premarket" title="盘前 · 接管与收敛" description="市场未开盘至策略恢复正常报价" tone={review.availability.premarketConvergence && review.premarket.normalRate >= 90 ? "ok" : "warn"} result={!review.availability.premarketConvergence ? "无样本" : review.premarket.normalRate >= 90 ? "收敛正常" : "需检查"} source={review.source === "api" ? "策略 Review API · 持久决策投影" : "演示数据 · 15m"} />
             <div className="review-phase-body">
               <div className="review-stage-chart">
                 <div className="review-subtitle"><ReviewDefinition label="启动收敛落点分布" /><small>任务从待接管状态转入的生命周期模式</small></div>
-                <ResponsiveContainer width="100%" height="100%">
+                {review.availability.premarketConvergence ? <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={review.premarket.convergence} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
                     <CartesianGrid stroke="#252a33" vertical={false} />
                     <XAxis dataKey="mode" stroke="#7e8796" tickLine={false} axisLine={false} />
@@ -2931,22 +3188,22 @@ function ReviewDashboard({
                     <Tooltip content={<ReviewTooltip />} />
                     <Bar dataKey="count" name="转入次数" radius={[3, 3, 0, 0]}>{review.premarket.convergence.map((item) => <Cell key={item.mode} fill={item.color} />)}</Bar>
                   </BarChart>
-                </ResponsiveContainer>
+                </ResponsiveContainer> : <ReviewUnavailable title="暂无接管收敛样本" detail="该市场还没有持久化的生命周期状态变化记录。" />}
               </div>
               <div className="review-evidence-grid review-evidence-stack">
-                <ReviewEvidence label="正常接管率" value={`${review.premarket.normalRate}%`} note="转入 NORMAL / 全部收敛" />
-                <ReviewEvidence label="时钟缩放系数" value={review.premarket.clockScale.toFixed(2)} note={`预期 ${review.premarket.expectedScale.toFixed(2)}`} />
-                <ReviewEvidence label="收敛期错误率" value={`${review.premarket.errorRate.toFixed(2)}/min`} note="uncertain + error" />
+                <ReviewEvidence label="正常接管率" value={review.availability.premarketConvergence ? `${review.premarket.normalRate}%` : "--"} note="转入 NORMAL / 全部收敛" />
+                <ReviewEvidence label="时钟缩放系数" value={review.availability.premarketClock ? review.premarket.clockScale.toFixed(2) : "--"} note={review.availability.premarketClock ? `按市场时长与策略配置计算` : "缺少市场结束时间"} />
+                <ReviewEvidence label="收敛期错误率" value={review.availability.premarketErrorRate ? `${review.premarket.errorRate.toFixed(2)}/min` : "待接入"} note={review.availability.premarketErrorRate ? "uncertain + error" : "进程指标暂时无法按市场拆分"} />
               </div>
             </div>
           </div>
 
           <div className="panel review-phase-card" id="review-intraday">
-            <ReviewPhaseHeader index="02" eyebrow="Intraday" title="盘中 · 报价活动与时间推进" description="NORMAL 双边报价期间的活动、决策与时间语义" tone={plannedShare >= 90 ? "ok" : "warn"} result={`${plannedShare.toFixed(1)}% 已计划`} source="Preview 策略汇总 · Prometheus · 15m" />
+            <ReviewPhaseHeader index="02" eyebrow="Intraday" title="盘中 · 报价活动与时间推进" description="NORMAL 双边报价期间的活动、决策与时间语义" tone={review.availability.decisionRates && plannedShare >= 90 ? "ok" : "warn"} result={review.availability.decisionRates ? `${plannedShare.toFixed(1)}% 已计划` : "无样本"} source={review.source === "api" ? "策略 Review API · 持久决策投影" : "演示数据 · 15m"} />
             <div className="review-phase-body review-phase-body-wide">
               <div className="review-stage-chart review-stage-chart-wide">
                 <div className="review-subtitle"><ReviewDefinition label="报价活动 × 尾盘距离" /><small>按生命周期模式与 TTE 桶堆叠</small></div>
-                <ResponsiveContainer width="100%" height="100%">
+                {review.availability.tteObservations ? <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={review.intraday.tteActivity} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
                     <CartesianGrid stroke="#252a33" vertical={false} />
                     <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
@@ -2956,24 +3213,24 @@ function ReviewDashboard({
                     <Bar dataKey="waitingResult" name="WAITING_RESULT" stackId="mode" fill="#4cc9f0" />
                     <Bar dataKey="resultTail" name="RESULT_TAIL" stackId="mode" fill="#ffb020" radius={[3, 3, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
+                </ResponsiveContainer> : <ReviewUnavailable title="暂无 TTE 决策样本" detail="需要该市场在运行期间产生持久化策略决策。" />}
               </div>
               <div className="review-evidence-grid review-evidence-stack">
-                <ReviewEvidence label="缩放系数" value={review.intraday.clockScale.toFixed(2)} note="长市场 1.0，短市场小于 1" />
-                <ReviewEvidence label="有效剩余时间" value={`${review.intraday.effectiveTteSeconds}s`} note={`原始 ${review.intraday.rawTteSeconds}s`} />
-                <ReviewEvidence label="Planned 决策" value={`${review.intraday.plannedRate.toFixed(1)}/min`} note="持续产生报价计划" />
-                <ReviewEvidence label="Blocked 决策" value={`${review.intraday.blockedRate.toFixed(2)}/min`} note="按 trigger 排查集中阻塞" />
-                <ReviewEvidence label="结算风险因子" value={review.intraday.settlementRisk.toFixed(2)} note="价格靠近边界时下降" />
+                <ReviewEvidence label="缩放系数" value={review.availability.premarketClock ? review.intraday.clockScale.toFixed(2) : "--"} note="长市场 1.0，短市场小于 1" />
+                <ReviewEvidence label="有效剩余时间" value={review.availability.premarketClock ? `${review.intraday.effectiveTteSeconds}s` : "--"} note={review.availability.premarketClock ? `原始 ${review.intraday.rawTteSeconds}s` : "缺少市场结束时间"} />
+                <ReviewEvidence label="Planned 决策" value={review.availability.decisionRates ? `${review.intraday.plannedRate.toFixed(1)}/min` : "--"} note="持续产生报价计划" />
+                <ReviewEvidence label="Blocked 决策" value={review.availability.decisionRates ? `${review.intraday.blockedRate.toFixed(2)}/min` : "--"} note="按 trigger 排查集中阻塞" />
+                <ReviewEvidence label="结算风险因子" value={review.availability.settlementRisk ? review.intraday.settlementRisk.toFixed(2) : "--"} note="价格靠近边界时下降" />
               </div>
             </div>
           </div>
 
           <div className="panel review-phase-card" id="review-postmarket">
-            <ReviewPhaseHeader index="03" eyebrow="Endgame / Postmarket" title="尾盘 / 盘后 · 退出流转与库存退出" description="从尾盘进入等待结果、结果尾盘、争议与最终结束" tone="ok" result="持续减仓" source="Preview 策略汇总 · Prometheus + 订单审计 · 1h" />
+            <ReviewPhaseHeader index="03" eyebrow="Endgame / Postmarket" title="尾盘 / 盘后 · 退出流转与库存退出" description="从尾盘进入等待结果、结果尾盘、争议与最终结束" tone={review.availability.reduceOnly ? "ok" : "warn"} result={review.availability.reduceOnly ? "有减仓审计" : "无减仓样本"} source={review.source === "api" ? "策略 Review API · 决策 + 订单审计" : "演示数据 · 1h"} />
             <div className="review-postmarket-grid">
               <div className="review-stage-chart">
                 <div className="review-subtitle"><ReviewDefinition label="阶段到达分布" /><small>排除 pending_authority 的状态迁移</small></div>
-                <ResponsiveContainer width="100%" height="100%">
+                {review.availability.endgameTransitions ? <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={review.endgame.transitions} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
                     <CartesianGrid stroke="#252a33" vertical={false} />
                     <XAxis dataKey="mode" stroke="#7e8796" tickLine={false} axisLine={false} />
@@ -2981,20 +3238,21 @@ function ReviewDashboard({
                     <Tooltip content={<ReviewTooltip />} />
                     <Bar dataKey="count" name="到达次数" radius={[3, 3, 0, 0]}>{review.endgame.transitions.map((item) => <Cell key={item.mode} fill={item.color} />)}</Bar>
                   </BarChart>
-                </ResponsiveContainer>
+                </ResponsiveContainer> : <ReviewUnavailable title="暂无尾盘状态样本" detail="该市场还未产生等待结果、结果尾盘、争议或结束状态变化。" />}
               </div>
               <div className="review-endgame-detail">
                 <div className="review-evidence-grid review-endgame-kpis">
-                  <ReviewEvidence label="保守减仓订单" value={`${review.endgame.reduceOnlyOrders} 笔`} note="waiting_result reduce-only" />
-                  <ReviewEvidence label="保守减仓数量" value={`${review.endgame.reduceOnlyQuantity} sh`} note="订单数量合计" />
-                  <ReviewEvidence label="尾盘后维护活跃度" value={`${review.endgame.expiredActivityRate}/min`} note="expired 桶持续观察" />
+                  <ReviewEvidence label="保守减仓订单" value={review.availability.reduceOnly ? `${review.endgame.reduceOnlyOrders} 笔` : "0 笔"} note="waiting_result reduce-only" />
+                  <ReviewEvidence label="保守减仓数量" value={review.availability.reduceOnly ? `${review.endgame.reduceOnlyQuantity} sh` : "0 sh"} note="订单数量合计" />
+                  <ReviewEvidence label="尾盘后维护活跃度" value={review.availability.expiredRate ? `${review.endgame.expiredActivityRate}/min` : "--"} note="expired 桶持续观察" />
                 </div>
                 <div className="review-audit">
                   <div className="review-subtitle"><ReviewDefinition label="逐单审计" /><small>waiting_result_reduce_only_sell</small></div>
                   <div className="review-audit-head"><span>时间</span><span>结果</span><span>价格</span><span>数量</span></div>
-                  {review.endgame.audits.map((audit) => (
-                    <div className="review-audit-row" key={`${audit.time}-${audit.outcome}`}><time>{audit.time}</time><strong>{audit.outcome}</strong><span>{audit.price.toFixed(2)}</span><span>{audit.quantity.toFixed(1)} sh</span></div>
+                  {review.endgame.audits.map((audit, index) => (
+                    <div className="review-audit-row" key={`${audit.time}-${audit.outcome}-${index}`}><time>{audit.time}</time><strong>{audit.outcome}</strong><span>{audit.price === null ? "--" : audit.price.toFixed(2)}</span><span>{audit.quantity === null ? "--" : `${audit.quantity.toFixed(1)} sh`}</span></div>
                   ))}
+                  {!review.availability.audits ? <ReviewUnavailable title="暂无逐单审计" detail="该市场尚无 waiting_result_reduce_only_sell 订单记录。" compact /> : null}
                 </div>
               </div>
             </div>
@@ -3008,6 +3266,15 @@ function ReviewDashboard({
 
 function ReviewMetric({ label, value, note, tone }: { label: string; value: string; note: string; tone: "ok" | "warn" | "bad" }) {
   return <div className={`review-metric ${tone}`}><ReviewDefinition label={label} /><strong>{value}</strong><small>{note}</small></div>;
+}
+
+function ReviewUnavailable({ title, detail, compact = false }: { title: string; detail: string; compact?: boolean }) {
+  return (
+    <div className={`review-unavailable ${compact ? "compact" : ""}`}>
+      <Database size={compact ? 14 : 18} />
+      <div><strong>{title}</strong><small>{detail}</small></div>
+    </div>
+  );
 }
 
 function ReviewPhaseHeader({ index, eyebrow, title, description, tone, result, source }: { index: string; eyebrow: string; title: string; description: string; tone: "ok" | "warn"; result: string; source: string }) {

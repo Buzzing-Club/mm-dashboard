@@ -2017,6 +2017,41 @@ h3 {
   padding: 12px;
 }
 
+.review-unavailable {
+  display: flex;
+  min-height: 150px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.review-unavailable > div {
+  display: grid;
+  max-width: 420px;
+  gap: 4px;
+}
+
+.review-unavailable strong {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.review-unavailable small {
+  line-height: 1.5;
+}
+
+.review-unavailable.compact {
+  min-height: 58px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  justify-content: flex-start;
+}
+
 .review-funnel {
   display: grid;
   gap: 10px;
