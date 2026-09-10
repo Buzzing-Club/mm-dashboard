@@ -2319,6 +2319,7 @@ export default function Home() {
   const [refreshTick, setRefreshTick] = useState(0);
   const [activeId, setActiveId] = useState(mockMarkets[0].id);
   const [filter, setFilter] = useState("all");
+  const [riskStatusFilter, setRiskStatusFilter] = useState<RiskStatus | null>(null);
   const [timeframe, setTimeframe] = useState("1h");
   const [query, setQuery] = useState("");
   const [liveClock, setLiveClock] = useState("--:--:--");
@@ -2424,11 +2425,12 @@ export default function Home() {
           .toLowerCase()
           .includes(normalizedQuery);
       })
+      .filter((marketItem) => !riskStatusFilter || marketItem.riskStatus === riskStatusFilter)
       .sort((a, b) => {
         const severity = { bad: 0, warn: 1, muted: 2, ok: 3 };
         return severity[statusMeta[a.riskStatus].tone] - severity[statusMeta[b.riskStatus].tone];
       });
-  }, [filter, markets, query]);
+  }, [filter, markets, query, riskStatusFilter]);
 
   const activeMarket = markets.find((marketItem) => marketItem.id === activeId) ?? markets[0];
   const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
@@ -2539,6 +2541,8 @@ export default function Home() {
         visibleMarket={visibleMarket}
         filter={filter}
         setFilter={setFilter}
+        riskStatusFilter={riskStatusFilter}
+        setRiskStatusFilter={setRiskStatusFilter}
         query={query}
         setQuery={setQuery}
         setActiveId={setActiveId}
@@ -3073,6 +3077,8 @@ function MarketOverview({
   visibleMarket,
   filter,
   setFilter,
+  riskStatusFilter,
+  setRiskStatusFilter,
   query,
   setQuery,
   setActiveId,
@@ -3083,6 +3089,8 @@ function MarketOverview({
   visibleMarket: Market;
   filter: string;
   setFilter: (value: string) => void;
+  riskStatusFilter: RiskStatus | null;
+  setRiskStatusFilter: (value: RiskStatus | null) => void;
   query: string;
   setQuery: (value: string) => void;
   setActiveId: (value: string) => void;
@@ -3125,7 +3133,10 @@ function MarketOverview({
             key={option.id}
             className={filter === option.id ? "active" : ""}
             type="button"
-            onClick={() => setFilter(option.id)}
+            onClick={() => {
+              setFilter(option.id);
+              setRiskStatusFilter(null);
+            }}
           >
             {option.label}
           </button>
@@ -3161,7 +3172,17 @@ function MarketOverview({
         })}
       </div>
 
-      <MarketOverviewSummary markets={markets} setActiveId={setActiveId} />
+      <MarketOverviewSummary
+        markets={filteredMarkets}
+        statusMarkets={markets}
+        activeStatus={riskStatusFilter}
+        setActiveId={setActiveId}
+        onStatusChange={(status) => {
+          setRiskStatusFilter(status === riskStatusFilter ? null : status);
+          setFilter("all");
+          setQuery("");
+        }}
+      />
     </section>
   );
 }
@@ -3189,7 +3210,19 @@ function overviewMetricLabel(value: number, metric: OverviewRankMetric) {
   return `${Math.round(value)} 次`;
 }
 
-function MarketOverviewSummary({ markets, setActiveId }: { markets: Market[]; setActiveId: (value: string) => void }) {
+function MarketOverviewSummary({
+  markets,
+  statusMarkets,
+  activeStatus,
+  setActiveId,
+  onStatusChange,
+}: {
+  markets: Market[];
+  statusMarkets: Market[];
+  activeStatus: RiskStatus | null;
+  setActiveId: (value: string) => void;
+  onStatusChange: (status: RiskStatus) => void;
+}) {
   const [rankMetric, setRankMetric] = useState<OverviewRankMetric>("avgSlippage");
   const abnormalMarkets = markets.filter((marketItem) => statusMeta[marketItem.riskStatus].tone !== "ok");
   const singleSidedEvents = markets.reduce((total, marketItem) => total + (marketItem.experienceQuality?.singleSidedEmpty.count ?? 0), 0);
@@ -3198,7 +3231,7 @@ function MarketOverviewSummary({ markets, setActiveId }: { markets: Market[]; se
     .sort((left, right) => overviewMetricValue(right, rankMetric) - overviewMetricValue(left, rankMetric))
     .slice(0, 5);
   const statusCounts = Object.entries(
-    markets.reduce<Partial<Record<RiskStatus, number>>>((counts, marketItem) => ({
+    statusMarkets.reduce<Partial<Record<RiskStatus, number>>>((counts, marketItem) => ({
       ...counts,
       [marketItem.riskStatus]: (counts[marketItem.riskStatus] ?? 0) + 1,
     }), {}),
@@ -3242,7 +3275,19 @@ function MarketOverviewSummary({ markets, setActiveId }: { markets: Market[]; se
       <div className="overview-statuses" aria-label="当前市场风控状态分布">
         {statusCounts.map(([status, count]) => {
           const meta = statusMeta[status as RiskStatus];
-          return <span key={status} className={meta.tone} title={riskStatusDescriptions[status as RiskStatus]}>{meta.label} <b>{count}</b></span>;
+          const typedStatus = status as RiskStatus;
+          return (
+            <button
+              key={status}
+              className={`${meta.tone} ${activeStatus === typedStatus ? "active" : ""}`}
+              type="button"
+              aria-pressed={activeStatus === typedStatus}
+              title={`${riskStatusDescriptions[typedStatus]} 点击筛选该状态市场`}
+              onClick={() => onStatusChange(typedStatus)}
+            >
+              {meta.label} <b>{count}</b>
+            </button>
+          );
         })}
       </div>
     </div>
