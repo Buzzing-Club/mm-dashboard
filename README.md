@@ -53,6 +53,13 @@ Mock 的策略校准口径：
 
 后端单市场接口可在 `slippage.distribution_by_notional[]` 返回金额区间、成交笔数和平均滑点。策略聚合接口也兼容将该数据放在 `backend_required.slippage_distribution_by_notional[]`。
 
+后端历史与批量接口已经接入：
+
+- `GET /dashboard/markets/{condition_id}/history`：提供 Gross/Net Volume 累计序列、区间成交量、历史 PnL、成交滑点和成交后 5 秒价格冲击。看板按 `15m/1h/4h` 分别请求 `1m/5m/15m` 粒度。
+- `POST /dashboard/markets/realtime/batch`：一次补齐最多 100 个市场的当前业务、PnL 和滑点摘要，单个市场失败不会影响其余市场。
+- 空字符串代表没有样本，看板保留为断点，不按 0 展示。历史 PnL `truncated=true` 或 `pnl_included=false` 时显示为不可用。
+- `mark_price_source` 与 `impact_horizon_seconds` 会展示在图表下方，避免把历史成交价估值误解为实时盘口估值。
+
 缺少上述字段时，真实 API 模式会明确显示“待接入”或“等待数据”；mock 模式提供完整示例，便于评审交互。
 
 ### 市场生命周期契约

@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function request(path) {
+async function request(path, options = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
     new Request(`http://localhost${path}`, {
+      ...options,
       headers: { accept: "text/html,application/json" },
     }),
     {
@@ -48,10 +49,26 @@ test("keeps the dashboard API proxy explicit when upstream is missing", async ()
   assert.equal(payload.error, "STRATEGY_DASHBOARD_API is not configured");
 });
 
-test("keeps dashboard code wired to the strategy contract", async () => {
-  const [page, route] = await Promise.all([
+test("keeps OpenAPI history and batch proxies protected by server credentials", async () => {
+  const conditionId = `0x${"a".repeat(64)}`;
+  const [historyResponse, batchResponse] = await Promise.all([
+    request(`/api/dashboard/market-history?condition_id=${conditionId}&window=1h`),
+    request("/api/dashboard/market-realtime-batch", {
+      method: "POST",
+      body: JSON.stringify({ condition_ids: [conditionId], window: "1h" }),
+    }),
+  ]);
+
+  assert.equal(historyResponse.status, 503);
+  assert.equal(batchResponse.status, 503);
+});
+
+test("keeps dashboard code wired to the strategy and backend contracts", async () => {
+  const [page, route, historyRoute, batchRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/dashboard/realtime/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/dashboard/market-history/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/dashboard/market-realtime-batch/route.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /mm-dashboard-realtime\.v1/);
@@ -88,11 +105,21 @@ test("keeps dashboard code wired to the strategy contract", async () => {
   assert.match(page, /reviewDefinitionDescriptions/);
   assert.doesNotMatch(page, /Review 数据准备度/);
   assert.match(page, /成交额待接入/);
-  assert.match(page, /等待后端提供按市场、按时间窗口聚合的成交额 \/ PnL \/ Wash 时序/);
+  assert.match(page, /gross_volume_cumulative/);
+  assert.match(page, /net_volume_cumulative/);
+  assert.match(page, /avg_trade_impact_5s/);
+  assert.match(page, /Gross \/ Net Volume \/ PnL/);
+  assert.match(page, /无样本区间保留为空/);
+  assert.match(page, /market-realtime-batch/);
+  assert.match(page, /market-history/);
   assert.match(page, /等待后端提供真实成交滑点分布/);
   assert.match(page, /等待后端提供成交时刻基准价与滑点时序/);
   assert.match(route, /STRATEGY_DASHBOARD_API/);
   assert.match(route, /CF_ACCESS_CLIENT_ID/);
   assert.match(route, /CF-Access-Client-Secret/);
   assert.match(route, /Dashboard upstream did not return JSON/);
+  assert.match(historyRoute, /include_pnl/);
+  assert.match(historyRoute, /\/history/);
+  assert.match(batchRoute, /include_slippage_distribution/);
+  assert.match(batchRoute, /condition_ids/);
 });

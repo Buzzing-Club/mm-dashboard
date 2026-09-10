@@ -130,7 +130,8 @@ type Market = {
     ts?: number;
     time: string;
     volume: number;
-    pnl: number;
+    netVolume?: number | null;
+    pnl: number | null;
     spread: number;
     wash: number;
     bidSlope: number;
@@ -177,6 +178,15 @@ type Market = {
     avgSlippage: boolean;
     slippageDistribution: boolean;
     businessTrend: boolean;
+  };
+  historyData?: {
+    coveredFrom: number;
+    coveredThrough: number;
+    markPriceSource: string;
+    impactSource: string;
+    impactHorizonSeconds: number;
+    pnlIncluded: boolean;
+    truncated: boolean;
   };
 };
 
@@ -361,6 +371,7 @@ type SingleMarketRealtimePayload = {
   status?: string;
   message?: string;
   data?: {
+    condition_id?: string | null;
     business?: {
       gross_volume?: string | number | null;
       net_volume?: string | number | null;
@@ -387,6 +398,49 @@ type SingleMarketRealtimePayload = {
         impact_pct?: string | number | null;
       }> | null;
     };
+  } | null;
+};
+
+type SingleMarketHistoryPayload = {
+  code?: number;
+  status?: string;
+  message?: string;
+  data?: {
+    condition_id?: string | null;
+    interval?: string | null;
+    covered_from?: string | number | null;
+    covered_through?: string | number | null;
+    points?: Array<{
+      ts?: string | number | null;
+      gross_volume_cumulative?: string | number | null;
+      net_volume_cumulative?: string | number | null;
+      trade_count?: string | number | null;
+      avg_trade_slippage?: string | number | null;
+      slippage_sample_count?: string | number | null;
+      avg_trade_impact_5s?: string | number | null;
+      impact_sample_count?: string | number | null;
+      current_pnl?: string | number | null;
+    }> | null;
+    quality?: {
+      mark_price_source?: string | null;
+      impact_source?: string | null;
+      impact_horizon_seconds?: string | number | null;
+      pnl_included?: boolean | null;
+      truncated?: boolean | null;
+    } | null;
+  } | null;
+};
+
+type SingleMarketHistoryMetrics = {
+  series: Market["series"];
+  experienceHistory: ExperienceHistoryPoint[];
+  historyData: NonNullable<Market["historyData"]>;
+};
+
+type BatchMarketRealtimePayload = {
+  code?: number;
+  data?: {
+    items?: Array<NonNullable<SingleMarketRealtimePayload["data"]>> | null;
   } | null;
 };
 
@@ -1619,6 +1673,11 @@ function raw6ToUsdb(value: string | number | null | undefined) {
   return (numberValue(value) ?? 0) / 1_000_000;
 }
 
+function nullableRaw6ToUsdb(value: string | number | null | undefined) {
+  const parsed = numberValue(value);
+  return parsed === null ? null : parsed / 1_000_000;
+}
+
 function statusValue(value: string | null | undefined): RiskStatus {
   const normalized = String(value ?? "paused") as RiskStatus;
   return normalized in statusMeta ? normalized : "paused";
@@ -1831,6 +1890,67 @@ function mapSingleMarketMetrics(payload: SingleMarketRealtimePayload): SingleMar
   };
 }
 
+function mapSingleMarketHistory(payload: SingleMarketHistoryPayload): SingleMarketHistoryMetrics | null {
+  if (payload.code !== 0 || !payload.data) return null;
+  const coveredFrom = apiTimestamp(payload.data.covered_from, Number.NaN);
+  const coveredThrough = apiTimestamp(payload.data.covered_through, Number.NaN);
+  if (!Number.isFinite(coveredFrom) || !Number.isFinite(coveredThrough)) return null;
+
+  const points = (payload.data.points ?? []).flatMap((point) => {
+    const ts = apiTimestamp(point.ts, Number.NaN);
+    if (!Number.isFinite(ts)) return [];
+    return [{
+      ts,
+      time: formatAxisTime(ts, new Date(coveredFrom).toISOString(), new Date(coveredThrough).toISOString()),
+      volume: raw6ToUsdb(point.gross_volume_cumulative),
+      netVolume: nullableRaw6ToUsdb(point.net_volume_cumulative),
+      pnl: nullableRaw6ToUsdb(point.current_pnl),
+      spread: 0,
+      wash: 0,
+      bidSlope: 0,
+      askSlope: 0,
+    }];
+  });
+  if (!points.length) return null;
+
+  const experienceHistory = (payload.data.points ?? []).flatMap((point) => {
+    const ts = apiTimestamp(point.ts, Number.NaN);
+    if (!Number.isFinite(ts)) return [];
+    const slippageSamples = numberValue(point.slippage_sample_count) ?? 0;
+    const impactSamples = numberValue(point.impact_sample_count) ?? 0;
+    return [{
+      ts,
+      time: formatAxisTime(ts, new Date(coveredFrom).toISOString(), new Date(coveredThrough).toISOString()),
+      slippagePct: slippageSamples > 0 ? percentValue(point.avg_trade_slippage) : null,
+      impactPct: impactSamples > 0 ? percentValue(point.avg_trade_impact_5s) : null,
+    }];
+  });
+  const quality = payload.data.quality;
+
+  return {
+    series: points,
+    experienceHistory,
+    historyData: {
+      coveredFrom,
+      coveredThrough,
+      markPriceSource: quality?.mark_price_source ?? "unknown",
+      impactSource: quality?.impact_source ?? "unknown",
+      impactHorizonSeconds: numberValue(quality?.impact_horizon_seconds) ?? 5,
+      pnlIncluded: quality?.pnl_included !== false,
+      truncated: quality?.truncated === true,
+    },
+  };
+}
+
+function mapBatchMarketMetrics(payload: BatchMarketRealtimePayload) {
+  if (payload.code !== 0) return {};
+  return Object.fromEntries((payload.data?.items ?? []).flatMap((item) => {
+    const conditionId = item.condition_id?.trim();
+    const metrics = mapSingleMarketMetrics({ code: 0, data: item });
+    return conditionId && metrics ? [[conditionId, metrics]] : [];
+  }));
+}
+
 function applySingleMarketMetrics(marketItem: Market, metrics: SingleMarketMetrics | undefined) {
   if (!metrics) return marketItem;
   const { experienceHistory, ...marketMetrics } = metrics;
@@ -1860,6 +1980,54 @@ function applySingleMarketMetrics(marketItem: Market, metrics: SingleMarketMetri
         }
       : marketItem.experienceQuality,
   };
+}
+
+function applySingleMarketHistory(marketItem: Market, history: SingleMarketHistoryMetrics | undefined) {
+  if (!history) return marketItem;
+  const hasExperienceSamples = history.experienceHistory.some(
+    (point) => point.slippagePct !== null || point.impactPct !== null,
+  );
+  return {
+    ...marketItem,
+    series: history.series,
+    historyData: history.historyData,
+    backendData: {
+      ...(marketItem.backendData ?? {
+        grossVolume: false,
+        netVolume: false,
+        traderCount: false,
+        pnl: false,
+        washRatio: false,
+        avgSlippage: false,
+        slippageDistribution: false,
+        businessTrend: false,
+      }),
+      businessTrend: true,
+    },
+    experienceQuality: hasExperienceSamples
+      ? {
+          ...(marketItem.experienceQuality ?? {
+            observedDurationSeconds: 0,
+            l1DistanceThresholdPct: 0.01,
+            singleSidedEmpty: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            doubleSidedEmpty: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            l1DistanceExceeded: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            incidents: [],
+            history: [],
+          }),
+          history: history.experienceHistory,
+        }
+      : marketItem.experienceQuality
+        ? { ...marketItem.experienceQuality, history: [] }
+        : undefined,
+  };
+}
+
+function historyDomain(marketItem: Market) {
+  if (marketItem.historyData) {
+    return [marketItem.historyData.coveredFrom, marketItem.historyData.coveredThrough] as const;
+  }
+  return [timestamp(marketItem.startAt), timestamp(marketItem.endAt)] as const;
 }
 
 function reasonLabel(reasonCode: string | null | undefined, direction?: "increase" | "decrease" | null) {
@@ -2157,6 +2325,7 @@ export default function Home() {
   const [activeBoard, setActiveBoard] = useState<BoardId>("macro");
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("realtime");
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
+  const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
 
   useEffect(() => {
     const updateClock = () => {
@@ -2194,6 +2363,27 @@ export default function Home() {
           label: "API",
           detail: "策略端 /api/dashboard/realtime",
         });
+        const conditionIds = nextMarkets
+          .map((marketItem) => marketItem.id)
+          .filter((conditionId) => /^0x[a-f0-9]{64}$/i.test(conditionId))
+          .slice(0, 100);
+        if (conditionIds.length) {
+          try {
+            const batchResponse = await fetch("/api/dashboard/market-realtime-batch", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ condition_ids: conditionIds, window: "1h" }),
+              cache: "no-store",
+            });
+            if (batchResponse.ok && !cancelled) {
+              const metrics = mapBatchMarketMetrics(await batchResponse.json() as BatchMarketRealtimePayload);
+              setSingleMarketMetrics((current) => ({ ...current, ...metrics }));
+              setMarkets(nextMarkets.map((marketItem) => applySingleMarketMetrics(marketItem, metrics[marketItem.id])));
+            }
+          } catch (error) {
+            console.warn("batch market metrics unavailable", error);
+          }
+        }
       } catch (error) {
         if (cancelled) return;
         setMarkets(mockMarkets);
@@ -2244,7 +2434,8 @@ export default function Home() {
   const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
-  const visibleMarket = applySingleMarketMetrics(visibleMarketBase, singleMarketMetrics[visibleMarketBase.id]);
+  const visibleMarketWithRealtime = applySingleMarketMetrics(visibleMarketBase, singleMarketMetrics[visibleMarketBase.id]);
+  const visibleMarket = applySingleMarketHistory(visibleMarketWithRealtime, singleMarketHistory[visibleMarketBase.id]);
 
   useEffect(() => {
     if (!visibleMarketBase?.id) return undefined;
@@ -2256,18 +2447,36 @@ export default function Home() {
           condition_id: visibleMarketBase.id,
           window: timeframe,
         });
-        const response = await fetch(`/api/dashboard/market-realtime?${params.toString()}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) return;
-        const payload = await response.json() as SingleMarketRealtimePayload;
-        const metrics = mapSingleMarketMetrics(payload);
-        if (!metrics || controller.signal.aborted) return;
-        setSingleMarketMetrics((current) => ({
-          ...current,
-          [visibleMarketBase.id]: metrics,
-        }));
+        const [realtimeResult, historyResult] = await Promise.allSettled([
+          fetch(`/api/dashboard/market-realtime?${params.toString()}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+          fetch(`/api/dashboard/market-history?${params.toString()}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+        ]);
+        if (controller.signal.aborted) return;
+
+        if (realtimeResult.status === "fulfilled" && realtimeResult.value.ok) {
+          const metrics = mapSingleMarketMetrics(await realtimeResult.value.json() as SingleMarketRealtimePayload);
+          if (metrics && !controller.signal.aborted) {
+            setSingleMarketMetrics((current) => ({
+              ...current,
+              [visibleMarketBase.id]: metrics,
+            }));
+          }
+        }
+        if (historyResult.status === "fulfilled" && historyResult.value.ok) {
+          const history = mapSingleMarketHistory(await historyResult.value.json() as SingleMarketHistoryPayload);
+          if (history && !controller.signal.aborted) {
+            setSingleMarketHistory((current) => ({
+              ...current,
+              [visibleMarketBase.id]: history,
+            }));
+          }
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
         console.warn("single market metrics unavailable", error);
@@ -3145,6 +3354,9 @@ function MacroBoard({
   timeframe: string;
   setTimeframe: (value: string) => void;
 }) {
+  const [historyStart, historyEnd] = historyDomain(visibleMarket);
+  const historyPnlAvailable = !visibleMarket.historyData
+    || (visibleMarket.historyData.pnlIncluded && !visibleMarket.historyData.truncated);
   return (
     <>
       <BoardChartToolbar title="Business Trend" timeframe={timeframe} setTimeframe={setTimeframe} />
@@ -3166,20 +3378,19 @@ function MacroBoard({
 
         <div className="panel chart-panel">
           <div className="panel-title">
-            <span><LineChart size={16} /> Volume / PnL / Wash</span>
-            <small>{timeframe}</small>
+            <span><LineChart size={16} /> Gross / Net Volume / PnL</span>
+            <small>{visibleMarket.historyData ? `后端历史 · ${timeframe}` : timeframe}</small>
           </div>
           <div className="chart-frame macro-chart-frame">
             {visibleMarket.backendData?.businessTrend === false ? (
-              <div className="chart-empty">等待后端提供按市场、按时间窗口聚合的成交额 / PnL / Wash 时序</div>
+              <div className="chart-empty">等待后端提供单市场成交额与 PnL 历史序列</div>
             ) : <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={visibleMarket.series}>
                 <CartesianGrid stroke="#242833" vertical={false} />
                 <XAxis
                   dataKey="ts"
                   type="number"
-                  domain={[timestamp(visibleMarket.startAt), timestamp(visibleMarket.endAt)]}
-                  ticks={axisTicks(visibleMarket.startAt, visibleMarket.endAt)}
+                  domain={[historyStart, historyEnd]}
                   tickFormatter={(value) => formatAxisTime(Number(value), visibleMarket.startAt, visibleMarket.endAt)}
                   tickLine={false}
                   axisLine={false}
@@ -3189,12 +3400,19 @@ function MacroBoard({
                 <YAxis yAxisId="left" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
-                <Area yAxisId="left" type="monotone" dataKey="volume" fill="#1f7a5f55" stroke="#20d49b" strokeWidth={2} />
-                <Line yAxisId="right" type="monotone" dataKey="pnl" stroke="#d7f75b" strokeWidth={2} dot={false} />
-                <Line yAxisId="right" type="monotone" dataKey="wash" stroke="#4cc9f0" strokeWidth={2} dot={false} />
+                <Area yAxisId="left" type="monotone" dataKey="volume" name="Gross Volume" fill="#1f7a5f55" stroke="#20d49b" strokeWidth={2} />
+                {visibleMarket.historyData ? <Line yAxisId="left" type="monotone" dataKey="netVolume" name="Net Volume" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+                {historyPnlAvailable ? <Line yAxisId="right" type="monotone" dataKey="pnl" name="PnL" stroke="#d7f75b" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+                {!visibleMarket.historyData ? <Line yAxisId="right" type="monotone" dataKey="wash" name="Wash" stroke="#4cc9f0" strokeWidth={2} dot={false} /> : null}
               </ComposedChart>
             </ResponsiveContainer>}
           </div>
+          {visibleMarket.historyData ? (
+            <div className="chart-source-note">
+              <span>PnL 估值：{visibleMarket.historyData.markPriceSource === "last_trade_price" ? "最近成交价" : visibleMarket.historyData.markPriceSource}</span>
+              {!historyPnlAvailable ? <span>PnL 历史暂不可用</span> : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </>
@@ -3210,6 +3428,7 @@ function ExperienceBoard({
   timeframe: string;
   setTimeframe: (value: string) => void;
 }) {
+  const [historyStart, historyEnd] = historyDomain(visibleMarket);
   const [bookOutcome, setBookOutcome] = useState<OutcomeSide>("yes");
   const displayedBidLevels =
     bookOutcome === "yes" ? visibleMarket.bidLevels : visibleMarket.noBidLevels?.length ? visibleMarket.noBidLevels : complementaryLevels(visibleMarket.askLevels, "bid");
@@ -3329,8 +3548,7 @@ function ExperienceBoard({
                   <XAxis
                     dataKey="ts"
                     type="number"
-                    domain={[timestamp(visibleMarket.startAt), timestamp(visibleMarket.endAt)]}
-                    ticks={axisTicks(visibleMarket.startAt, visibleMarket.endAt)}
+                    domain={[historyStart, historyEnd]}
                     tickFormatter={(value) => formatAxisTime(Number(value), visibleMarket.startAt, visibleMarket.endAt)}
                     tickLine={false}
                     axisLine={false}
@@ -3342,12 +3560,17 @@ function ExperienceBoard({
                   {(visibleMarket.experienceQuality.incidents ?? []).map((incident) => (
                     <ReferenceLine key={`${incident.kind}-${incident.ts}`} x={incident.ts} stroke={incident.kind === "l1_distance_exceeded" ? "#ff5c6c" : "#ffb020"} strokeDasharray="3 3" />
                   ))}
-                  <Line type="monotone" dataKey="slippagePct" name="Slippage" stroke="#ffb020" strokeWidth={2} dot={false} connectNulls />
-                  <Line type="monotone" dataKey="impactPct" name="Impact" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="slippagePct" name="成交滑点" stroke="#ffb020" strokeWidth={2} dot={false} connectNulls={false} />
+                  <Line type="monotone" dataKey="impactPct" name="交易冲击" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : <div className="chart-empty">等待后端提供成交时刻基准价与滑点时序</div>}
           </div>
+          {visibleMarket.historyData ? (
+            <div className="chart-source-note">
+              成交冲击：成交后 {visibleMarket.historyData.impactHorizonSeconds} 秒价格偏离；无样本区间保留为空
+            </div>
+          ) : null}
         </div>
 
         <div className="panel chart-panel">

@@ -904,6 +904,15 @@ h3 {
   text-align: center;
 }
 
+.chart-source-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .risk-panel {
   grid-column: 1 / -1;
 }
