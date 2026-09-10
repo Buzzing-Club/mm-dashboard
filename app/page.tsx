@@ -3080,6 +3080,31 @@ function ReviewDashboard({
     [reviewSource.payload, visibleMarket],
   );
   const [reviewFocus, setReviewFocus] = useState<"all" | "premarket" | "intraday" | "postmarket">("all");
+  const [reviewMarketQuery, setReviewMarketQuery] = useState("");
+  const [reviewCategory, setReviewCategory] = useState("all");
+  const [reviewPickerOpen, setReviewPickerOpen] = useState(false);
+  const reviewCategoryCounts = useMemo(() => Object.fromEntries(
+    filterOptions.map((option) => [
+      option.id,
+      option.tag ? markets.filter((market) => market.tags.includes(option.tag)).length : markets.length,
+    ]),
+  ), [markets]);
+  const reviewMarketResults = useMemo(() => {
+    const category = filterOptions.find((option) => option.id === reviewCategory);
+    const normalizedQuery = reviewMarketQuery.trim().toLowerCase();
+
+    return markets
+      .filter((market) => !category?.tag || market.tags.includes(category.tag))
+      .filter((market) => !normalizedQuery || `${market.event} ${market.market} ${market.category} ${market.tags.join(" ")} ${market.id}`
+        .toLowerCase()
+        .includes(normalizedQuery))
+      .sort((left, right) => {
+        if (left.id === visibleMarket.id) return -1;
+        if (right.id === visibleMarket.id) return 1;
+        return left.event.localeCompare(right.event);
+      })
+      .slice(0, 12);
+  }, [markets, reviewCategory, reviewMarketQuery, visibleMarket.id]);
   const completedTrades = review.funnel.at(-1)?.count ?? 0;
   const quoteAttemptCount = review.funnel[2]?.count ?? 0;
   const submittedCount = review.funnel[3]?.count ?? 0;
@@ -3099,12 +3124,65 @@ function ReviewDashboard({
           <p className="section-label">Post-trade Strategy Review</p>
           <strong>单市场全生命周期复盘</strong>
         </div>
-        <label className="review-market-select">
+        <div
+          className="review-market-browser"
+          onFocus={() => setReviewPickerOpen(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setReviewPickerOpen(false);
+          }}
+        >
           <span>复盘市场</span>
-          <select value={visibleMarket.id} onChange={(event) => setActiveId(event.target.value)}>
-            {markets.map((market) => <option key={market.id} value={market.id}>{market.event}</option>)}
-          </select>
-        </label>
+          <div className="search-box review-market-search">
+            <Search size={15} />
+            <input
+              aria-label="搜索复盘市场"
+              value={reviewMarketQuery}
+              onChange={(event) => {
+                setReviewMarketQuery(event.target.value);
+                setReviewPickerOpen(true);
+              }}
+              placeholder="搜索 market / event / tag / id"
+            />
+          </div>
+          <div className="segmented category-filters review-category-filters" aria-label="按市场类别筛选复盘市场">
+            {filterOptions.map((option) => (
+              <button
+                key={option.id}
+                className={reviewCategory === option.id ? "active" : ""}
+                type="button"
+                disabled={option.tag !== null && reviewCategoryCounts[option.id] === 0}
+                title={option.tag !== null && reviewCategoryCounts[option.id] === 0 ? "当前没有该类别市场" : undefined}
+                onClick={() => {
+                  setReviewCategory(option.id);
+                  setReviewPickerOpen(true);
+                }}
+              >
+                {option.label} <b>{reviewCategoryCounts[option.id]}</b>
+              </button>
+            ))}
+          </div>
+          {reviewPickerOpen ? (
+            <div className="review-market-results" role="listbox" aria-label="复盘市场搜索结果">
+              {reviewMarketResults.length ? reviewMarketResults.map((market) => (
+                <button
+                  key={market.id}
+                  className={market.id === visibleMarket.id ? "active" : ""}
+                  type="button"
+                  role="option"
+                  aria-selected={market.id === visibleMarket.id}
+                  onClick={() => {
+                    setActiveId(market.id);
+                    setReviewMarketQuery("");
+                    setReviewPickerOpen(false);
+                  }}
+                >
+                  <strong>{market.event}</strong>
+                  <small>{market.category} · {compactIdentifier(market.id)}</small>
+                </button>
+              )) : <p>当前类别和搜索条件下没有市场</p>}
+            </div>
+          ) : null}
+        </div>
         <div className="review-period" aria-label="Review 阶段快速定位">
           <button className={reviewFocus === "all" ? "active" : ""} type="button" onClick={() => focusReviewSection("all", "review-all")}>全部</button>
           <button className={reviewFocus === "premarket" ? "active" : ""} type="button" onClick={() => focusReviewSection("premarket", "review-premarket")}>盘前收敛</button>
