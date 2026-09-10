@@ -103,6 +103,11 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.match(page, /riskStatusFilter/);
   assert.match(page, /categoryMarkets/);
   assert.match(page, /statusScopeMarkets=\{categoryMarkets\}/);
+  assert.match(page, /classifyDashboardMarket/);
+  assert.match(page, /marketCategoryRules/);
+  assert.match(page, /当前没有该类别市场/);
+  assert.match(page, /categoryCounts\[option\.id\]/);
+  assert.match(page, /allMarkets=\{markets\}/);
   assert.match(page, /setRiskStatusFilter\(null\)/);
   assert.match(page, /aria-pressed=\{activeStatus === typedStatus\}/);
   assert.match(page, /市场类别与状态筛选/);

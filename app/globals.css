@@ -513,6 +513,21 @@ h3 {
   margin: 0;
 }
 
+.category-filters button {
+  gap: 6px;
+}
+
+.category-filters button b {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.category-filters button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
 .status-filters {
   display: flex;
   flex-wrap: wrap;

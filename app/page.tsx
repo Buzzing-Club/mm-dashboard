@@ -213,6 +213,10 @@ type DashboardRealtimeItem = {
     event_id?: string | number;
     title?: string | null;
     event_title?: string | null;
+    category?: string | null;
+    event_category?: string | null;
+    tags?: string[] | string | null;
+    event_tags?: string[] | string | null;
   };
   lifecycle?: {
     create_time?: string | number | null;
@@ -1603,6 +1607,7 @@ const filterOptions = [
   { id: "politics", label: "Politics", tag: "Politics" },
   { id: "sports", label: "Sports", tag: "Sports" },
   { id: "media", label: "Media", tag: "Media" },
+  { id: "other", label: "其他", tag: "Other" },
 ];
 
 const timeframes = ["15m", "1h", "4h"];
@@ -1695,6 +1700,57 @@ function readableLabel(value: string | null | undefined) {
   const text = value?.trim();
   if (!text || looksLikeOpaqueIdentifier(text)) return null;
   return text;
+}
+
+const marketCategoryRules = [
+  {
+    tag: "Weather",
+    pattern: /\b(weather|temperature|typhoon|cyclone|rainfall|rain|storm|humidity|wind|rpll)\b|气温|天气|台风|降雨/i,
+  },
+  {
+    tag: "Economy",
+    pattern: /\b(economy|economic|inflation|cpi|gdp|rate|wage|employment|price|stock|pse|ipo|bitcoin|btc|ethereum|eth|crypto|usdb)\b|经济|通胀|利率|工资|就业|股价|加密/i,
+  },
+  {
+    tag: "Politics",
+    pattern: /\b(politics|political|election|president|government|cabinet|senate|congress|law|minister|party|ldp|trump|marcos|duterte|candidate)\b|政治|选举|总统|政府|议会|法律/i,
+  },
+  {
+    tag: "Sports",
+    pattern: /\b(sports?|fiba|basketball|football|soccer|tennis|boxing|league|tournament|semifinals?|finals?|cup|match|team|nba|nfl|mlb|pba|mpl)\b|体育|篮球|足球|网球|拳击|联赛/i,
+  },
+  {
+    tag: "Media",
+    pattern: /\b(media|film|movie|cinema|box office|television|tv|music|album|award|iphone|apple|content|streaming)\b|媒体|电影|电视|音乐|票房|娱乐/i,
+  },
+] as const;
+
+function identityValues(value: string[] | string | null | undefined) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+
+function classifyDashboardMarket(identity: DashboardRealtimeItem["identity"]) {
+  const explicitValues = [
+    identity?.category,
+    identity?.event_category,
+    ...identityValues(identity?.tags),
+    ...identityValues(identity?.event_tags),
+  ].filter((value): value is string => Boolean(value?.trim()));
+  const inferredValues = [identity?.event_title, identity?.title, identity?.event_id]
+    .filter((value): value is string | number => value !== null && value !== undefined)
+    .map(String);
+  const explicitText = explicitValues.join(" ");
+  const searchableText = `${explicitText} ${inferredValues.join(" ")}`;
+  const match = marketCategoryRules.find((rule) => rule.pattern.test(explicitText))
+    ?? marketCategoryRules.find((rule) => rule.pattern.test(searchableText));
+  const tag = match?.tag ?? "Other";
+  const category = explicitValues[0] ?? `${tag} · ${match ? "标题推断" : "未分类"}`;
+
+  return {
+    category,
+    tags: Array.from(new Set([tag, ...explicitValues])),
+  };
 }
 
 function compactIdentifier(value: string | number | null | undefined) {
@@ -2213,13 +2269,14 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
   const tier1ConfiguredMax = numberValue(item.flash?.configured_frequency?.tier1_interval_max_s);
   const midConfiguredMin = numberValue(item.flash?.configured_frequency?.mid_interval_min_s);
   const midConfiguredMax = numberValue(item.flash?.configured_frequency?.mid_interval_max_s);
+  const classification = classifyDashboardMarket(item.identity);
 
   return {
     id: conditionId,
     event: readableLabel(item.identity?.event_title) ?? readableLabel(item.identity?.title) ?? `Market ${index + 1}`,
     market: readableLabel(item.identity?.title) ?? readableLabel(item.identity?.event_title) ?? `Condition ${compactIdentifier(conditionId)}`,
-    category: "Strategy · Runtime",
-    tags: ["Strategy"],
+    category: classification.category,
+    tags: classification.tags,
     status: marketStatus(riskStatus, item.lifecycle?.runtime_state),
     riskStatus,
     quoteMode,
@@ -2586,6 +2643,7 @@ export default function Home() {
       ) : (
         <>
       <MarketOverview
+        allMarkets={markets}
         statusScopeMarkets={categoryMarkets}
         filteredMarkets={filteredMarkets}
         marketCount={markets.length}
@@ -3340,6 +3398,7 @@ function ReviewTooltip({ active, payload, label }: { active?: boolean; payload?:
 }
 
 function MarketOverview({
+  allMarkets,
   statusScopeMarkets,
   filteredMarkets,
   marketCount,
@@ -3352,6 +3411,7 @@ function MarketOverview({
   setQuery,
   setActiveId,
 }: {
+  allMarkets: Market[];
   statusScopeMarkets: Market[];
   filteredMarkets: Market[];
   marketCount: number;
@@ -3364,6 +3424,12 @@ function MarketOverview({
   setQuery: (value: string) => void;
   setActiveId: (value: string) => void;
 }) {
+  const categoryCounts = useMemo(() => Object.fromEntries(
+    filterOptions.map((option) => [
+      option.id,
+      option.tag ? allMarkets.filter((marketItem) => marketItem.tags.includes(option.tag)).length : allMarkets.length,
+    ]),
+  ), [allMarkets]);
   const displayedMarkets = useMemo(() => {
     if (!filteredMarkets.length) return [];
     const limitedMarkets = filteredMarkets.slice(0, MARKET_LIST_LIMIT);
@@ -3405,12 +3471,14 @@ function MarketOverview({
                 key={option.id}
                 className={filter === option.id ? "active" : ""}
                 type="button"
+                disabled={option.tag !== null && categoryCounts[option.id] === 0}
+                title={option.tag !== null && categoryCounts[option.id] === 0 ? "当前没有该类别市场" : undefined}
                 onClick={() => {
                   setFilter(option.id);
                   setRiskStatusFilter(null);
                 }}
               >
-                {option.label}
+                {option.label} <b>{categoryCounts[option.id]}</b>
               </button>
             ))}
           </div>
