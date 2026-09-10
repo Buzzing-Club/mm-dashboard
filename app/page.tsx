@@ -27,6 +27,7 @@ import {
   Cell,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -48,7 +49,50 @@ type RiskStatus =
   | "paused";
 
 type BoardId = "macro" | "experience" | "risk";
+type WorkspaceView = "realtime" | "review";
 type OutcomeSide = "yes" | "no";
+type ExperienceIncidentKind = "single_sided_empty" | "double_sided_empty" | "l1_distance_exceeded";
+type SettlementPhase = "none" | "announcing" | "ruling1" | "dispute1" | "ruling2" | "dispute2" | "claimable" | "unknown";
+
+type MarketLifecycleInfo = {
+  settlementPhase: SettlementPhase;
+  acceptingOrders: boolean;
+  closed: boolean;
+  currentOutcome: string | null;
+  settledOutcome: string | null;
+  disputeCount: number;
+  phaseEndAt: string | null;
+  updatedAt: string | null;
+  settledAt: string | null;
+};
+
+type ExperienceIncidentMetric = {
+  count: number;
+  durationSeconds: number;
+  durationRatio: number;
+};
+
+type ExperienceIncident = {
+  ts: number;
+  time: string;
+  kind: ExperienceIncidentKind;
+  durationSeconds: number;
+  valuePct?: number | null;
+};
+
+type ExperienceHistoryPoint = {
+  ts: number;
+  time: string;
+  slippagePct: number | null;
+  impactPct: number | null;
+};
+
+type SlippageNotionalBucket = {
+  bucket: string;
+  tradeCount: number;
+  avgSlippagePct: number | null;
+  tone: "good" | "warn" | "bad";
+};
 
 type Market = {
   id: string;
@@ -81,23 +125,35 @@ type Market = {
   startAt: string;
   endAt: string;
   endInMinutes: number;
+  lifecycle?: MarketLifecycleInfo;
   series: Array<{
     ts?: number;
     time: string;
     volume: number;
-    pnl: number;
+    netVolume?: number | null;
+    pnl: number | null;
     spread: number;
     wash: number;
     bidSlope: number;
     askSlope: number;
   }>;
   slippageBuckets: Array<{ bucket: string; count: number; tone: "good" | "warn" | "bad" }>;
+  slippageNotionalBuckets?: SlippageNotionalBucket[];
   bidLevels: Array<{ price: number; quantity: number }>;
   askLevels: Array<{ price: number; quantity: number }>;
   noBidLevels?: Array<{ price: number; quantity: number }>;
   noAskLevels?: Array<{ price: number; quantity: number }>;
   events: Array<{ ts?: number; time: string; type: string; detail: string; severity: "ok" | "warn" | "bad" }>;
   liquidityHistory?: LiquidityHistoryPoint[];
+  experienceQuality?: {
+    observedDurationSeconds: number;
+    l1DistanceThresholdPct: number;
+    singleSidedEmpty: ExperienceIncidentMetric;
+    doubleSidedEmpty: ExperienceIncidentMetric;
+    l1DistanceExceeded: ExperienceIncidentMetric;
+    incidents: ExperienceIncident[];
+    history: ExperienceHistoryPoint[];
+  };
   flash?: {
     actualPairsPerHour: number | null;
     actualAvgIntervalS: number | null;
@@ -110,6 +166,27 @@ type Market = {
     midActivePairs: number | null;
     maxPairsTotal: number | null;
     l1DistanceTicks: number | null;
+    tier1ConfiguredIntervalS?: [number, number] | null;
+    midConfiguredIntervalS?: [number, number] | null;
+  };
+  backendData?: {
+    grossVolume: boolean;
+    netVolume: boolean;
+    traderCount: boolean;
+    pnl: boolean;
+    washRatio: boolean;
+    avgSlippage: boolean;
+    slippageDistribution: boolean;
+    businessTrend: boolean;
+  };
+  historyData?: {
+    coveredFrom: number;
+    coveredThrough: number;
+    markPriceSource: string;
+    impactSource: string;
+    impactHorizonSeconds: number;
+    pnlIncluded: boolean;
+    truncated: boolean;
   };
 };
 
@@ -136,12 +213,26 @@ type DashboardRealtimeItem = {
     event_id?: string | number;
     title?: string | null;
     event_title?: string | null;
+    category?: string | null;
+    event_category?: string | null;
+    tags?: string[] | string | null;
+    event_tags?: string[] | string | null;
   };
   lifecycle?: {
+    create_time?: string | number | null;
     start_time?: string | number | null;
     end_time?: string | number | null;
     runtime_state?: string | null;
     started?: boolean | null;
+    accepting_orders?: boolean | null;
+    closed?: boolean | null;
+    settlement_phase?: string | null;
+    current_outcome?: string | null;
+    settled_outcome?: string | null;
+    dispute_count?: string | number | null;
+    phase_end_timestamp?: string | number | null;
+    lifecycle_updated_at_ms?: string | number | null;
+    settled_at?: string | number | null;
   };
   quote_state?: {
     risk_status?: string | null;
@@ -198,6 +289,12 @@ type DashboardRealtimeItem = {
     }>;
   };
   flash?: {
+    configured_frequency?: {
+      tier1_interval_min_s?: string | number | null;
+      tier1_interval_max_s?: string | number | null;
+      mid_interval_min_s?: string | number | null;
+      mid_interval_max_s?: string | number | null;
+    } | null;
     actual_pairs_observed?: string | number | null;
     actual_pairs_per_hour?: string | number | null;
     actual_avg_interval_s?: string | number | null;
@@ -215,7 +312,14 @@ type DashboardRealtimeItem = {
     active_pairs?: string | number | null;
     active_pairs_by_kind?: Record<string, string | number | null | undefined> | null;
     max_pairs_total?: string | number | null;
-    l1_distance_ticks?: string | number | null;
+    l1_distance_ticks?: string | number | {
+      min_distance_ticks?: string | number | null;
+      max_distance_ticks?: string | number | null;
+      avg_distance_ticks?: string | number | null;
+      min_distance_pct?: string | number | null;
+      max_distance_pct?: string | number | null;
+      avg_distance_pct?: string | number | null;
+    } | null;
   };
   dependencies?: {
     runtime_snapshot_age_s?: string | number | null;
@@ -234,7 +338,36 @@ type DashboardRealtimeItem = {
     wash_ratio?: string | number | null;
     avg_slippage?: string | number | null;
     slippage_distribution?: Array<{ bucket: string; count: number; tone?: "good" | "warn" | "bad" }> | null;
+    slippage_distribution_by_notional?: Array<{
+      bucket?: string | null;
+      trade_count?: string | number | null;
+      avg_slippage?: string | number | null;
+    }> | null;
   };
+  experience_quality?: {
+    observed_duration_s?: string | number | null;
+    l1_distance_threshold_pct?: string | number | null;
+    single_sided_empty?: DashboardIncidentMetric | null;
+    double_sided_empty?: DashboardIncidentMetric | null;
+    l1_distance_exceeded?: DashboardIncidentMetric | null;
+    incidents?: Array<{
+      ts?: string | number | null;
+      type?: ExperienceIncidentKind | string | null;
+      duration_s?: string | number | null;
+      value_pct?: string | number | null;
+    }> | null;
+    history?: Array<{
+      ts?: string | number | null;
+      slippage_pct?: string | number | null;
+      impact_pct?: string | number | null;
+    }> | null;
+  };
+};
+
+type DashboardIncidentMetric = {
+  count?: string | number | null;
+  duration_s?: string | number | null;
+  duration_ratio?: string | number | null;
 };
 
 type SingleMarketRealtimePayload = {
@@ -242,6 +375,7 @@ type SingleMarketRealtimePayload = {
   status?: string;
   message?: string;
   data?: {
+    condition_id?: string | null;
     business?: {
       gross_volume?: string | number | null;
       net_volume?: string | number | null;
@@ -257,14 +391,70 @@ type SingleMarketRealtimePayload = {
         bucket?: string | null;
         trade_count?: string | number | null;
       }> | null;
+      distribution_by_notional?: Array<{
+        bucket?: string | null;
+        trade_count?: string | number | null;
+        avg_trade_slippage?: string | number | null;
+      }> | null;
+      history?: Array<{
+        ts?: string | number | null;
+        slippage_pct?: string | number | null;
+        impact_pct?: string | number | null;
+      }> | null;
     };
+  } | null;
+};
+
+type SingleMarketHistoryPayload = {
+  code?: number;
+  status?: string;
+  message?: string;
+  data?: {
+    condition_id?: string | null;
+    interval?: string | null;
+    covered_from?: string | number | null;
+    covered_through?: string | number | null;
+    points?: Array<{
+      ts?: string | number | null;
+      gross_volume_cumulative?: string | number | null;
+      net_volume_cumulative?: string | number | null;
+      trade_count?: string | number | null;
+      avg_trade_slippage?: string | number | null;
+      slippage_sample_count?: string | number | null;
+      avg_trade_impact_5s?: string | number | null;
+      impact_sample_count?: string | number | null;
+      current_pnl?: string | number | null;
+    }> | null;
+    quality?: {
+      mark_price_source?: string | null;
+      impact_source?: string | null;
+      impact_horizon_seconds?: string | number | null;
+      pnl_included?: boolean | null;
+      truncated?: boolean | null;
+    } | null;
+  } | null;
+};
+
+type SingleMarketHistoryMetrics = {
+  series: Market["series"];
+  experienceHistory: ExperienceHistoryPoint[];
+  historyData: NonNullable<Market["historyData"]>;
+};
+
+type BatchMarketRealtimePayload = {
+  code?: number;
+  data?: {
+    items?: Array<NonNullable<SingleMarketRealtimePayload["data"]>> | null;
   } | null;
 };
 
 type SingleMarketMetrics = Pick<
   Market,
-  "avgSlippage" | "grossVolume" | "netVolume" | "pnl" | "slippageBuckets" | "traderCount" | "washRatio"
->;
+  "avgSlippage" | "grossVolume" | "netVolume" | "pnl" | "slippageBuckets" | "slippageNotionalBuckets" | "traderCount" | "washRatio"
+> & {
+  experienceHistory: ExperienceHistoryPoint[];
+  backendData: NonNullable<Market["backendData"]>;
+};
 
 type SingleMarketSlippageDistribution = NonNullable<
   NonNullable<SingleMarketRealtimePayload["data"]>["slippage"]
@@ -299,10 +489,39 @@ const statusMeta: Record<
   paused: { label: "暂停摆单", tone: "muted", short: "PAUSED" },
 };
 
+const riskStatusDescriptions: Record<RiskStatus, string> = {
+  normal_quote: "行情、盘口和预算均在阈值内，策略按正常参数进行双边报价。",
+  inventory_adjusted_quote: "库存偏离目标，策略调整报价中心或两侧数量，以降低库存风险。",
+  reduce_only: "库存或风险预算接近限制，仅保留能够降低当前风险敞口的报价。",
+  endgame_quote: "市场接近结束或结算，策略收紧档位并降低报价数量。",
+  budget_limited: "最坏情形 PnL 接近风险预算，策略限制新增风险与挂单规模。",
+  size_limited: "计算出的报价数量低于最小有效数量，部分档位不再下单。",
+  price_boundary_limited: "目标报价触及允许价格边界，策略对价格进行截断或停止该档报价。",
+  orderbook_missing: "权威订单簿缺失或未收敛，策略无法安全计算报价并暂停摆单。",
+  data_delay: "fair value、市场目录或行情超过新鲜度阈值，策略进入降级状态。",
+  adverse_flow_protection: "短时间内出现持续增加风险的单边成交，策略主动降低报价暴露。",
+  negrisk_group_protection: "关联 bucket 的组级最坏损失达到保护阈值，相关市场共同降级。",
+  paused: "运营人员或策略运行时主动暂停当前市场做市。",
+};
+
 const MOCK_OBSERVATION_AT = Date.parse("2026-08-28T18:59:30+08:00");
 const MINUTE_MS = 60 * 1000;
 const DASHBOARD_REFRESH_MS = 30_000;
 const MARKET_LIST_LIMIT = 80;
+const FINAL_MARKET_RETENTION_MS = 24 * 60 * MINUTE_MS;
+const MOCK_STRATEGY_CALIBRATION = {
+  askTotalQtyPerOutcome: 30,
+  bidTotalCash: 16,
+  qMax: 80,
+  reduceOnlyRatio: 0.75,
+  emptyConfirmSeconds: 4,
+  emptyAlertSeconds: 30,
+  flashPairsPerMinute: 9.2,
+  flashMaxPairsTotal: 5,
+  flashTier1DistanceTicks: 1,
+  flashMidMinLevel: 2,
+  flashMidMaxLevel: 5,
+} as const;
 
 function marketWindow(endInMinutes: number, elapsedSinceStartMinutes = 240) {
   const endMs = MOCK_OBSERVATION_AT + endInMinutes * MINUTE_MS;
@@ -422,6 +641,74 @@ function retimeMarket(market: Market) {
       ...points[index],
     })),
     events: retimeEvents(market),
+  };
+}
+
+function mockLifecycle(market: Market): Market {
+  if (market.lifecycle) return market;
+
+  if (market.id === "BLACKWATER-GINEBRA-JUL24") {
+    const plannedEnd = MOCK_OBSERVATION_AT - 2 * 60 * MINUTE_MS;
+    const start = plannedEnd - 6 * 60 * MINUTE_MS;
+    return {
+      ...market,
+      startAt: new Date(start).toISOString(),
+      endAt: new Date(plannedEnd).toISOString(),
+      endInMinutes: 0,
+      lifecycle: {
+        settlementPhase: "dispute1",
+        acceptingOrders: true,
+        closed: false,
+        currentOutcome: "NO",
+        settledOutcome: null,
+        disputeCount: 1,
+        phaseEndAt: new Date(MOCK_OBSERVATION_AT + 22 * 60 * MINUTE_MS).toISOString(),
+        updatedAt: new Date(plannedEnd + 45 * MINUTE_MS).toISOString(),
+        settledAt: null,
+      },
+    };
+  }
+
+  if (market.id === "MAGNOLIA-MERALCO-JUL24") {
+    const plannedEnd = MOCK_OBSERVATION_AT - 8 * 60 * MINUTE_MS;
+    const start = plannedEnd - 6 * 60 * MINUTE_MS;
+    const settledAt = plannedEnd + 3 * 60 * MINUTE_MS;
+    return {
+      ...market,
+      startAt: new Date(start).toISOString(),
+      endAt: new Date(plannedEnd).toISOString(),
+      endInMinutes: 0,
+      status: "paused",
+      riskStatus: "paused",
+      quoteMode: "paused",
+      riskReason: "market is claimable; quoting stopped and settlement is final",
+      lifecycle: {
+        settlementPhase: "claimable",
+        acceptingOrders: false,
+        closed: true,
+        currentOutcome: "YES",
+        settledOutcome: "YES",
+        disputeCount: 0,
+        phaseEndAt: null,
+        updatedAt: new Date(settledAt).toISOString(),
+        settledAt: new Date(settledAt).toISOString(),
+      },
+    };
+  }
+
+  return {
+    ...market,
+    lifecycle: {
+      settlementPhase: "none",
+      acceptingOrders: market.status !== "paused",
+      closed: false,
+      currentOutcome: null,
+      settledOutcome: null,
+      disputeCount: 0,
+      phaseEndAt: null,
+      updatedAt: null,
+      settledAt: null,
+    },
   };
 }
 
@@ -847,7 +1134,7 @@ function buildLevels(bestPrice: number, side: "bid" | "ask", liquidity: number) 
   }));
 }
 
-function buildSlippageBuckets(avgSlippage: number | null) {
+function buildSlippageBuckets(avgSlippage: number | null, sampleSize = 80) {
   if (avgSlippage === null) {
     return [
       { bucket: "0-1%", count: 0, tone: "good" as const },
@@ -858,14 +1145,127 @@ function buildSlippageBuckets(avgSlippage: number | null) {
     ];
   }
 
-  const load = Math.max(8, Math.round(40 + avgSlippage * 7));
+  const load = Math.max(8, Math.round(sampleSize * 1.35));
+  const badShare = Math.min(0.26, Math.max(0.03, avgSlippage / 34));
+  const warnShare = Math.min(0.34, Math.max(0.14, avgSlippage / 22));
+  const goodShare = 1 - badShare - warnShare;
   return [
-    { bucket: "0-1%", count: Math.max(2, Math.round(load * 0.24)), tone: "good" as const },
-    { bucket: "1-2%", count: Math.max(4, Math.round(load * 0.34)), tone: "good" as const },
-    { bucket: "2-4%", count: Math.max(2, Math.round(load * 0.23)), tone: "warn" as const },
-    { bucket: "4-8%", count: Math.max(1, Math.round(load * 0.13)), tone: "bad" as const },
-    { bucket: ">8%", count: Math.max(0, Math.round(load * 0.06)), tone: "bad" as const },
+    { bucket: "0-1%", count: Math.max(1, Math.round(load * goodShare * 0.42)), tone: "good" as const },
+    { bucket: "1-2%", count: Math.max(1, Math.round(load * goodShare * 0.58)), tone: "good" as const },
+    { bucket: "2-4%", count: Math.max(1, Math.round(load * warnShare)), tone: "warn" as const },
+    { bucket: "4-8%", count: Math.max(1, Math.round(load * badShare * 0.72)), tone: "bad" as const },
+    { bucket: ">8%", count: Math.max(0, Math.round(load * badShare * 0.28)), tone: "bad" as const },
   ];
+}
+
+function slippageTone(value: number | null): "good" | "warn" | "bad" {
+  if (value === null) return "warn";
+  if (value < 2) return "good";
+  if (value < 4) return "warn";
+  return "bad";
+}
+
+function buildSlippageNotionalBuckets(
+  avgSlippage: number | null,
+  marketItem: Market,
+  index: number,
+): SlippageNotionalBucket[] {
+  if (avgSlippage === null) return [];
+  const observedTrades = Math.max(12, Math.round(marketItem.traderCount * (1.45 + (index % 4) * 0.12)));
+  const depthPressure = Math.min(1.9, Math.max(0.85, 520 / Math.max(180, marketItem.liquidity)));
+  return [
+    { bucket: "$0-25", tradeCount: Math.round(observedTrades * 0.56), avgSlippagePct: Number((avgSlippage * 0.58).toFixed(1)) },
+    { bucket: "$25-100", tradeCount: Math.round(observedTrades * 0.29), avgSlippagePct: Number((avgSlippage * 0.88).toFixed(1)) },
+    { bucket: "$100-500", tradeCount: Math.max(1, Math.round(observedTrades * 0.12)), avgSlippagePct: Number((avgSlippage * 1.34 * depthPressure).toFixed(1)) },
+    { bucket: "$500+", tradeCount: Math.max(1, Math.round(observedTrades * 0.03)), avgSlippagePct: Number((avgSlippage * 2.05 * depthPressure).toFixed(1)) },
+  ].map((bucket) => ({ ...bucket, tone: slippageTone(bucket.avgSlippagePct) }));
+}
+
+function deriveMockSlippage(marketItem: Market, index: number) {
+  if (!marketItem.mid || !marketItem.spread || marketItem.riskStatus === "orderbook_missing") return null;
+  const halfSpreadPct = (marketItem.spread / (2 * marketItem.mid)) * 100;
+  const liquidityPressure = Math.min(1.55, Math.max(0.72, 480 / Math.max(180, marketItem.liquidity)));
+  const statePressure: Partial<Record<RiskStatus, number>> = {
+    inventory_adjusted_quote: 1.08,
+    reduce_only: 1.28,
+    endgame_quote: 1.18,
+    budget_limited: 1.32,
+    data_delay: 1.24,
+    adverse_flow_protection: 1.38,
+    negrisk_group_protection: 1.3,
+  };
+  const sampleNoise = 0.94 + (index % 5) * 0.025;
+  return Number(Math.min(18, Math.max(0.35, halfSpreadPct * liquidityPressure * (statePressure[marketItem.riskStatus] ?? 1) * sampleNoise)).toFixed(1));
+}
+
+function withMockExperienceQuality(marketItem: Market, index: number): Market {
+  const start = timestamp(marketItem.startAt);
+  const end = timestamp(marketItem.endAt);
+  const observedEnd = clampTimestamp(MOCK_OBSERVATION_AT, start, end);
+  const observedDurationSeconds = Math.max(60, Math.round((observedEnd - start) / 1000));
+  const avgSlippage = deriveMockSlippage(marketItem, index);
+  const singleSideRisk = new Set<RiskStatus>(["size_limited", "price_boundary_limited", "reduce_only"]);
+  const flashDistanceRisk = new Set<RiskStatus>(["data_delay", "budget_limited", "adverse_flow_protection", "negrisk_group_protection"]);
+  const isMissing = marketItem.riskStatus === "orderbook_missing";
+  const inventoryNearReduceOnly = Math.abs(marketItem.inventory) >= MOCK_STRATEGY_CALIBRATION.qMax * MOCK_STRATEGY_CALIBRATION.reduceOnlyRatio;
+  const singleCount = isMissing ? 1 : singleSideRisk.has(marketItem.riskStatus) || inventoryNearReduceOnly ? 1 + (index % 2) : index % 7 === 0 ? 1 : 0;
+  const doubleCount = isMissing ? 1 : 0;
+  const distanceCount = flashDistanceRisk.has(marketItem.riskStatus) ? 1 + (index % 3) : index % 5 === 0 ? 1 : 0;
+  const singleDuration = singleCount * (MOCK_STRATEGY_CALIBRATION.emptyConfirmSeconds + 2 + (index % 5) * 2);
+  const doubleDuration = doubleCount
+    ? Math.max(MOCK_STRATEGY_CALIBRATION.emptyAlertSeconds, marketItem.staleSeconds)
+    : 0;
+  const distanceDuration = distanceCount * (5 + (index % 4) * 3);
+  const incidentSpecs: Array<{ kind: ExperienceIncidentKind; count: number; duration: number; progress: number }> = [
+    { kind: "single_sided_empty", count: singleCount, duration: singleDuration, progress: 0.22 },
+    { kind: "double_sided_empty", count: doubleCount, duration: doubleDuration, progress: 0.48 },
+    { kind: "l1_distance_exceeded", count: distanceCount, duration: distanceDuration, progress: 0.72 },
+  ];
+  const incidents = incidentSpecs.flatMap((spec, specIndex) => (
+    Array.from({ length: Math.min(spec.count, 3) }, (_, eventIndex) => {
+      const progress = Math.min(0.94, spec.progress + eventIndex * 0.075 + specIndex * 0.025);
+      const ts = Math.round(start + (observedEnd - start) * progress);
+      return {
+        ts,
+        time: formatAxisTime(ts, marketItem.startAt, marketItem.endAt),
+        kind: spec.kind,
+        durationSeconds: Math.max(3, Math.round(spec.duration / Math.max(1, spec.count))),
+        valuePct: spec.kind === "l1_distance_exceeded" ? Number((1.1 + (index % 5) * 0.24).toFixed(2)) : null,
+      } satisfies ExperienceIncident;
+    })
+  ));
+  const history = lifecyclePoints(marketItem.startAt, marketItem.endAt, marketItem.series.length).map((point, pointIndex) => {
+    const baseSlippage = avgSlippage ?? 0;
+    const wave = ((pointIndex + index) % 4 - 1.5) * 0.16;
+    return {
+      ...point,
+      slippagePct: avgSlippage === null ? null : Number(Math.max(0, baseSlippage * (0.72 + pointIndex * 0.045 + wave)).toFixed(2)),
+      impactPct: marketItem.askSlope === null || marketItem.bidSlope === null
+        ? null
+        : Number(Math.max(0, marketItem.spread * 100 * (0.62 + pointIndex * 0.08 + wave)).toFixed(2)),
+    };
+  });
+  const metric = (count: number, durationSeconds: number): ExperienceIncidentMetric => ({
+    count,
+    durationSeconds,
+    durationRatio: durationSeconds / observedDurationSeconds,
+  });
+
+  return {
+    ...marketItem,
+    avgSlippage,
+    slippageBuckets: buildSlippageBuckets(avgSlippage, marketItem.traderCount),
+    slippageNotionalBuckets: buildSlippageNotionalBuckets(avgSlippage, marketItem, index),
+    experienceQuality: {
+      observedDurationSeconds,
+      l1DistanceThresholdPct: 0.01,
+      singleSidedEmpty: metric(singleCount, singleDuration),
+      doubleSidedEmpty: metric(doubleCount, doubleDuration),
+      l1DistanceExceeded: metric(distanceCount, distanceDuration),
+      incidents,
+      history,
+    },
+  };
 }
 
 function riskReasonFor(status: RiskStatus) {
@@ -995,9 +1395,22 @@ function buildLiquidityHistory(market: Market): LiquidityHistoryPoint[] {
     return market.liquidityHistory;
   }
 
+  const baselineRatio: Partial<Record<RiskStatus, number>> = {
+    normal_quote: 0.96,
+    inventory_adjusted_quote: 1.12,
+    reduce_only: 1.42,
+    endgame_quote: 1.36,
+    budget_limited: 1.48,
+    data_delay: 1.3,
+    adverse_flow_protection: 1.55,
+    negrisk_group_protection: 1.45,
+    orderbook_missing: 1,
+  };
   const initialLiquidity = market.liquidity
-    ? Math.round(market.liquidity * 0.72)
-    : Math.max(140, Math.round(market.grossVolume / 64));
+    ? Math.round(market.liquidity * (baselineRatio[market.riskStatus] ?? 1.08))
+    : market.riskStatus === "orderbook_missing"
+      ? Math.max(45, Math.round(market.grossVolume / 260))
+      : Math.max(140, Math.round(market.grossVolume / 64));
   const liquidityChange = market.liquidity - initialLiquidity;
   const stressed = statusMeta[market.riskStatus].tone !== "ok";
   const points = market.series;
@@ -1067,9 +1480,8 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
     : tone === "ok"
       ? "live"
       : "degraded";
-  const qMax = 80;
+  const qMax = MOCK_STRATEGY_CALIBRATION.qMax;
   const maxLossBudget = 30;
-  const liquidity = seed.riskStatus === "orderbook_missing" ? 0 : Math.max(160, Math.round(seed.volume / 31));
   const spread = seed.riskStatus === "orderbook_missing"
     ? 0
     : seed.riskStatus === "normal_quote"
@@ -1080,6 +1492,14 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
   const mid = seed.riskStatus === "orderbook_missing"
     ? 0
     : Math.min(0.82, Math.max(0.18, 0.47 + ((index % 11) - 5) * 0.027));
+  const strategyLiquidityFloor = mid
+    ? MOCK_STRATEGY_CALIBRATION.askTotalQtyPerOutcome * 2
+      + (MOCK_STRATEGY_CALIBRATION.bidTotalCash / 2) / mid
+      + (MOCK_STRATEGY_CALIBRATION.bidTotalCash / 2) / (1 - mid)
+    : 0;
+  const liquidity = seed.riskStatus === "orderbook_missing"
+    ? 0
+    : Math.max(Math.round(strategyLiquidityFloor * (2.1 + (index % 4) * 0.45)), Math.round(seed.volume / 31));
   const bestBid = mid ? Number(Math.max(0.01, mid - spread / 2).toFixed(2)) : 0;
   const bestAsk = mid ? Number(Math.min(0.99, mid + spread / 2).toFixed(2)) : 0;
   const washRatio = index % 9 === 0 ? null : Number((0.06 + (index % 6) * 0.025).toFixed(2));
@@ -1132,13 +1552,30 @@ function makeProdMarket(seed: ProdMarketSeed, index: number): Market {
 }
 
 function withMockFlash(marketItem: Market, index: number): Market {
-  if (marketItem.flash || marketItem.riskStatus === "orderbook_missing" || marketItem.status === "paused") {
+  if (marketItem.flash) {
     return marketItem;
   }
-  const tier1PairsPerHour = 240 + (index % 5) * 24;
-  const midPairsPerHour = 120 + (index % 4) * 18;
-  const tier1ActivePairs = 1 + (index % 2);
-  const midActivePairs = 1 + (index % 3);
+  const quoteBlocked = new Set<RiskStatus>([
+    "orderbook_missing",
+    "paused",
+    "endgame_quote",
+    "budget_limited",
+    "adverse_flow_protection",
+    "negrisk_group_protection",
+  ]).has(marketItem.riskStatus);
+  const recentlyBlocked = quoteBlocked || marketItem.riskStatus === "data_delay" || marketItem.riskStatus === "reduce_only";
+  const measuredPairsPerHour = MOCK_STRATEGY_CALIBRATION.flashPairsPerMinute * 60;
+  const throughputFactor = recentlyBlocked ? 0.38 + (index % 3) * 0.08 : 0.9 + (index % 4) * 0.035;
+  const totalPairsPerHour = Math.round(measuredPairsPerHour * throughputFactor);
+  const tier1Share = 0.48 + (index % 3) * 0.02;
+  const tier1PairsPerHour = Math.round(totalPairsPerHour * tier1Share);
+  const midPairsPerHour = totalPairsPerHour - tier1PairsPerHour;
+  const tier1ActivePairs = quoteBlocked ? 0 : index % 3 === 0 ? 2 : 1;
+  const midActivePairs = quoteBlocked ? 0 : Math.min(3, 1 + (index % 3));
+  const latestWasTier1 = index % 3 !== 1;
+  const l1DistanceTicks = latestWasTier1
+    ? MOCK_STRATEGY_CALIBRATION.flashTier1DistanceTicks
+    : MOCK_STRATEGY_CALIBRATION.flashMidMinLevel + (index % (MOCK_STRATEGY_CALIBRATION.flashMidMaxLevel - MOCK_STRATEGY_CALIBRATION.flashMidMinLevel + 1));
   return {
     ...marketItem,
     flash: {
@@ -1151,23 +1588,26 @@ function withMockFlash(marketItem: Market, index: number): Market {
       activePairs: tier1ActivePairs + midActivePairs,
       tier1ActivePairs,
       midActivePairs,
-      maxPairsTotal: 5,
-      l1DistanceTicks: 1 + (index % 4),
+      maxPairsTotal: MOCK_STRATEGY_CALIBRATION.flashMaxPairsTotal,
+      l1DistanceTicks,
     },
   };
 }
 
 const mockMarkets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, index) => makeProdMarket(seed, index))]
-  .map((marketItem, index) => retimeMarket(withMockFlash(marketItem, index)));
+  .map((marketItem, index) => {
+    const lifecycleMarket = mockLifecycle(marketItem);
+    return withMockExperienceQuality(retimeMarket(withMockFlash(lifecycleMarket, index)), index);
+  });
 
 const filterOptions = [
-  { id: "all", label: "全部", tag: null },
-  { id: "attention", label: "异常", tag: null },
+  { id: "all", label: "全部类别", tag: null },
   { id: "weather", label: "Weather", tag: "Weather" },
   { id: "economy", label: "Economy", tag: "Economy" },
   { id: "politics", label: "Politics", tag: "Politics" },
   { id: "sports", label: "Sports", tag: "Sports" },
   { id: "media", label: "Media", tag: "Media" },
+  { id: "other", label: "其他", tag: "Other" },
 ];
 
 const timeframes = ["15m", "1h", "4h"];
@@ -1237,6 +1677,11 @@ function raw6ToUsdb(value: string | number | null | undefined) {
   return (numberValue(value) ?? 0) / 1_000_000;
 }
 
+function nullableRaw6ToUsdb(value: string | number | null | undefined) {
+  const parsed = numberValue(value);
+  return parsed === null ? null : parsed / 1_000_000;
+}
+
 function statusValue(value: string | null | undefined): RiskStatus {
   const normalized = String(value ?? "paused") as RiskStatus;
   return normalized in statusMeta ? normalized : "paused";
@@ -1255,6 +1700,57 @@ function readableLabel(value: string | null | undefined) {
   const text = value?.trim();
   if (!text || looksLikeOpaqueIdentifier(text)) return null;
   return text;
+}
+
+const marketCategoryRules = [
+  {
+    tag: "Weather",
+    pattern: /\b(weather|temperature|typhoon|cyclone|rainfall|rain|storm|humidity|wind|rpll)\b|气温|天气|台风|降雨/i,
+  },
+  {
+    tag: "Economy",
+    pattern: /\b(economy|economic|inflation|cpi|gdp|rate|wage|employment|price|stock|pse|ipo|bitcoin|btc|ethereum|eth|crypto|usdb)\b|经济|通胀|利率|工资|就业|股价|加密/i,
+  },
+  {
+    tag: "Politics",
+    pattern: /\b(politics|political|election|president|government|cabinet|senate|congress|law|minister|party|ldp|trump|marcos|duterte|candidate)\b|政治|选举|总统|政府|议会|法律/i,
+  },
+  {
+    tag: "Sports",
+    pattern: /\b(sports?|fiba|basketball|football|soccer|tennis|boxing|league|tournament|semifinals?|finals?|cup|match|team|nba|nfl|mlb|pba|mpl)\b|体育|篮球|足球|网球|拳击|联赛/i,
+  },
+  {
+    tag: "Media",
+    pattern: /\b(media|film|movie|cinema|box office|television|tv|music|album|award|iphone|apple|content|streaming)\b|媒体|电影|电视|音乐|票房|娱乐/i,
+  },
+] as const;
+
+function identityValues(value: string[] | string | null | undefined) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+
+function classifyDashboardMarket(identity: DashboardRealtimeItem["identity"]) {
+  const explicitValues = [
+    identity?.category,
+    identity?.event_category,
+    ...identityValues(identity?.tags),
+    ...identityValues(identity?.event_tags),
+  ].filter((value): value is string => Boolean(value?.trim()));
+  const inferredValues = [identity?.event_title, identity?.title, identity?.event_id]
+    .filter((value): value is string | number => value !== null && value !== undefined)
+    .map(String);
+  const explicitText = explicitValues.join(" ");
+  const searchableText = `${explicitText} ${inferredValues.join(" ")}`;
+  const match = marketCategoryRules.find((rule) => rule.pattern.test(explicitText))
+    ?? marketCategoryRules.find((rule) => rule.pattern.test(searchableText));
+  const tag = match?.tag ?? "Other";
+  const category = explicitValues[0] ?? `${tag} · ${match ? "标题推断" : "未分类"}`;
+
+  return {
+    category,
+    tags: Array.from(new Set([tag, ...explicitValues])),
+  };
 }
 
 function compactIdentifier(value: string | number | null | undefined) {
@@ -1281,6 +1777,22 @@ function isoTime(value: string | number | null | undefined, fallback: number) {
   return new Date(fallback).toISOString();
 }
 
+function optionalIsoTime(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = numberValue(value);
+  if (numeric !== null && numeric <= 0) return null;
+  const millis = apiTimestamp(value, Number.NaN);
+  return Number.isFinite(millis) ? new Date(millis).toISOString() : null;
+}
+
+function settlementPhase(value: string | null | undefined): SettlementPhase {
+  const normalized = String(value ?? "none").trim().toLowerCase();
+  if (["none", "announcing", "ruling1", "dispute1", "ruling2", "dispute2", "claimable"].includes(normalized)) {
+    return normalized as SettlementPhase;
+  }
+  return normalized ? "unknown" : "none";
+}
+
 function apiTimestamp(value: string | number | null | undefined, fallback: number) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value > 10_000_000_000 ? value : value * 1000;
@@ -1299,6 +1811,17 @@ function endMinutes(endAt: string) {
 }
 
 function isExpiredDashboardItem(item: DashboardRealtimeItem, now: number) {
+  const phase = settlementPhase(item.lifecycle?.settlement_phase);
+  if (["announcing", "ruling1", "dispute1", "ruling2", "dispute2"].includes(phase)) {
+    return false;
+  }
+  if (phase === "claimable" || item.lifecycle?.closed || item.lifecycle?.settled_outcome) {
+    const finalAt = apiTimestamp(
+      item.lifecycle?.settled_at ?? item.lifecycle?.lifecycle_updated_at_ms,
+      Number.NEGATIVE_INFINITY,
+    );
+    return !Number.isFinite(finalAt) || now - finalAt > FINAL_MARKET_RETENTION_MS;
+  }
   if (item.lifecycle?.end_time === null || item.lifecycle?.end_time === undefined || item.lifecycle.end_time === "") {
     return false;
   }
@@ -1328,7 +1851,7 @@ function apiLevels(side?: DashboardBookSide, key: "bids" | "asks" = "bids") {
 function apiSlippageBuckets(
   buckets: Array<{ bucket: string; count: number; tone?: "good" | "warn" | "bad" }> | null | undefined,
 ) {
-  if (!Array.isArray(buckets)) return buildSlippageBuckets(null);
+  if (!Array.isArray(buckets)) return [];
   return buckets.map((bucket) => ({
     bucket: String(bucket.bucket),
     count: Number.isFinite(Number(bucket.count)) ? Number(bucket.count) : 0,
@@ -1343,7 +1866,7 @@ function apiSlippageBuckets(
 }
 
 function singleMarketSlippageBuckets(buckets: SingleMarketSlippageDistribution) {
-  if (!Array.isArray(buckets)) return buildSlippageBuckets(null);
+  if (!Array.isArray(buckets)) return [];
   return buckets.map((bucket) => {
     const label = String(bucket.bucket ?? "");
     return {
@@ -1354,6 +1877,32 @@ function singleMarketSlippageBuckets(buckets: SingleMarketSlippageDistribution) 
         : label.includes("3-5")
           ? "warn" as const
           : "good" as const,
+    };
+  });
+}
+
+function percentValue(value: string | number | null | undefined): number | null {
+  const parsed = numberValue(value);
+  if (parsed === null) return null;
+  return Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
+}
+
+function apiSlippageNotionalBuckets(
+  buckets: Array<{
+    bucket?: string | null;
+    trade_count?: string | number | null;
+    avg_slippage?: string | number | null;
+    avg_trade_slippage?: string | number | null;
+  }> | null | undefined,
+): SlippageNotionalBucket[] {
+  if (!Array.isArray(buckets)) return [];
+  return buckets.map((bucket) => {
+    const avgSlippagePct = percentValue(bucket.avg_trade_slippage ?? bucket.avg_slippage);
+    return {
+      bucket: String(bucket.bucket ?? "unknown"),
+      tradeCount: numberValue(bucket.trade_count) ?? 0,
+      avgSlippagePct,
+      tone: slippageTone(avgSlippagePct),
     };
   });
 }
@@ -1372,15 +1921,168 @@ function mapSingleMarketMetrics(payload: SingleMarketRealtimePayload): SingleMar
       ? null
       : (numberValue(slippage.avg_trade_slippage) ?? 0) * 100,
     slippageBuckets: singleMarketSlippageBuckets(slippage?.distribution),
+    slippageNotionalBuckets: apiSlippageNotionalBuckets(slippage?.distribution_by_notional),
+    backendData: {
+      grossVolume: business?.gross_volume !== null && business?.gross_volume !== undefined,
+      netVolume: business?.net_volume !== null && business?.net_volume !== undefined,
+      traderCount: business?.trader_count !== null && business?.trader_count !== undefined,
+      pnl: payload.data.pnl?.current_pnl !== null && payload.data.pnl?.current_pnl !== undefined,
+      washRatio: business?.wash_ratio !== null && business?.wash_ratio !== undefined,
+      avgSlippage: slippage?.avg_trade_slippage !== null && slippage?.avg_trade_slippage !== undefined,
+      slippageDistribution: Array.isArray(slippage?.distribution),
+      businessTrend: false,
+    },
+    experienceHistory: (slippage?.history ?? []).flatMap((point) => {
+      const pointTs = apiTimestamp(point.ts, Number.NaN);
+      if (!Number.isFinite(pointTs)) return [];
+      return [{
+        ts: pointTs,
+        time: "",
+        slippagePct: percentValue(point.slippage_pct),
+        impactPct: percentValue(point.impact_pct),
+      }];
+    }),
   };
+}
+
+function mapSingleMarketHistory(payload: SingleMarketHistoryPayload): SingleMarketHistoryMetrics | null {
+  if (payload.code !== 0 || !payload.data) return null;
+  const coveredFrom = apiTimestamp(payload.data.covered_from, Number.NaN);
+  const coveredThrough = apiTimestamp(payload.data.covered_through, Number.NaN);
+  if (!Number.isFinite(coveredFrom) || !Number.isFinite(coveredThrough)) return null;
+
+  const points = (payload.data.points ?? []).flatMap((point) => {
+    const ts = apiTimestamp(point.ts, Number.NaN);
+    if (!Number.isFinite(ts)) return [];
+    return [{
+      ts,
+      time: formatAxisTime(ts, new Date(coveredFrom).toISOString(), new Date(coveredThrough).toISOString()),
+      volume: raw6ToUsdb(point.gross_volume_cumulative),
+      netVolume: nullableRaw6ToUsdb(point.net_volume_cumulative),
+      pnl: nullableRaw6ToUsdb(point.current_pnl),
+      spread: 0,
+      wash: 0,
+      bidSlope: 0,
+      askSlope: 0,
+    }];
+  });
+  if (!points.length) return null;
+
+  const experienceHistory = (payload.data.points ?? []).flatMap((point) => {
+    const ts = apiTimestamp(point.ts, Number.NaN);
+    if (!Number.isFinite(ts)) return [];
+    const slippageSamples = numberValue(point.slippage_sample_count) ?? 0;
+    const impactSamples = numberValue(point.impact_sample_count) ?? 0;
+    return [{
+      ts,
+      time: formatAxisTime(ts, new Date(coveredFrom).toISOString(), new Date(coveredThrough).toISOString()),
+      slippagePct: slippageSamples > 0 ? percentValue(point.avg_trade_slippage) : null,
+      impactPct: impactSamples > 0 ? percentValue(point.avg_trade_impact_5s) : null,
+    }];
+  });
+  const quality = payload.data.quality;
+
+  return {
+    series: points,
+    experienceHistory,
+    historyData: {
+      coveredFrom,
+      coveredThrough,
+      markPriceSource: quality?.mark_price_source ?? "unknown",
+      impactSource: quality?.impact_source ?? "unknown",
+      impactHorizonSeconds: numberValue(quality?.impact_horizon_seconds) ?? 5,
+      pnlIncluded: quality?.pnl_included !== false,
+      truncated: quality?.truncated === true,
+    },
+  };
+}
+
+function mapBatchMarketMetrics(payload: BatchMarketRealtimePayload) {
+  if (payload.code !== 0) return {};
+  return Object.fromEntries((payload.data?.items ?? []).flatMap((item) => {
+    const conditionId = item.condition_id?.trim();
+    const metrics = mapSingleMarketMetrics({ code: 0, data: item });
+    return conditionId && metrics ? [[conditionId, metrics]] : [];
+  }));
 }
 
 function applySingleMarketMetrics(marketItem: Market, metrics: SingleMarketMetrics | undefined) {
   if (!metrics) return marketItem;
+  const { experienceHistory, ...marketMetrics } = metrics;
+  const boundedExperienceHistory = experienceHistory.map((point) => {
+    const pointTs = clampTimestamp(point.ts, timestamp(marketItem.startAt), timestamp(marketItem.endAt));
+    return {
+      ...point,
+      ts: pointTs,
+      time: formatAxisTime(pointTs, marketItem.startAt, marketItem.endAt),
+    };
+  });
   return {
     ...marketItem,
-    ...metrics,
+    ...marketMetrics,
+    experienceQuality: boundedExperienceHistory.length
+      ? {
+          ...(marketItem.experienceQuality ?? {
+            observedDurationSeconds: 0,
+            l1DistanceThresholdPct: 0.01,
+            singleSidedEmpty: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            doubleSidedEmpty: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            l1DistanceExceeded: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            incidents: [],
+            history: [],
+          }),
+          history: boundedExperienceHistory,
+        }
+      : marketItem.experienceQuality,
   };
+}
+
+function applySingleMarketHistory(marketItem: Market, history: SingleMarketHistoryMetrics | undefined) {
+  if (!history) return marketItem;
+  const hasExperienceSamples = history.experienceHistory.some(
+    (point) => point.slippagePct !== null || point.impactPct !== null,
+  );
+  return {
+    ...marketItem,
+    series: history.series,
+    historyData: history.historyData,
+    backendData: {
+      ...(marketItem.backendData ?? {
+        grossVolume: false,
+        netVolume: false,
+        traderCount: false,
+        pnl: false,
+        washRatio: false,
+        avgSlippage: false,
+        slippageDistribution: false,
+        businessTrend: false,
+      }),
+      businessTrend: true,
+    },
+    experienceQuality: hasExperienceSamples
+      ? {
+          ...(marketItem.experienceQuality ?? {
+            observedDurationSeconds: 0,
+            l1DistanceThresholdPct: 0.01,
+            singleSidedEmpty: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            doubleSidedEmpty: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            l1DistanceExceeded: { count: 0, durationSeconds: 0, durationRatio: 0 },
+            incidents: [],
+            history: [],
+          }),
+          history: history.experienceHistory,
+        }
+      : marketItem.experienceQuality
+        ? { ...marketItem.experienceQuality, history: [] }
+        : undefined,
+  };
+}
+
+function historyDomain(marketItem: Market) {
+  if (marketItem.historyData) {
+    return [marketItem.historyData.coveredFrom, marketItem.historyData.coveredThrough] as const;
+  }
+  return [timestamp(marketItem.startAt), timestamp(marketItem.endAt)] as const;
 }
 
 function reasonLabel(reasonCode: string | null | undefined, direction?: "increase" | "decrease" | null) {
@@ -1425,12 +2127,75 @@ function flashKindStats(
   };
 }
 
+function dashboardIncidentMetric(
+  metric: DashboardIncidentMetric | null | undefined,
+  observedDurationSeconds: number,
+): ExperienceIncidentMetric {
+  const durationSeconds = numberValue(metric?.duration_s) ?? 0;
+  return {
+    count: numberValue(metric?.count) ?? 0,
+    durationSeconds,
+    durationRatio: numberValue(metric?.duration_ratio) ?? durationSeconds / Math.max(1, observedDurationSeconds),
+  };
+}
+
+function isExperienceIncidentKind(value: string | null | undefined): value is ExperienceIncidentKind {
+  return value === "single_sided_empty" || value === "double_sided_empty" || value === "l1_distance_exceeded";
+}
+
+function mapExperienceQuality(
+  quality: DashboardRealtimeItem["experience_quality"],
+  startAt: string,
+  endAt: string,
+) {
+  if (!quality) return undefined;
+  const start = timestamp(startAt);
+  const end = timestamp(endAt);
+  const observedDurationSeconds = numberValue(quality.observed_duration_s) ?? Math.max(60, Math.round((Math.min(Date.now(), end) - start) / 1000));
+  const incidents = (quality.incidents ?? []).flatMap((incident) => {
+    if (!isExperienceIncidentKind(incident.type)) return [];
+    const incidentTs = clampTimestamp(apiTimestamp(incident.ts, start), start, end);
+    return [{
+      ts: incidentTs,
+      time: formatAxisTime(incidentTs, startAt, endAt),
+      kind: incident.type,
+      durationSeconds: numberValue(incident.duration_s) ?? 0,
+      valuePct: percentValue(incident.value_pct),
+    } satisfies ExperienceIncident];
+  });
+  const history = (quality.history ?? []).map((point) => {
+    const pointTs = clampTimestamp(apiTimestamp(point.ts, start), start, end);
+    return {
+      ts: pointTs,
+      time: formatAxisTime(pointTs, startAt, endAt),
+      slippagePct: percentValue(point.slippage_pct),
+      impactPct: percentValue(point.impact_pct),
+    } satisfies ExperienceHistoryPoint;
+  });
+
+  return {
+    observedDurationSeconds,
+    l1DistanceThresholdPct: numberValue(quality.l1_distance_threshold_pct) ?? 0.01,
+    singleSidedEmpty: dashboardIncidentMetric(quality.single_sided_empty, observedDurationSeconds),
+    doubleSidedEmpty: dashboardIncidentMetric(quality.double_sided_empty, observedDurationSeconds),
+    l1DistanceExceeded: dashboardIncidentMetric(quality.l1_distance_exceeded, observedDurationSeconds),
+    incidents,
+    history,
+  };
+}
+
 function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | null {
   const conditionId = item.identity?.condition_id;
   if (!conditionId) return null;
 
   const now = Date.now();
-  const startAt = isoTime(item.lifecycle?.start_time, now - 4 * 60 * MINUTE_MS);
+  const configuredStart = numberValue(item.lifecycle?.start_time);
+  const startAt = isoTime(
+    configuredStart !== null && configuredStart > 0
+      ? item.lifecycle?.start_time
+      : item.lifecycle?.create_time,
+    now - 4 * 60 * MINUTE_MS,
+  );
   const endAt = isoTime(item.lifecycle?.end_time, now + 2 * 60 * MINUTE_MS);
   const riskStatus = statusValue(item.quote_state?.risk_status);
   const quoteMode = statusValue(item.quote_state?.quote_mode ?? item.quote_state?.risk_status);
@@ -1438,14 +2203,13 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
   const bestAsk = numberValue(item.orderbook_quality?.best_ask) ?? 0;
   const mid = numberValue(item.orderbook_quality?.mid) ?? (bestBid && bestAsk ? (bestBid + bestAsk) / 2 : 0);
   const spread = numberValue(item.orderbook_quality?.spread) ?? (bestBid && bestAsk ? bestAsk - bestBid : 0);
-  const strategyNotional = numberValue(item.strategy_account_metrics?.total_fill_notional);
-  const grossVolume = numberValue(item.backend_required?.gross_volume) ?? strategyNotional ?? 0;
-  const pnl = numberValue(item.backend_required?.current_pnl) ?? 0;
+  const grossVolumeValue = numberValue(item.backend_required?.gross_volume);
+  const pnlValue = numberValue(item.backend_required?.current_pnl);
+  const traderCountValue = numberValue(item.backend_required?.trader_count);
+  const grossVolume = grossVolumeValue ?? 0;
+  const pnl = pnlValue ?? 0;
   const washRatio = numberValue(item.backend_required?.wash_ratio);
-  const traderCount =
-    numberValue(item.backend_required?.trader_count)
-    ?? numberValue(item.strategy_account_metrics?.match_count)
-    ?? 0;
+  const traderCount = traderCountValue ?? 0;
   const liquidity =
     numberValue(item.liquidity?.current_strategy_liquidity)
     ?? numberValue(item.liquidity?.current_book_liquidity)
@@ -1496,13 +2260,23 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
 
   const tier1Flash = flashKindStats(item.flash, "tier1");
   const midFlash = flashKindStats(item.flash, "mid");
+  const rawL1Distance = item.flash?.l1_distance_ticks;
+  const l1DistanceTicks = typeof rawL1Distance === "object" && rawL1Distance !== null
+    ? numberValue(rawL1Distance.max_distance_ticks)
+    : numberValue(rawL1Distance);
+  const phase = settlementPhase(item.lifecycle?.settlement_phase);
+  const tier1ConfiguredMin = numberValue(item.flash?.configured_frequency?.tier1_interval_min_s);
+  const tier1ConfiguredMax = numberValue(item.flash?.configured_frequency?.tier1_interval_max_s);
+  const midConfiguredMin = numberValue(item.flash?.configured_frequency?.mid_interval_min_s);
+  const midConfiguredMax = numberValue(item.flash?.configured_frequency?.mid_interval_max_s);
+  const classification = classifyDashboardMarket(item.identity);
 
   return {
     id: conditionId,
     event: readableLabel(item.identity?.event_title) ?? readableLabel(item.identity?.title) ?? `Market ${index + 1}`,
     market: readableLabel(item.identity?.title) ?? readableLabel(item.identity?.event_title) ?? `Condition ${compactIdentifier(conditionId)}`,
-    category: "Strategy · Runtime",
-    tags: ["Strategy"],
+    category: classification.category,
+    tags: classification.tags,
     status: marketStatus(riskStatus, item.lifecycle?.runtime_state),
     riskStatus,
     quoteMode,
@@ -1528,14 +2302,27 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
     startAt,
     endAt,
     endInMinutes: endMinutes(endAt),
+    lifecycle: {
+      settlementPhase: phase,
+      acceptingOrders: item.lifecycle?.accepting_orders ?? phase !== "claimable",
+      closed: Boolean(item.lifecycle?.closed),
+      currentOutcome: readableLabel(item.lifecycle?.current_outcome),
+      settledOutcome: readableLabel(item.lifecycle?.settled_outcome),
+      disputeCount: Math.max(0, Math.round(numberValue(item.lifecycle?.dispute_count) ?? 0)),
+      phaseEndAt: optionalIsoTime(item.lifecycle?.phase_end_timestamp),
+      updatedAt: optionalIsoTime(item.lifecycle?.lifecycle_updated_at_ms),
+      settledAt: optionalIsoTime(item.lifecycle?.settled_at),
+    },
     series,
     slippageBuckets: apiSlippageBuckets(item.backend_required?.slippage_distribution),
+    slippageNotionalBuckets: apiSlippageNotionalBuckets(item.backend_required?.slippage_distribution_by_notional),
     bidLevels: apiLevels(item.orderbook_quality?.yes, "bids"),
     askLevels: apiLevels(item.orderbook_quality?.yes, "asks"),
     noBidLevels: apiLevels(item.orderbook_quality?.no, "bids"),
     noAskLevels: apiLevels(item.orderbook_quality?.no, "asks"),
     events,
     liquidityHistory: liquidityHistory.length ? liquidityHistory : undefined,
+    experienceQuality: mapExperienceQuality(item.experience_quality, startAt, endAt),
     flash: {
       actualPairsPerHour: numberValue(item.flash?.actual_pairs_per_hour),
       actualAvgIntervalS: numberValue(item.flash?.actual_avg_interval_s),
@@ -1547,7 +2334,23 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
       tier1ActivePairs: tier1Flash.activePairs,
       midActivePairs: midFlash.activePairs,
       maxPairsTotal: numberValue(item.flash?.max_pairs_total),
-      l1DistanceTicks: numberValue(item.flash?.l1_distance_ticks),
+      l1DistanceTicks,
+      tier1ConfiguredIntervalS: tier1ConfiguredMin !== null && tier1ConfiguredMax !== null
+        ? [tier1ConfiguredMin, tier1ConfiguredMax]
+        : null,
+      midConfiguredIntervalS: midConfiguredMin !== null && midConfiguredMax !== null
+        ? [midConfiguredMin, midConfiguredMax]
+        : null,
+    },
+    backendData: {
+      grossVolume: grossVolumeValue !== null,
+      netVolume: numberValue(item.backend_required?.net_volume) !== null,
+      traderCount: traderCountValue !== null,
+      pnl: pnlValue !== null,
+      washRatio: washRatio !== null,
+      avgSlippage: numberValue(item.backend_required?.avg_slippage) !== null,
+      slippageDistribution: Array.isArray(item.backend_required?.slippage_distribution),
+      businessTrend: false,
     },
   };
 }
@@ -1572,11 +2375,19 @@ export default function Home() {
   const [refreshTick, setRefreshTick] = useState(0);
   const [activeId, setActiveId] = useState(mockMarkets[0].id);
   const [filter, setFilter] = useState("all");
+  const [riskStatusFilter, setRiskStatusFilter] = useState<RiskStatus | null>(null);
   const [timeframe, setTimeframe] = useState("1h");
   const [query, setQuery] = useState("");
   const [liveClock, setLiveClock] = useState("--:--:--");
   const [activeBoard, setActiveBoard] = useState<BoardId>("macro");
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("realtime");
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
+  const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
+  const [reviewSource, setReviewSource] = useState<ReviewSourceState>({
+    mode: "loading",
+    payload: null,
+    detail: "正在请求单市场 Review API",
+  });
 
   useEffect(() => {
     const updateClock = () => {
@@ -1614,6 +2425,27 @@ export default function Home() {
           label: "API",
           detail: "策略端 /api/dashboard/realtime",
         });
+        const conditionIds = nextMarkets
+          .map((marketItem) => marketItem.id)
+          .filter((conditionId) => /^0x[a-f0-9]{64}$/i.test(conditionId))
+          .slice(0, 100);
+        if (conditionIds.length) {
+          try {
+            const batchResponse = await fetch("/api/dashboard/market-realtime-batch", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ condition_ids: conditionIds, window: "1h" }),
+              cache: "no-store",
+            });
+            if (batchResponse.ok && !cancelled) {
+              const metrics = mapBatchMarketMetrics(await batchResponse.json() as BatchMarketRealtimePayload);
+              setSingleMarketMetrics((current) => ({ ...current, ...metrics }));
+              setMarkets(nextMarkets.map((marketItem) => applySingleMarketMetrics(marketItem, metrics[marketItem.id])));
+            }
+          } catch (error) {
+            console.warn("batch market metrics unavailable", error);
+          }
+        }
       } catch (error) {
         if (cancelled) return;
         setMarkets(mockMarkets);
@@ -1636,35 +2468,40 @@ export default function Home() {
     };
   }, [refreshTick]);
 
-  const filteredMarkets = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+  const categoryMarkets = useMemo(() => {
     const selectedFilter = filterOptions.find((option) => option.id === filter);
 
-    return markets
-      .filter((marketItem) => {
-        if (filter === "attention") {
-          return statusMeta[marketItem.riskStatus].tone !== "ok" || marketItem.staleSeconds > 60;
-        }
-        if (selectedFilter?.tag) return marketItem.tags.includes(selectedFilter.tag);
-        return true;
-      })
+    if (!selectedFilter?.tag) return markets;
+    return markets.filter((marketItem) => marketItem.tags.includes(selectedFilter.tag));
+  }, [filter, markets]);
+
+  const effectiveRiskStatusFilter = riskStatusFilter && categoryMarkets.some((marketItem) => marketItem.riskStatus === riskStatusFilter)
+    ? riskStatusFilter
+    : null;
+
+  const filteredMarkets = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return categoryMarkets
       .filter((marketItem) => {
         if (!normalizedQuery) return true;
         return `${marketItem.event} ${marketItem.market} ${marketItem.category} ${marketItem.tags.join(" ")} ${marketItem.id}`
           .toLowerCase()
           .includes(normalizedQuery);
       })
+      .filter((marketItem) => !effectiveRiskStatusFilter || marketItem.riskStatus === effectiveRiskStatusFilter)
       .sort((a, b) => {
         const severity = { bad: 0, warn: 1, muted: 2, ok: 3 };
         return severity[statusMeta[a.riskStatus].tone] - severity[statusMeta[b.riskStatus].tone];
       });
-  }, [filter, markets, query]);
+  }, [categoryMarkets, effectiveRiskStatusFilter, query]);
 
   const activeMarket = markets.find((marketItem) => marketItem.id === activeId) ?? markets[0];
   const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
-  const visibleMarket = applySingleMarketMetrics(visibleMarketBase, singleMarketMetrics[visibleMarketBase.id]);
+  const visibleMarketWithRealtime = applySingleMarketMetrics(visibleMarketBase, singleMarketMetrics[visibleMarketBase.id]);
+  const visibleMarket = applySingleMarketHistory(visibleMarketWithRealtime, singleMarketHistory[visibleMarketBase.id]);
 
   useEffect(() => {
     if (!visibleMarketBase?.id) return undefined;
@@ -1676,18 +2513,36 @@ export default function Home() {
           condition_id: visibleMarketBase.id,
           window: timeframe,
         });
-        const response = await fetch(`/api/dashboard/market-realtime?${params.toString()}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) return;
-        const payload = await response.json() as SingleMarketRealtimePayload;
-        const metrics = mapSingleMarketMetrics(payload);
-        if (!metrics || controller.signal.aborted) return;
-        setSingleMarketMetrics((current) => ({
-          ...current,
-          [visibleMarketBase.id]: metrics,
-        }));
+        const [realtimeResult, historyResult] = await Promise.allSettled([
+          fetch(`/api/dashboard/market-realtime?${params.toString()}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+          fetch(`/api/dashboard/market-history?${params.toString()}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+        ]);
+        if (controller.signal.aborted) return;
+
+        if (realtimeResult.status === "fulfilled" && realtimeResult.value.ok) {
+          const metrics = mapSingleMarketMetrics(await realtimeResult.value.json() as SingleMarketRealtimePayload);
+          if (metrics && !controller.signal.aborted) {
+            setSingleMarketMetrics((current) => ({
+              ...current,
+              [visibleMarketBase.id]: metrics,
+            }));
+          }
+        }
+        if (historyResult.status === "fulfilled" && historyResult.value.ok) {
+          const history = mapSingleMarketHistory(await historyResult.value.json() as SingleMarketHistoryPayload);
+          if (history && !controller.signal.aborted) {
+            setSingleMarketHistory((current) => ({
+              ...current,
+              [visibleMarketBase.id]: history,
+            }));
+          }
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
         console.warn("single market metrics unavailable", error);
@@ -1698,23 +2553,75 @@ export default function Home() {
     return () => controller.abort();
   }, [refreshTick, timeframe, visibleMarketBase?.id]);
 
+  useEffect(() => {
+    if (workspaceView !== "review" || !visibleMarketBase?.id) return undefined;
+    const controller = new AbortController();
+
+    async function loadReview() {
+      setReviewSource({ mode: "loading", payload: null, detail: "正在请求单市场 Review API" });
+      try {
+        const params = new URLSearchParams({ condition_id: visibleMarketBase.id });
+        const response = await fetch(`/api/dashboard/review?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Review API ${response.status}`);
+        const payload = await response.json() as ReviewApiPayload;
+        if (!mapReviewApiPayload(payload)) throw new Error("Review API contract mismatch");
+        if (!controller.signal.aborted) {
+          setReviewSource({
+            mode: "api",
+            payload,
+            detail: "策略端 /api/dashboard/review · 单市场持久化事实",
+          });
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setReviewSource({
+          mode: "mock",
+          payload: null,
+          detail: error instanceof Error ? error.message : "Review API unavailable",
+        });
+      }
+    }
+
+    loadReview();
+    return () => controller.abort();
+  }, [refreshTick, visibleMarketBase?.id, workspaceView]);
+
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
+  const displayedSource = workspaceView === "review"
+    ? {
+      mode: reviewSource.mode,
+      label: reviewSource.mode === "api" ? "REVIEW API" : reviewSource.mode === "loading" ? "REVIEW LOADING" : "REVIEW MOCK",
+      detail: reviewSource.detail,
+    }
+    : dataSource;
   return (
     <main className="terminal-shell">
       <section className="topbar">
-        <div className="brand-block">
-          <div className="brand-mark">MM</div>
-          <div>
-            <p className="eyebrow">Market Making Console</p>
-            <h1>实时市场看板</h1>
-          </div>
-        </div>
+        <nav className="console-workspaces" aria-label="切换实时看板与做市复盘">
+          <button className={workspaceView === "realtime" ? "active" : ""} type="button" onClick={() => setWorkspaceView("realtime")}>
+            <span className="brand-mark">MM</span>
+            <span className="workspace-label">
+              <small>Market Making Console</small>
+              <strong>实时市场看板</strong>
+            </span>
+          </button>
+          <button className={workspaceView === "review" ? "active" : ""} type="button" onClick={() => setWorkspaceView("review")}>
+            <span className="workspace-mark"><LineChart size={19} /></span>
+            <span className="workspace-label">
+              <small>Strategy Review</small>
+              <strong>做市 Review</strong>
+            </span>
+          </button>
+        </nav>
 
         <div className="topbar-actions">
-          <div className={`feed-pill data-source-${dataSource.mode}`} title={dataSource.detail}>
+          <div className={`feed-pill data-source-${displayedSource.mode}`} title={displayedSource.detail}>
             <Radio size={15} />
-            <span>{dataSource.label}</span>
+            <span>{displayedSource.label}</span>
             <strong>{liveClock}</strong>
           </div>
           <button className="icon-button" type="button" title="刷新" onClick={() => setRefreshTick((value) => value + 1)}>
@@ -1726,12 +2633,25 @@ export default function Home() {
         </div>
       </section>
 
+      {workspaceView === "review" ? (
+        <ReviewDashboard
+          markets={markets}
+          visibleMarket={visibleMarket}
+          setActiveId={setActiveId}
+          reviewSource={reviewSource}
+        />
+      ) : (
+        <>
       <MarketOverview
+        allMarkets={markets}
+        statusScopeMarkets={categoryMarkets}
         filteredMarkets={filteredMarkets}
         marketCount={markets.length}
         visibleMarket={visibleMarket}
         filter={filter}
         setFilter={setFilter}
+        riskStatusFilter={effectiveRiskStatusFilter}
+        setRiskStatusFilter={setRiskStatusFilter}
         query={query}
         setQuery={setQuery}
         setActiveId={setActiveId}
@@ -1810,29 +2730,706 @@ export default function Home() {
           />
         )}
       </section>
+        </>
+      )}
     </main>
   );
 }
 
+type ReviewData = {
+  source: "api" | "mock";
+  availability: {
+    marketEngagement: boolean;
+    toxicity: boolean;
+    pnlAttribution: boolean;
+    premarketConvergence: boolean;
+    premarketClock: boolean;
+    premarketErrorRate: boolean;
+    tteObservations: boolean;
+    decisionRates: boolean;
+    settlementRisk: boolean;
+    endgameTransitions: boolean;
+    reduceOnly: boolean;
+    expiredRate: boolean;
+    audits: boolean;
+  };
+  funnel: Array<{ stage: string; count: number; conversion: number }>;
+  toxicity: Array<{ kind: string; count: number; color: string }>;
+  pnlAttribution: Array<{ name: string; value: number; color: string }>;
+  quoteAttempts: Array<{ bucket: string; count: number }>;
+  averageScore: number;
+  favorableRate: number;
+  premarket: {
+    convergence: Array<{ mode: string; count: number; color: string }>;
+    normalRate: number;
+    clockScale: number;
+    expectedScale: number;
+    errorRate: number;
+  };
+  intraday: {
+    tteActivity: Array<{ bucket: string; normal: number; waitingResult: number; resultTail: number }>;
+    clockScale: number;
+    rawTteSeconds: number;
+    effectiveTteSeconds: number;
+    plannedRate: number;
+    blockedRate: number;
+    settlementRisk: number;
+  };
+  endgame: {
+    transitions: Array<{ mode: string; count: number; color: string }>;
+    reduceOnlyOrders: number;
+    reduceOnlyQuantity: number;
+    expiredActivityRate: number;
+    audits: Array<{ time: string; outcome: string; price: number | null; quantity: number | null; status?: string }>;
+  };
+};
+
+type ReviewApiPayload = {
+  contract_version?: string;
+  condition_id?: string;
+  coverage?: {
+    decision_count?: number;
+    reduce_only_audit_count?: number;
+  };
+  premarket?: {
+    convergence_by_mode?: Record<string, number>;
+    normal_rate_pct?: number | null;
+    clock?: {
+      scale?: number | null;
+      raw_tte_s?: number | null;
+      effective_tte_s?: number | null;
+    };
+    error_rate_per_min?: number | null;
+    availability?: {
+      convergence?: boolean;
+      clock?: boolean;
+      error_rate?: boolean;
+    };
+  };
+  intraday?: {
+    tte_observations?: Array<{
+      bucket?: string;
+      normal?: number;
+      waiting_result?: number;
+      result_tail?: number;
+    }>;
+    planned_rate_per_min?: number | null;
+    blocked_rate_per_min?: number | null;
+    settlement_risk_factor?: number | null;
+    availability?: {
+      tte_observations?: boolean;
+      decision_rates?: boolean;
+      settlement_risk?: boolean;
+    };
+  };
+  endgame?: {
+    transitions_by_mode?: Record<string, number>;
+    reduce_only_orders?: number;
+    reduce_only_quantity?: number;
+    expired_waiting_result_rate_per_min?: number | null;
+    audits?: Array<{
+      action_id?: number | string;
+      time?: string | null;
+      outcome?: string;
+      price?: number | null;
+      quantity?: number | null;
+      status?: string;
+    }>;
+    availability?: {
+      transitions?: boolean;
+      reduce_only?: boolean;
+      expired_waiting_result_rate?: boolean;
+      audits?: boolean;
+    };
+  };
+};
+
+type ReviewSourceState = {
+  mode: "loading" | "api" | "mock";
+  payload: ReviewApiPayload | null;
+  detail: string;
+};
+
+function reviewSeed(market: Market) {
+  return market.id.split("").reduce((total, character) => total + character.charCodeAt(0), 0);
+}
+
+function buildReviewData(market: Market): ReviewData {
+  const seed = reviewSeed(market);
+  const visits = 420 + (seed % 170);
+  const interactions = Math.round(visits * (0.54 + (seed % 7) / 100));
+  const quoteAttempts = Math.round(interactions * (0.7 + (seed % 5) / 100));
+  const submitted = Math.round(quoteAttempts * (0.58 + (seed % 9) / 100));
+  const completed = Math.max(18, Math.round(submitted * (0.68 + (seed % 6) / 100)));
+  const favorable = Math.round(completed * (0.46 + (seed % 5) / 100));
+  const adverse = Math.round(completed * (0.27 + (seed % 6) / 100));
+  const neutral = Math.max(0, completed - favorable - adverse);
+  const spreadIncome = Number(Math.max(8, market.grossVolume * 0.0012).toFixed(1));
+  const slippageLoss = Number(-Math.max(3, market.grossVolume * 0.00034).toFixed(1));
+  const fees = Number(-Math.max(1.2, market.grossVolume * 0.00008).toFixed(1));
+  const inventoryIncome = Number((market.pnl - spreadIncome - slippageLoss - fees).toFixed(1));
+  const normalTransitions = 8 + (seed % 3);
+  const invalidTransitions = seed % 4 === 0 ? 1 : 0;
+  const waitingTransitions = seed % 7 === 0 ? 1 : 0;
+  const transitionTotal = normalTransitions + invalidTransitions + waitingTransitions;
+  const clockScale = Number((0.72 + (seed % 5) * 0.05).toFixed(2));
+
+  return {
+    source: "mock",
+    availability: {
+      marketEngagement: true,
+      toxicity: true,
+      pnlAttribution: true,
+      premarketConvergence: true,
+      premarketClock: true,
+      premarketErrorRate: true,
+      tteObservations: true,
+      decisionRates: true,
+      settlementRisk: true,
+      endgameTransitions: true,
+      reduceOnly: true,
+      expiredRate: true,
+      audits: true,
+    },
+    funnel: [
+      { stage: "进入市场", count: visits, conversion: 100 },
+      { stage: "交易互动", count: interactions, conversion: (interactions / visits) * 100 },
+      { stage: "尝试报价", count: quoteAttempts, conversion: (quoteAttempts / visits) * 100 },
+      { stage: "提交订单", count: submitted, conversion: (submitted / visits) * 100 },
+      { stage: "完成成交", count: completed, conversion: (completed / visits) * 100 },
+    ],
+    toxicity: [
+      { kind: "有利成交", count: favorable, color: "#20d49b" },
+      { kind: "中性成交", count: neutral, color: "#7e8796" },
+      { kind: "不利成交", count: adverse, color: "#ff5c6c" },
+    ],
+    pnlAttribution: [
+      { name: "价差收入", value: spreadIncome, color: "#20d49b" },
+      { name: "库存收益", value: inventoryIncome, color: inventoryIncome >= 0 ? "#4cc9f0" : "#ff5c6c" },
+      { name: "滑点损失", value: slippageLoss, color: "#ff5c6c" },
+      { name: "费用", value: fees, color: "#ffb020" },
+    ],
+    quoteAttempts: [
+      { bucket: "2-10u", count: Math.round(quoteAttempts * 0.68) },
+      { bucket: "10-100u", count: Math.round(quoteAttempts * 0.24) },
+      { bucket: ">100u", count: Math.round(quoteAttempts * 0.08) },
+    ],
+    averageScore: Number(((favorable - adverse) / completed * 1.8).toFixed(2)),
+    favorableRate: Number((favorable / completed * 100).toFixed(1)),
+    premarket: {
+      convergence: [
+        { mode: "正常报价", count: normalTransitions, color: "#20d49b" },
+        { mode: "无效暂停", count: invalidTransitions, color: "#ffb020" },
+        { mode: "等待结果", count: waitingTransitions, color: "#7e8796" },
+      ],
+      normalRate: Number((normalTransitions / transitionTotal * 100).toFixed(1)),
+      clockScale,
+      expectedScale: clockScale,
+      errorRate: Number(((seed % 3) * 0.01).toFixed(2)),
+    },
+    intraday: {
+      tteActivity: [
+        { bucket: ">60m", normal: 12.4, waitingResult: 0, resultTail: 0 },
+        { bucket: "60-30m", normal: 11.2, waitingResult: 0, resultTail: 0 },
+        { bucket: "30-10m", normal: 8.7, waitingResult: 0.4, resultTail: 0 },
+        { bucket: "10-5m", normal: 5.4, waitingResult: 1.5, resultTail: 0.2 },
+        { bucket: "<5m", normal: 1.8, waitingResult: 3.7, resultTail: 1.1 },
+        { bucket: "已过期", normal: 0, waitingResult: 2.6, resultTail: 1.5 },
+      ],
+      clockScale,
+      rawTteSeconds: 480 + (seed % 4) * 30,
+      effectiveTteSeconds: Math.round((480 + (seed % 4) * 30) / clockScale),
+      plannedRate: Number((8.2 + (seed % 4) * 0.3).toFixed(1)),
+      blockedRate: Number((0.3 + (seed % 3) * 0.15).toFixed(2)),
+      settlementRisk: Number((0.76 + (seed % 5) * 0.04).toFixed(2)),
+    },
+    endgame: {
+      transitions: [
+        { mode: "等待结果", count: 8 + (seed % 3), color: "#4cc9f0" },
+        { mode: "YES 尾盘", count: 4 + (seed % 2), color: "#20d49b" },
+        { mode: "NO 尾盘", count: 3 + (seed % 2), color: "#a8db4d" },
+        { mode: "争议暂停", count: 1, color: "#ffb020" },
+        { mode: "结束", count: 5 + (seed % 3), color: "#7e8796" },
+      ],
+      reduceOnlyOrders: 23 + (seed % 6),
+      reduceOnlyQuantity: Number((51.4 + (seed % 8) * 1.7).toFixed(1)),
+      expiredActivityRate: Number((2.1 + (seed % 4) * 0.25).toFixed(2)),
+      audits: [
+        { time: "18:51:24", outcome: "YES", price: 0.01, quantity: 3.2 },
+        { time: "18:52:08", outcome: "YES", price: 0.02, quantity: 2.4 },
+        { time: "18:53:17", outcome: "NO", price: 0.01, quantity: 4.1 },
+      ],
+    },
+  };
+}
+
+const reviewModePresentation: Record<string, { label: string; color: string }> = {
+  normal: { label: "正常报价", color: "#20d49b" },
+  invalid_paused: { label: "无效暂停", color: "#ffb020" },
+  waiting_result: { label: "等待结果", color: "#4cc9f0" },
+  result_tail_yes: { label: "YES 尾盘", color: "#20d49b" },
+  result_tail_no: { label: "NO 尾盘", color: "#a8db4d" },
+  disputed_paused: { label: "争议暂停", color: "#ffb020" },
+  final: { label: "结束", color: "#7e8796" },
+};
+
+const reviewBucketLabels: Record<string, string> = {
+  gt_60m: ">60m",
+  "60m_30m": "60-30m",
+  "30m_10m": "30-10m",
+  "10m_5m": "10-5m",
+  lt_5m: "<5m",
+  expired: "已过期",
+};
+
+function finiteReviewNumber(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapReviewApiPayload(payload: ReviewApiPayload): ReviewData | null {
+  if (payload.contract_version !== "mm-dashboard-review.v1") return null;
+  const premarketAvailability = payload.premarket?.availability;
+  const intradayAvailability = payload.intraday?.availability;
+  const endgameAvailability = payload.endgame?.availability;
+  const convergence = Object.entries(payload.premarket?.convergence_by_mode ?? {}).map(([mode, count]) => ({
+    mode: reviewModePresentation[mode]?.label ?? mode,
+    count: finiteReviewNumber(count),
+    color: reviewModePresentation[mode]?.color ?? "#7e8796",
+  }));
+  const transitions = Object.entries(payload.endgame?.transitions_by_mode ?? {}).map(([mode, count]) => ({
+    mode: reviewModePresentation[mode]?.label ?? mode,
+    count: finiteReviewNumber(count),
+    color: reviewModePresentation[mode]?.color ?? "#7e8796",
+  }));
+  const clockScale = finiteReviewNumber(payload.premarket?.clock?.scale);
+
+  return {
+    source: "api",
+    availability: {
+      marketEngagement: false,
+      toxicity: false,
+      pnlAttribution: false,
+      premarketConvergence: Boolean(premarketAvailability?.convergence),
+      premarketClock: Boolean(premarketAvailability?.clock),
+      premarketErrorRate: Boolean(premarketAvailability?.error_rate),
+      tteObservations: Boolean(intradayAvailability?.tte_observations),
+      decisionRates: Boolean(intradayAvailability?.decision_rates),
+      settlementRisk: Boolean(intradayAvailability?.settlement_risk),
+      endgameTransitions: Boolean(endgameAvailability?.transitions),
+      reduceOnly: Boolean(endgameAvailability?.reduce_only),
+      expiredRate: Boolean(endgameAvailability?.expired_waiting_result_rate),
+      audits: Boolean(endgameAvailability?.audits),
+    },
+    funnel: [],
+    toxicity: [],
+    pnlAttribution: [],
+    quoteAttempts: [],
+    averageScore: 0,
+    favorableRate: 0,
+    premarket: {
+      convergence,
+      normalRate: finiteReviewNumber(payload.premarket?.normal_rate_pct),
+      clockScale,
+      expectedScale: clockScale,
+      errorRate: finiteReviewNumber(payload.premarket?.error_rate_per_min),
+    },
+    intraday: {
+      tteActivity: (payload.intraday?.tte_observations ?? []).map((row) => ({
+        bucket: reviewBucketLabels[row.bucket ?? ""] ?? row.bucket ?? "--",
+        normal: finiteReviewNumber(row.normal),
+        waitingResult: finiteReviewNumber(row.waiting_result),
+        resultTail: finiteReviewNumber(row.result_tail),
+      })),
+      clockScale,
+      rawTteSeconds: finiteReviewNumber(payload.premarket?.clock?.raw_tte_s),
+      effectiveTteSeconds: finiteReviewNumber(payload.premarket?.clock?.effective_tte_s),
+      plannedRate: finiteReviewNumber(payload.intraday?.planned_rate_per_min),
+      blockedRate: finiteReviewNumber(payload.intraday?.blocked_rate_per_min),
+      settlementRisk: finiteReviewNumber(payload.intraday?.settlement_risk_factor),
+    },
+    endgame: {
+      transitions,
+      reduceOnlyOrders: finiteReviewNumber(payload.endgame?.reduce_only_orders),
+      reduceOnlyQuantity: finiteReviewNumber(payload.endgame?.reduce_only_quantity),
+      expiredActivityRate: finiteReviewNumber(payload.endgame?.expired_waiting_result_rate_per_min),
+      audits: (payload.endgame?.audits ?? []).map((audit) => ({
+        time: audit.time ? new Date(audit.time).toLocaleTimeString("zh-CN", { hour12: false }) : "--",
+        outcome: audit.outcome ?? "UNKNOWN",
+        price: numberValue(audit.price),
+        quantity: numberValue(audit.quantity),
+        status: audit.status,
+      })),
+    },
+  };
+}
+
+function ReviewDashboard({
+  markets,
+  visibleMarket,
+  setActiveId,
+  reviewSource,
+}: {
+  markets: Market[];
+  visibleMarket: Market;
+  setActiveId: (value: string) => void;
+  reviewSource: ReviewSourceState;
+}) {
+  const review = useMemo(
+    () => reviewSource.payload ? mapReviewApiPayload(reviewSource.payload) ?? buildReviewData(visibleMarket) : buildReviewData(visibleMarket),
+    [reviewSource.payload, visibleMarket],
+  );
+  const [reviewFocus, setReviewFocus] = useState<"all" | "premarket" | "intraday" | "postmarket">("all");
+  const completedTrades = review.funnel.at(-1)?.count ?? 0;
+  const quoteAttemptCount = review.funnel[2]?.count ?? 0;
+  const submittedCount = review.funnel[3]?.count ?? 0;
+  const cancellationRate = quoteAttemptCount > 0 ? ((quoteAttemptCount - submittedCount) / quoteAttemptCount) * 100 : 0;
+  const decisionRateTotal = review.intraday.plannedRate + review.intraday.blockedRate;
+  const plannedShare = decisionRateTotal > 0 ? review.intraday.plannedRate / decisionRateTotal * 100 : 0;
+  const sourceChip = reviewSource.mode === "api" ? "真实复盘" : reviewSource.mode === "loading" ? "正在加载" : "演示复盘";
+  const focusReviewSection = (focus: "all" | "premarket" | "intraday" | "postmarket", targetId: string) => {
+    setReviewFocus(focus);
+    window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+
+  return (
+    <section className="review-workspace" id="review-all">
+      <div className="review-toolbar">
+        <div>
+          <p className="section-label">Post-trade Strategy Review</p>
+          <strong>单市场全生命周期复盘</strong>
+        </div>
+        <label className="review-market-select">
+          <span>复盘市场</span>
+          <select value={visibleMarket.id} onChange={(event) => setActiveId(event.target.value)}>
+            {markets.map((market) => <option key={market.id} value={market.id}>{market.event}</option>)}
+          </select>
+        </label>
+        <div className="review-period" aria-label="Review 阶段快速定位">
+          <button className={reviewFocus === "all" ? "active" : ""} type="button" onClick={() => focusReviewSection("all", "review-all")}>全部</button>
+          <button className={reviewFocus === "premarket" ? "active" : ""} type="button" onClick={() => focusReviewSection("premarket", "review-premarket")}>盘前收敛</button>
+          <button className={reviewFocus === "intraday" ? "active" : ""} type="button" onClick={() => focusReviewSection("intraday", "review-intraday")}>盘中推进</button>
+          <button className={reviewFocus === "postmarket" ? "active" : ""} type="button" onClick={() => focusReviewSection("postmarket", "review-postmarket")}>尾盘 / 盘后</button>
+        </div>
+      </div>
+
+      <div className="review-market-heading">
+        <div>
+          <div className="title-line">
+            <h2>{visibleMarket.event}</h2>
+            <span className={`state-chip ${reviewSource.mode === "api" ? "ok" : "warn"}`}>{sourceChip}</span>
+          </div>
+          <p>{visibleMarket.market} · {visibleMarket.category} · {compactIdentifier(visibleMarket.id)}</p>
+        </div>
+        <MarketLifecycle market={visibleMarket} />
+      </div>
+
+      <section className="review-domain review-domain-activity" aria-labelledby="review-activity-title">
+        <div className="review-domain-header">
+          <span className="review-domain-icon"><BarChart3 size={19} /></span>
+          <div>
+            <p className="section-label">Review Area 01</p>
+            <h2 id="review-activity-title">市场活跃度复盘</h2>
+            <small>用户访问、交易意向、试价与成交转化</small>
+          </div>
+        </div>
+
+        <div className="review-summary-grid review-summary-activity">
+          <ReviewMetric label="访问到成交" value={review.availability.marketEngagement ? `${review.funnel.at(-1)?.conversion.toFixed(1)}%` : "待接入"} note={review.availability.marketEngagement ? `${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交` : "需要前端行为事件与后端成交"} tone={review.availability.marketEngagement ? "ok" : "warn"} />
+          <ReviewMetric label="取消率" value={review.availability.marketEngagement ? `${cancellationRate.toFixed(1)}%` : "待接入"} note={review.availability.marketEngagement ? "尝试报价后未提交订单" : "需要尝试报价与提交订单事件"} tone={review.availability.marketEngagement && cancellationRate <= 35 ? "ok" : "warn"} />
+        </div>
+
+        <div className="review-grid review-grid-activity">
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><BarChart3 size={16} /> 市场活跃度与成交漏斗</span>
+              <small>需要前端行为埋点</small>
+            </div>
+            {review.availability.marketEngagement ? <div className="review-funnel">
+              {review.funnel.map((item) => (
+                <div key={item.stage}>
+                  <span>{item.stage}</span>
+                  <div><i style={{ width: `${item.conversion}%` }} /></div>
+                  <strong>{item.count}</strong>
+                  <em>{item.conversion.toFixed(1)}%</em>
+                </div>
+              ))}
+            </div> : <ReviewUnavailable title="市场漏斗待接入" detail="策略端没有用户访问、交易互动与提交订单的完整行为链路。" />}
+          </div>
+
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><Gauge size={16} /> 试价金额分布</span>
+              <small>quote attempts</small>
+            </div>
+            {review.availability.marketEngagement ? <div className="review-bar-frame">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={review.quoteAttempts} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                  <CartesianGrid stroke="#252a33" vertical={false} />
+                  <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <Tooltip content={<ReviewTooltip />} />
+                  <Bar dataKey="count" name="尝试次数" fill="#4cc9f0" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div> : <ReviewUnavailable title="试价分布待接入" detail="需要前端或后端按市场提供 quote attempt 金额与结果。" />}
+            {review.availability.marketEngagement ? <p className="review-footnote">大额试价需结合用户余额分层判断，不能直接视为异常。</p> : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="review-domain review-domain-strategy" aria-labelledby="review-strategy-title">
+        <div className="review-domain-header">
+          <span className="review-domain-icon"><ShieldAlert size={19} /></span>
+          <div>
+            <p className="section-label">Review Area 02</p>
+            <h2 id="review-strategy-title">策略合理性复盘</h2>
+            <small>成交质量、盈亏来源与策略生命周期运行复盘</small>
+          </div>
+        </div>
+
+        <div className="review-summary-grid review-summary-strategy">
+          <ReviewMetric label="有利成交占比" value={review.availability.toxicity ? `${review.favorableRate}%` : "待接入"} note={review.availability.toxicity ? "1 分钟后继成交 Score 口径" : "需要全市场成交与成交后价格"} tone={review.availability.toxicity && review.favorableRate >= 50 ? "ok" : "warn"} />
+          <ReviewMetric label="净 PnL" value={visibleMarket.backendData?.pnl === false ? "待接入" : signedCurrency(visibleMarket.pnl)} note={review.availability.pnlAttribution ? "价差 + 库存 - 滑点 - 费用" : "当前 PnL 可用，分项归因待后端提供"} tone={visibleMarket.backendData?.pnl === false ? "warn" : visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+          <ReviewMetric label="正常接管率" value={review.availability.premarketConvergence ? `${review.premarket.normalRate}%` : "无样本"} note="pending_authority 转入正常报价" tone={review.availability.premarketConvergence && review.premarket.normalRate >= 90 ? "ok" : "warn"} />
+        </div>
+
+        <div className="review-grid">
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><Activity size={16} /> 订单流毒性</span>
+              <small>成交后 1 分钟观察窗</small>
+            </div>
+            {review.availability.toxicity ? <><div className="review-kpi-row">
+              <span><ReviewDefinition label="平均 Score" /><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
+              <span><ReviewDefinition label="有利成交" /><strong>{review.favorableRate}%</strong></span>
+              <span><ReviewDefinition label="毒性样本" /><strong>{completedTrades}</strong></span>
+            </div>
+            <div className="review-bar-frame compact">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={review.toxicity} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                  <CartesianGrid stroke="#252a33" vertical={false} />
+                  <XAxis dataKey="kind" stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
+                  <Tooltip content={<ReviewTooltip />} />
+                  <Bar dataKey="count" name="成交笔数" radius={[3, 3, 0, 0]}>{review.toxicity.map((item) => <Cell key={item.kind} fill={item.color} />)}</Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div></> : <ReviewUnavailable title="订单流毒性待接入" detail="需要后端提供完整成交序列、成交方向，以及成交后 1 分钟的价格基准。" />}
+          </div>
+
+          <div className="panel review-panel">
+            <div className="panel-title">
+              <span><LineChart size={16} /> 盈亏归因</span>
+              <small>PnL attribution</small>
+            </div>
+            {review.availability.pnlAttribution ? <div className="review-attribution-list">
+              {review.pnlAttribution.map((item) => (
+                <div key={item.name}><i style={{ background: item.color }} /><ReviewDefinition label={item.name} /><strong className={item.value >= 0 ? "positive" : "negative"}>{signedCurrency(item.value)}</strong></div>
+              ))}
+              <div className="total"><i /><ReviewDefinition label="净 PnL" /><strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong></div>
+            </div> : <ReviewUnavailable title="盈亏归因待接入" detail="策略端有当前市场 PnL，但价差、库存、滑点和费用的完整分项需要后端成交与估值数据。" />}
+          </div>
+        </div>
+
+        <div className="review-phases">
+          <div className="panel review-phase-card review-phase-premarket" id="review-premarket">
+            <ReviewPhaseHeader index="01" eyebrow="Premarket" title="盘前 · 接管与收敛" description="市场未开盘至策略恢复正常报价" tone={review.availability.premarketConvergence && review.premarket.normalRate >= 90 ? "ok" : "warn"} result={!review.availability.premarketConvergence ? "无样本" : review.premarket.normalRate >= 90 ? "收敛正常" : "需检查"} source={review.source === "api" ? "策略 Review API · 持久决策投影" : "演示数据 · 15m"} />
+            <div className="review-phase-body">
+              <div className="review-stage-chart">
+                <div className="review-subtitle"><ReviewDefinition label="启动收敛落点分布" /><small>任务从待接管状态转入的生命周期模式</small></div>
+                {review.availability.premarketConvergence ? <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={review.premarket.convergence} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
+                    <CartesianGrid stroke="#252a33" vertical={false} />
+                    <XAxis dataKey="mode" stroke="#7e8796" tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} stroke="#7e8796" tickLine={false} axisLine={false} />
+                    <Tooltip content={<ReviewTooltip />} />
+                    <Bar dataKey="count" name="转入次数" radius={[3, 3, 0, 0]}>{review.premarket.convergence.map((item) => <Cell key={item.mode} fill={item.color} />)}</Bar>
+                  </BarChart>
+                </ResponsiveContainer> : <ReviewUnavailable title="暂无接管收敛样本" detail="该市场还没有持久化的生命周期状态变化记录。" />}
+              </div>
+              <div className="review-evidence-grid review-evidence-stack">
+                <ReviewEvidence label="正常接管率" value={review.availability.premarketConvergence ? `${review.premarket.normalRate}%` : "--"} note="转入 NORMAL / 全部收敛" />
+                <ReviewEvidence label="时钟缩放系数" value={review.availability.premarketClock ? review.premarket.clockScale.toFixed(2) : "--"} note={review.availability.premarketClock ? `按市场时长与策略配置计算` : "缺少市场结束时间"} />
+                <ReviewEvidence label="收敛期错误率" value={review.availability.premarketErrorRate ? `${review.premarket.errorRate.toFixed(2)}/min` : "待接入"} note={review.availability.premarketErrorRate ? "uncertain + error" : "进程指标暂时无法按市场拆分"} />
+              </div>
+            </div>
+          </div>
+
+          <div className="panel review-phase-card" id="review-intraday">
+            <ReviewPhaseHeader index="02" eyebrow="Intraday" title="盘中 · 报价活动与时间推进" description="NORMAL 双边报价期间的活动、决策与时间语义" tone={review.availability.decisionRates && plannedShare >= 90 ? "ok" : "warn"} result={review.availability.decisionRates ? `${plannedShare.toFixed(1)}% 已计划` : "无样本"} source={review.source === "api" ? "策略 Review API · 持久决策投影" : "演示数据 · 15m"} />
+            <div className="review-phase-body review-phase-body-wide">
+              <div className="review-stage-chart review-stage-chart-wide">
+                <div className="review-subtitle"><ReviewDefinition label="报价活动 × 尾盘距离" /><small>按生命周期模式与 TTE 桶堆叠</small></div>
+                {review.availability.tteObservations ? <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={review.intraday.tteActivity} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
+                    <CartesianGrid stroke="#252a33" vertical={false} />
+                    <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
+                    <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
+                    <Tooltip content={<ReviewTooltip />} />
+                    <Bar dataKey="normal" name="NORMAL" stackId="mode" fill="#20d49b" />
+                    <Bar dataKey="waitingResult" name="WAITING_RESULT" stackId="mode" fill="#4cc9f0" />
+                    <Bar dataKey="resultTail" name="RESULT_TAIL" stackId="mode" fill="#ffb020" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer> : <ReviewUnavailable title="暂无 TTE 决策样本" detail="需要该市场在运行期间产生持久化策略决策。" />}
+              </div>
+              <div className="review-evidence-grid review-evidence-stack">
+                <ReviewEvidence label="缩放系数" value={review.availability.premarketClock ? review.intraday.clockScale.toFixed(2) : "--"} note="长市场 1.0，短市场小于 1" />
+                <ReviewEvidence label="有效剩余时间" value={review.availability.premarketClock ? `${review.intraday.effectiveTteSeconds}s` : "--"} note={review.availability.premarketClock ? `原始 ${review.intraday.rawTteSeconds}s` : "缺少市场结束时间"} />
+                <ReviewEvidence label="Planned 决策" value={review.availability.decisionRates ? `${review.intraday.plannedRate.toFixed(1)}/min` : "--"} note="持续产生报价计划" />
+                <ReviewEvidence label="Blocked 决策" value={review.availability.decisionRates ? `${review.intraday.blockedRate.toFixed(2)}/min` : "--"} note="按 trigger 排查集中阻塞" />
+                <ReviewEvidence label="结算风险因子" value={review.availability.settlementRisk ? review.intraday.settlementRisk.toFixed(2) : "--"} note="价格靠近边界时下降" />
+              </div>
+            </div>
+          </div>
+
+          <div className="panel review-phase-card" id="review-postmarket">
+            <ReviewPhaseHeader index="03" eyebrow="Endgame / Postmarket" title="尾盘 / 盘后 · 退出流转与库存退出" description="从尾盘进入等待结果、结果尾盘、争议与最终结束" tone={review.availability.reduceOnly ? "ok" : "warn"} result={review.availability.reduceOnly ? "有减仓审计" : "无减仓样本"} source={review.source === "api" ? "策略 Review API · 决策 + 订单审计" : "演示数据 · 1h"} />
+            <div className="review-postmarket-grid">
+              <div className="review-stage-chart">
+                <div className="review-subtitle"><ReviewDefinition label="阶段到达分布" /><small>排除 pending_authority 的状态迁移</small></div>
+                {review.availability.endgameTransitions ? <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={review.endgame.transitions} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
+                    <CartesianGrid stroke="#252a33" vertical={false} />
+                    <XAxis dataKey="mode" stroke="#7e8796" tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} stroke="#7e8796" tickLine={false} axisLine={false} />
+                    <Tooltip content={<ReviewTooltip />} />
+                    <Bar dataKey="count" name="到达次数" radius={[3, 3, 0, 0]}>{review.endgame.transitions.map((item) => <Cell key={item.mode} fill={item.color} />)}</Bar>
+                  </BarChart>
+                </ResponsiveContainer> : <ReviewUnavailable title="暂无尾盘状态样本" detail="该市场还未产生等待结果、结果尾盘、争议或结束状态变化。" />}
+              </div>
+              <div className="review-endgame-detail">
+                <div className="review-evidence-grid review-endgame-kpis">
+                  <ReviewEvidence label="保守减仓订单" value={review.availability.reduceOnly ? `${review.endgame.reduceOnlyOrders} 笔` : "0 笔"} note="waiting_result reduce-only" />
+                  <ReviewEvidence label="保守减仓数量" value={review.availability.reduceOnly ? `${review.endgame.reduceOnlyQuantity} sh` : "0 sh"} note="订单数量合计" />
+                  <ReviewEvidence label="尾盘后维护活跃度" value={review.availability.expiredRate ? `${review.endgame.expiredActivityRate}/min` : "--"} note="expired 桶持续观察" />
+                </div>
+                <div className="review-audit">
+                  <div className="review-subtitle"><ReviewDefinition label="逐单审计" /><small>waiting_result_reduce_only_sell</small></div>
+                  <div className="review-audit-head"><span>时间</span><span>结果</span><span>价格</span><span>数量</span></div>
+                  {review.endgame.audits.map((audit, index) => (
+                    <div className="review-audit-row" key={`${audit.time}-${audit.outcome}-${index}`}><time>{audit.time}</time><strong>{audit.outcome}</strong><span>{audit.price === null ? "--" : audit.price.toFixed(2)}</span><span>{audit.quantity === null ? "--" : `${audit.quantity.toFixed(1)} sh`}</span></div>
+                  ))}
+                  {!review.availability.audits ? <ReviewUnavailable title="暂无逐单审计" detail="该市场尚无 waiting_result_reduce_only_sell 订单记录。" compact /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </section>
+  );
+}
+
+function ReviewMetric({ label, value, note, tone }: { label: string; value: string; note: string; tone: "ok" | "warn" | "bad" }) {
+  return <div className={`review-metric ${tone}`}><ReviewDefinition label={label} /><strong>{value}</strong><small>{note}</small></div>;
+}
+
+function ReviewUnavailable({ title, detail, compact = false }: { title: string; detail: string; compact?: boolean }) {
+  return (
+    <div className={`review-unavailable ${compact ? "compact" : ""}`}>
+      <Database size={compact ? 14 : 18} />
+      <div><strong>{title}</strong><small>{detail}</small></div>
+    </div>
+  );
+}
+
+function ReviewPhaseHeader({ index, eyebrow, title, description, tone, result, source }: { index: string; eyebrow: string; title: string; description: string; tone: "ok" | "warn"; result: string; source: string }) {
+  return (
+    <div className="review-phase-header">
+      <span className="review-phase-index">{index}</span>
+      <div><small>{eyebrow}</small><h3>{title}</h3><p>{description}</p></div>
+      <div className="review-phase-meta"><small>{source}</small><span className={`state-chip ${tone}`}>{result}</span></div>
+    </div>
+  );
+}
+
+function ReviewEvidence({ label, value, note }: { label: string; value: string; note: string }) {
+  return <div className="review-evidence"><ReviewDefinition label={label} /><strong>{value}</strong><small>{note}</small></div>;
+}
+
+const reviewDefinitionDescriptions: Record<string, string> = {
+  "访问到成交": "完成成交数量 ÷ 进入市场次数。首版按同一市场、同一复盘周期统计，用于观察从访问到实际成交的整体转化。",
+  "取消率": "（尝试报价次数 - 提交订单次数）÷ 尝试报价次数，表示用户产生交易意向后没有最终提交订单的比例。",
+  "有利成交占比": "订单流 Score > 0 的成交数 ÷ 纳入毒性判断的成交样本数。数值越高，做市成交后的价格变化越有利。",
+  "净 PnL": "价差收入 + 库存收益 - 滑点损失 - 费用，表示该市场在复盘周期内的最终做市盈亏。",
+  "正常接管率": "从 pending_authority 收敛到 NORMAL 的次数 ÷ 全部启动收敛次数。越接近 100%，表示策略接管后越稳定地进入正常双边报价。",
+  "平均 Score": "每笔成交后观察 1 分钟内的下一笔成交：被动卖出取本次价减下一笔价，被动买入取下一笔价减本次价；正值有利，负值不利。",
+  "有利成交": "订单流 Score 大于 0 的成交比例。Score 等于 0 的成交计入中性样本。",
+  "毒性样本": "纳入订单流毒性判断的成交数量；没有后继成交的样本 Score 记为 0。",
+  "价差收入": "做市订单买卖价差带来的收益，不包含持仓价格变化和交易费用。",
+  "库存收益": "持仓期间市场价格变化带来的盈亏，与成交价差收入分开统计。",
+  "滑点损失": "实际成交相对成交时基准价产生的不利价格偏差所对应的损失。",
+  "费用": "交易、结算及其他可归属于该市场的费用合计。",
+  "启动收敛落点分布": "统计策略任务从 pending_authority 转入各生命周期模式的次数。大量进入 NORMAL 表示接管正常；反复进入 INVALID_PAUSED 需要检查市场目录投影。",
+  "时钟缩放系数": "策略生命周期时钟的 scale 值。它应与市场时长对应；长市场通常为 1.0，短市场会按配置缩放。",
+  "收敛期错误率": "启动收敛期间 result 为 uncertain 或 error 的操作速率。收敛完成前允许短暂出现，持续大于 0 需要排查。",
+  "报价活动 × 尾盘距离": "按生命周期模式 mode 和距离结束时间桶 tte_bucket 汇总的策略观察速率，用于确认报价活动是否随市场接近结束而按预期推进。",
+  "缩放系数": "生命周期时钟的 scale。长市场应接近 1.0；短市场小于 1.0，用于将真实剩余时间映射到策略有效时间。",
+  "有效剩余时间": "策略使用的 effective_tte_s。短市场经缩放后应大于原始 raw_tte_s，使生命周期阶段按预期展开。",
+  "Planned 决策": "result=planned 的策略决策速率，表示策略持续生成了可执行的报价计划。",
+  "Blocked 决策": "result=blocked 的策略决策速率。持续升高时应按 trigger 查看是风控、库存还是数据条件阻止了报价。",
+  "结算风险因子": "dynamic_inventory_factor 中的 settlement_risk。价格接近 0.5 时通常为 1.0，靠近 0 或 1 时逐步降低到约 0.2。",
+  "阶段到达分布": "统计非 pending_authority 起点的生命周期迁移，观察市场是否清晰到达 WAITING_RESULT、RESULT_TAIL、DISPUTED_PAUSED 与 FINAL。",
+  "保守减仓订单": "waiting_result 阶段产生的 reduce-only 卖单数量，仅用于退出已有库存，不增加方向风险。",
+  "保守减仓数量": "waiting_result reduce-only 订单的 shares 数量合计，用于判断库存退出是否持续发生。",
+  "尾盘后维护活跃度": "mode=waiting_result 且 tte_bucket=expired 的观察速率。市场名义结束后仍应有维护活动，直到结果或最终状态明确。",
+  "逐单审计": "从 mm_order_actions 中筛选 audit_reason=waiting_result_reduce_only_sell，核对每笔尾盘减仓的实际价格、数量与结果侧。",
+};
+
+function ReviewDefinition({ label }: { label: string }) {
+  const description = reviewDefinitionDescriptions[label];
+  return (
+    <span
+      className={description ? "review-definition" : undefined}
+      data-tooltip={description}
+      tabIndex={description ? 0 : undefined}
+      title={description}
+    >
+      {label}
+    </span>
+  );
+}
+
+function ReviewTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number | string; color?: string }>; label?: string | number }) {
+  if (!active || !payload?.length) return null;
+  return <div className="chart-tooltip"><strong>{label}</strong>{payload.map((item, index) => <span key={`${item.name}-${index}`}><i style={{ background: item.color ?? "#4cc9f0" }} />{item.name}: {item.value}</span>)}</div>;
+}
+
 function MarketOverview({
+  allMarkets,
+  statusScopeMarkets,
   filteredMarkets,
   marketCount,
   visibleMarket,
   filter,
   setFilter,
+  riskStatusFilter,
+  setRiskStatusFilter,
   query,
   setQuery,
   setActiveId,
 }: {
+  allMarkets: Market[];
+  statusScopeMarkets: Market[];
   filteredMarkets: Market[];
   marketCount: number;
   visibleMarket: Market;
   filter: string;
   setFilter: (value: string) => void;
+  riskStatusFilter: RiskStatus | null;
+  setRiskStatusFilter: (value: RiskStatus | null) => void;
   query: string;
   setQuery: (value: string) => void;
   setActiveId: (value: string) => void;
 }) {
+  const categoryCounts = useMemo(() => Object.fromEntries(
+    filterOptions.map((option) => [
+      option.id,
+      option.tag ? allMarkets.filter((marketItem) => marketItem.tags.includes(option.tag)).length : allMarkets.length,
+    ]),
+  ), [allMarkets]);
   const displayedMarkets = useMemo(() => {
     if (!filteredMarkets.length) return [];
     const limitedMarkets = filteredMarkets.slice(0, MARKET_LIST_LIMIT);
@@ -1865,20 +3462,36 @@ function MarketOverview({
         />
       </div>
 
-      <div className="segmented">
-        {filterOptions.map((option) => (
-          <button
-            key={option.id}
-            className={filter === option.id ? "active" : ""}
-            type="button"
-            onClick={() => setFilter(option.id)}
-          >
-            {option.label}
-          </button>
-        ))}
+      <div className="overview-filter-stack" aria-label="市场类别与状态筛选">
+        <div className="overview-filter-row">
+          <span>市场类别</span>
+          <div className="segmented category-filters">
+            {filterOptions.map((option) => (
+              <button
+                key={option.id}
+                className={filter === option.id ? "active" : ""}
+                type="button"
+                disabled={option.tag !== null && categoryCounts[option.id] === 0}
+                title={option.tag !== null && categoryCounts[option.id] === 0 ? "当前没有该类别市场" : undefined}
+                onClick={() => {
+                  setFilter(option.id);
+                  setRiskStatusFilter(null);
+                }}
+              >
+                {option.label} <b>{categoryCounts[option.id]}</b>
+              </button>
+            ))}
+          </div>
+        </div>
+        <MarketStatusFilters
+          markets={statusScopeMarkets}
+          activeStatus={riskStatusFilter}
+          onStatusChange={setRiskStatusFilter}
+        />
       </div>
 
       <div className="market-list">
+        {!displayedMarkets.length ? <div className="market-list-empty">当前类别与状态组合下没有市场</div> : null}
         {displayedMarkets.map((marketItem) => {
           const meta = statusMeta[marketItem.riskStatus];
           return (
@@ -1896,9 +3509,9 @@ function MarketOverview({
               </div>
               <p>{marketItem.market} · {compactIdentifier(marketItem.id)}</p>
               <div className="market-row-metrics">
-                <span>{currency(marketItem.grossVolume)}</span>
-                <span className={marketItem.pnl >= 0 ? "positive" : "negative"}>
-                  {signedCurrency(marketItem.pnl)}
+                <span>{marketItem.backendData?.grossVolume === false ? "成交额待接入" : currency(marketItem.grossVolume)}</span>
+                <span className={marketItem.backendData?.pnl === false ? "" : marketItem.pnl >= 0 ? "positive" : "negative"}>
+                  {marketItem.backendData?.pnl === false ? "PnL 待接入" : signedCurrency(marketItem.pnl)}
                 </span>
                 <span>{marketItem.staleSeconds}s</span>
               </div>
@@ -1906,7 +3519,224 @@ function MarketOverview({
           );
         })}
       </div>
+
+      <MarketOverviewSummary markets={filteredMarkets} setActiveId={setActiveId} />
     </section>
+  );
+}
+
+function MarketStatusFilters({
+  markets,
+  activeStatus,
+  onStatusChange,
+}: {
+  markets: Market[];
+  activeStatus: RiskStatus | null;
+  onStatusChange: (status: RiskStatus | null) => void;
+}) {
+  const statusCounts = Object.entries(
+    markets.reduce<Partial<Record<RiskStatus, number>>>((counts, marketItem) => ({
+      ...counts,
+      [marketItem.riskStatus]: (counts[marketItem.riskStatus] ?? 0) + 1,
+    }), {}),
+  ).sort(([leftStatus, leftCount], [rightStatus, rightCount]) => {
+    if (leftStatus === "normal_quote") return -1;
+    if (rightStatus === "normal_quote") return 1;
+    return (rightCount ?? 0) - (leftCount ?? 0);
+  });
+
+  return (
+    <div className="overview-filter-row">
+      <span>市场状态</span>
+      <div className="status-filters" aria-label="按市场风控状态筛选">
+        <button className={!activeStatus ? "active" : ""} type="button" aria-pressed={!activeStatus} onClick={() => onStatusChange(null)}>
+          全部状态 <b>{markets.length}</b>
+        </button>
+        {statusCounts.map(([status, count]) => {
+          const typedStatus = status as RiskStatus;
+          const meta = statusMeta[typedStatus];
+          return (
+            <button
+              key={status}
+              className={`${meta.tone} ${activeStatus === typedStatus ? "active" : ""}`}
+              type="button"
+              aria-pressed={activeStatus === typedStatus}
+              title={riskStatusDescriptions[typedStatus]}
+              onClick={() => onStatusChange(typedStatus)}
+            >
+              {meta.label} <b>{count}</b>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+type OverviewRankMetric = "grossVolume" | "avgSlippage" | "singleSidedEmpty" | "l1DistanceExceeded";
+
+const overviewRankOptions: Array<{ id: OverviewRankMetric; label: string }> = [
+  { id: "grossVolume", label: "成交额" },
+  { id: "avgSlippage", label: "平均滑点" },
+  { id: "singleSidedEmpty", label: "单边空" },
+  { id: "l1DistanceExceeded", label: "L1 超距" },
+];
+
+function overviewMetricValue(marketItem: Market, metric: OverviewRankMetric) {
+  if (metric === "grossVolume") return marketItem.backendData?.grossVolume === false ? -1 : marketItem.grossVolume;
+  if (metric === "avgSlippage") return marketItem.avgSlippage ?? -1;
+  if (metric === "singleSidedEmpty") return marketItem.experienceQuality?.singleSidedEmpty.count ?? -1;
+  return marketItem.experienceQuality?.l1DistanceExceeded.count ?? -1;
+}
+
+function overviewMetricLabel(value: number, metric: OverviewRankMetric) {
+  if (value < 0) return "待接入";
+  if (metric === "grossVolume") return currency(value);
+  if (metric === "avgSlippage") return `${value.toFixed(1)}%`;
+  return `${Math.round(value)} 次`;
+}
+
+function MarketOverviewSummary({ markets, setActiveId }: { markets: Market[]; setActiveId: (value: string) => void }) {
+  const [rankMetric, setRankMetric] = useState<OverviewRankMetric>("avgSlippage");
+  const abnormalMarkets = markets.filter((marketItem) => statusMeta[marketItem.riskStatus].tone !== "ok");
+  const singleSidedEvents = markets.reduce((total, marketItem) => total + (marketItem.experienceQuality?.singleSidedEmpty.count ?? 0), 0);
+  const l1DistanceEvents = markets.reduce((total, marketItem) => total + (marketItem.experienceQuality?.l1DistanceExceeded.count ?? 0), 0);
+  const rankings = [...markets]
+    .sort((left, right) => overviewMetricValue(right, rankMetric) - overviewMetricValue(left, rankMetric))
+    .slice(0, 5);
+
+  return (
+    <div className="overview-diagnostics" aria-label="总体市场指标与排名">
+      <div className="overview-summary-grid">
+        <TinyStat label="Live Markets" value={`${markets.length}`} tone="ok" />
+        <TinyStat label="Attention Markets" value={`${abnormalMarkets.length}`} tone={abnormalMarkets.length ? "warn" : "ok"} />
+        <TinyStat label="Single-side Empty" value={`${singleSidedEvents} 次`} tone={singleSidedEvents ? "warn" : "ok"} />
+        <TinyStat label="L1 Distance > 1%" value={`${l1DistanceEvents} 次`} tone={l1DistanceEvents ? "bad" : "ok"} />
+      </div>
+      <div className="overview-ranking">
+        <div className="overview-ranking-head">
+          <div>
+            <p className="section-label">Cross-market Ranking</p>
+            <strong>市场排名</strong>
+          </div>
+          <div className="rank-tabs" aria-label="切换总体指标排名">
+            {overviewRankOptions.map((option) => (
+              <button key={option.id} className={rankMetric === option.id ? "active" : ""} type="button" onClick={() => setRankMetric(option.id)}>
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="ranking-list">
+          {rankings.map((marketItem, index) => {
+            const value = overviewMetricValue(marketItem, rankMetric);
+            return (
+              <button key={marketItem.id} type="button" onClick={() => setActiveId(marketItem.id)}>
+                <span>{index + 1}</span>
+                <strong>{marketItem.event}</strong>
+                <em>{overviewMetricLabel(value, rankMetric)}</em>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function durationLabel(totalSeconds: number) {
+  const minutes = Math.max(0, Math.round(totalSeconds / 60));
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours < 24) return remainder ? `${hours} 小时 ${remainder} 分` : `${hours} 小时`;
+  const days = Math.floor(hours / 24);
+  return `${days} 天 ${hours % 24} 小时`;
+}
+
+const settlementPhaseMeta: Record<SettlementPhase, { label: string; tone: string }> = {
+  none: { label: "交易中", tone: "open" },
+  announcing: { label: "结果公布中", tone: "provisional" },
+  ruling1: { label: "第一次裁定", tone: "provisional" },
+  dispute1: { label: "第一次质疑", tone: "dispute" },
+  ruling2: { label: "第二次裁定", tone: "provisional" },
+  dispute2: { label: "第二次质疑", tone: "dispute" },
+  claimable: { label: "链上结算完成", tone: "final" },
+  unknown: { label: "未知结算阶段", tone: "scheduled" },
+};
+
+function lifecycleStatusText(market: Market) {
+  const lifecycle = market.lifecycle;
+  if (!lifecycle) return "交易中";
+  const base = settlementPhaseMeta[lifecycle.settlementPhase].label;
+  if (lifecycle.settlementPhase === "dispute1" || lifecycle.settlementPhase === "dispute2") {
+    return `${base}${lifecycle.currentOutcome ? ` · ${lifecycle.currentOutcome} 暂定` : ""}`;
+  }
+  if (lifecycle.settlementPhase === "claimable") {
+    return `${base}${lifecycle.settledOutcome ? ` · ${lifecycle.settledOutcome}` : ""}`;
+  }
+  return base;
+}
+
+function MarketLifecycle({ market }: { market: Market }) {
+  const totalSeconds = Math.max(0, Math.round((timestamp(market.endAt) - timestamp(market.startAt)) / 1000));
+  const remainingSeconds = Math.max(0, market.endInMinutes * 60);
+  const elapsedSeconds = Math.max(0, totalSeconds - remainingSeconds);
+  const phaseMeta = settlementPhaseMeta[market.lifecycle?.settlementPhase ?? "none"];
+  const milestoneAt = market.lifecycle?.settledAt ?? market.lifecycle?.phaseEndAt;
+  return (
+    <div className="market-lifecycle" aria-label="市场生命周期">
+      <span><small>开盘时间</small><strong>{formatAxisTime(timestamp(market.startAt), market.startAt, market.endAt)}</strong></span>
+      <span><small>计划结束</small><strong>{formatAxisTime(timestamp(market.endAt), market.startAt, market.endAt)}</strong></span>
+      <span><small>当前阶段</small><strong className={`lifecycle-${phaseMeta.tone}`}>{lifecycleStatusText(market)}</strong></span>
+      <span>
+        <small>{market.lifecycle?.settledAt ? "结算完成时间" : market.lifecycle?.phaseEndAt ? "当前阶段截止" : remainingSeconds ? "已运行 / 距离结束" : "运行时长"}</small>
+        <strong>{milestoneAt ? formatAxisTime(timestamp(milestoneAt), market.startAt, milestoneAt) : remainingSeconds ? `${durationLabel(elapsedSeconds)} / ${durationLabel(remainingSeconds)}` : durationLabel(elapsedSeconds)}</strong>
+      </span>
+    </div>
+  );
+}
+
+const experienceIncidentLabels: Record<ExperienceIncidentKind, string> = {
+  single_sided_empty: "单边空盘",
+  double_sided_empty: "双边空盘",
+  l1_distance_exceeded: "L1 距离超限",
+};
+
+function incidentMetricText(metric: ExperienceIncidentMetric | undefined) {
+  if (!metric) return "待接入";
+  return `${metric.count} 次 · ${metric.durationSeconds}s · ${(metric.durationRatio * 100).toFixed(1)}%`;
+}
+
+function ExperienceIncidentTimeline({ market }: { market: Market }) {
+  const start = timestamp(market.startAt);
+  const end = timestamp(market.endAt);
+  const duration = Math.max(1, end - start);
+  const incidents = market.experienceQuality?.incidents ?? [];
+  return (
+    <div className="experience-incident-panel panel">
+      <div className="panel-title">
+        <span><Activity size={16} /> 体验异常时间轴</span>
+        <small>{incidents.length ? `${incidents.length} events` : "等待策略埋点"}</small>
+      </div>
+      <div className="experience-incident-timeline">
+        <div className="experience-incident-boundary">
+          <span>{formatAxisTime(start, market.startAt, market.endAt)}</span>
+          <span>{formatAxisTime(end, market.startAt, market.endAt)}</span>
+        </div>
+        {incidents.map((incident, index) => (
+          <div
+            key={`${incident.kind}-${incident.ts}-${index}`}
+            className={`experience-incident-node ${incident.kind} ${index % 2 === 0 ? "label-top" : "label-bottom"}`}
+            style={{ left: `${Math.min(94, Math.max(5, ((incident.ts - start) / duration) * 100))}%` }}
+            title={`${experienceIncidentLabels[incident.kind]} · 持续 ${incident.durationSeconds}s${incident.valuePct ? ` · ${incident.valuePct.toFixed(2)}%` : ""}`}
+          >
+            <span />
+            <strong>{experienceIncidentLabels[incident.kind]}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1919,9 +3749,13 @@ function MacroBoard({
   timeframe: string;
   setTimeframe: (value: string) => void;
 }) {
+  const [historyStart, historyEnd] = historyDomain(visibleMarket);
+  const historyPnlAvailable = !visibleMarket.historyData
+    || (visibleMarket.historyData.pnlIncluded && !visibleMarket.historyData.truncated);
   return (
     <>
       <BoardChartToolbar title="Business Trend" timeframe={timeframe} setTimeframe={setTimeframe} />
+      <MarketLifecycle market={visibleMarket} />
 
       <div className="macro-business-grid">
         <div className="panel">
@@ -1930,27 +3764,28 @@ function MacroBoard({
             <small>selected market</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Gross Volume" value={currency(visibleMarket.grossVolume)} tone="ok" />
+            <TinyStat label="Gross Volume" value={visibleMarket.backendData?.grossVolume === false ? "unknown" : currency(visibleMarket.grossVolume)} tone={visibleMarket.backendData?.grossVolume === false ? "warn" : "ok"} />
             <TinyStat label="Net Volume" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
-            <TinyStat label="Trader Count" value={visibleMarket.traderCount.toLocaleString()} tone="ok" />
-            <TinyStat label="Current PnL" value={signedCurrency(visibleMarket.pnl)} tone={visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+            <TinyStat label="Trader Count" value={visibleMarket.backendData?.traderCount === false ? "unknown" : visibleMarket.traderCount.toLocaleString()} tone={visibleMarket.backendData?.traderCount === false ? "warn" : "ok"} />
+            <TinyStat label="Current PnL" value={visibleMarket.backendData?.pnl === false ? "unknown" : signedCurrency(visibleMarket.pnl)} tone={visibleMarket.backendData?.pnl === false ? "warn" : visibleMarket.pnl >= 0 ? "ok" : "bad"} />
           </div>
         </div>
 
         <div className="panel chart-panel">
           <div className="panel-title">
-            <span><LineChart size={16} /> Volume / PnL / Wash</span>
-            <small>{timeframe}</small>
+            <span><LineChart size={16} /> Gross / Net Volume / PnL</span>
+            <small>{visibleMarket.historyData ? `后端历史 · ${timeframe}` : timeframe}</small>
           </div>
           <div className="chart-frame macro-chart-frame">
-            <ResponsiveContainer width="100%" height="100%">
+            {visibleMarket.backendData?.businessTrend === false ? (
+              <div className="chart-empty">等待后端提供单市场成交额与 PnL 历史序列</div>
+            ) : <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={visibleMarket.series}>
                 <CartesianGrid stroke="#242833" vertical={false} />
                 <XAxis
                   dataKey="ts"
                   type="number"
-                  domain={[timestamp(visibleMarket.startAt), timestamp(visibleMarket.endAt)]}
-                  ticks={axisTicks(visibleMarket.startAt, visibleMarket.endAt)}
+                  domain={[historyStart, historyEnd]}
                   tickFormatter={(value) => formatAxisTime(Number(value), visibleMarket.startAt, visibleMarket.endAt)}
                   tickLine={false}
                   axisLine={false}
@@ -1960,12 +3795,19 @@ function MacroBoard({
                 <YAxis yAxisId="left" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
-                <Area yAxisId="left" type="monotone" dataKey="volume" fill="#1f7a5f55" stroke="#20d49b" strokeWidth={2} />
-                <Line yAxisId="right" type="monotone" dataKey="pnl" stroke="#d7f75b" strokeWidth={2} dot={false} />
-                <Line yAxisId="right" type="monotone" dataKey="wash" stroke="#4cc9f0" strokeWidth={2} dot={false} />
+                <Area yAxisId="left" type="monotone" dataKey="volume" name="Gross Volume" fill="#1f7a5f55" stroke="#20d49b" strokeWidth={2} />
+                {visibleMarket.historyData ? <Line yAxisId="left" type="monotone" dataKey="netVolume" name="Net Volume" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+                {historyPnlAvailable ? <Line yAxisId="right" type="monotone" dataKey="pnl" name="PnL" stroke="#d7f75b" strokeWidth={2} dot={false} connectNulls={false} /> : null}
+                {!visibleMarket.historyData ? <Line yAxisId="right" type="monotone" dataKey="wash" name="Wash" stroke="#4cc9f0" strokeWidth={2} dot={false} /> : null}
               </ComposedChart>
-            </ResponsiveContainer>
+            </ResponsiveContainer>}
           </div>
+          {visibleMarket.historyData ? (
+            <div className="chart-source-note">
+              <span>PnL 估值：{visibleMarket.historyData.markPriceSource === "last_trade_price" ? "最近成交价" : visibleMarket.historyData.markPriceSource}</span>
+              {!historyPnlAvailable ? <span>PnL 历史暂不可用</span> : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </>
@@ -1981,6 +3823,7 @@ function ExperienceBoard({
   timeframe: string;
   setTimeframe: (value: string) => void;
 }) {
+  const [historyStart, historyEnd] = historyDomain(visibleMarket);
   const [bookOutcome, setBookOutcome] = useState<OutcomeSide>("yes");
   const displayedBidLevels =
     bookOutcome === "yes" ? visibleMarket.bidLevels : visibleMarket.noBidLevels?.length ? visibleMarket.noBidLevels : complementaryLevels(visibleMarket.askLevels, "bid");
@@ -1997,18 +3840,43 @@ function ExperienceBoard({
   const midActivePairs = visibleMarket.flash?.midActivePairs;
   const maxPairs = visibleMarket.flash?.maxPairsTotal;
   const l1Distance = visibleMarket.flash?.l1DistanceTicks;
+  const tier1ConfiguredInterval = visibleMarket.flash?.tier1ConfiguredIntervalS;
+  const midConfiguredInterval = visibleMarket.flash?.midConfiguredIntervalS;
+  const flashFrequencyText = (
+    actual: number | null | undefined,
+    configured: [number, number] | null | undefined,
+  ) => {
+    if (actual !== null && actual !== undefined) return `${Math.round(actual)} / h`;
+    if (!configured) return "missing";
+    return `${configured[0]}-${configured[1]}s target`;
+  };
 
   return (
     <>
+      <BoardChartToolbar title="Experience Quality" timeframe={timeframe} setTimeframe={setTimeframe} />
+      <MarketLifecycle market={visibleMarket} />
+
       <div className="detail-grid experience-detail-grid">
+        <div className="panel experience-quality-panel">
+          <div className="panel-title">
+            <span><AlertTriangle size={16} /> 盘口可用性</span>
+            <small>次数 · 时长 · 运行占比</small>
+          </div>
+          <div className="micro-grid experience-quality-grid">
+            <TinyStat label="Single-side Empty" value={incidentMetricText(visibleMarket.experienceQuality?.singleSidedEmpty)} tone={(visibleMarket.experienceQuality?.singleSidedEmpty.count ?? 0) > 0 ? "warn" : "ok"} />
+            <TinyStat label="Double-side Empty" value={incidentMetricText(visibleMarket.experienceQuality?.doubleSidedEmpty)} tone={(visibleMarket.experienceQuality?.doubleSidedEmpty.count ?? 0) > 0 ? "bad" : "ok"} />
+            <TinyStat label="L1 Distance > 1%" value={incidentMetricText(visibleMarket.experienceQuality?.l1DistanceExceeded)} tone={(visibleMarket.experienceQuality?.l1DistanceExceeded.count ?? 0) > 0 ? "bad" : "ok"} />
+          </div>
+        </div>
+
         <div className="panel">
           <div className="panel-title">
             <span><Gauge size={16} /> 闪单参数监控</span>
             <small>tier-1 / mid insertion</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Tier-1 Freq" value={tier1FlashFreq === null || tier1FlashFreq === undefined ? "missing" : `${Math.round(tier1FlashFreq)} / h`} tone={tier1FlashFreq ? "ok" : "warn"} />
-            <TinyStat label="Mid Freq" value={midFlashFreq === null || midFlashFreq === undefined ? "missing" : `${Math.round(midFlashFreq)} / h`} tone={midFlashFreq ? "ok" : "warn"} />
+            <TinyStat label="Tier-1 Freq" value={flashFrequencyText(tier1FlashFreq, tier1ConfiguredInterval)} tone={tier1FlashFreq || tier1ConfiguredInterval ? "ok" : "warn"} />
+            <TinyStat label="Mid Freq" value={flashFrequencyText(midFlashFreq, midConfiguredInterval)} tone={midFlashFreq || midConfiguredInterval ? "ok" : "warn"} />
             <TinyStat label="L1 Distance" value={l1Distance === null || l1Distance === undefined ? "missing" : `${l1Distance} ticks`} tone={l1Distance !== null && l1Distance !== undefined ? "ok" : "warn"} />
             <TinyStat label="Active Pairs" value={activePairs === null || activePairs === undefined ? "missing" : `${activePairs}${maxPairs ? ` / ${maxPairs}` : ""}`} tone={activePairs !== null && activePairs !== undefined ? "ok" : "warn"} />
           </div>
@@ -2033,13 +3901,13 @@ function ExperienceBoard({
           </div>
         </div>
 
-        <div className="panel chart-panel">
+        <div className="panel chart-panel slippage-count-panel">
           <div className="panel-title">
             <span><TimerReset size={16} /> Slippage Dist</span>
             <small>filled orders</small>
           </div>
           <div className="chart-frame mini-chart">
-            <ResponsiveContainer width="100%" height="100%">
+            {visibleMarket.slippageBuckets.length ? <ResponsiveContainer width="100%" height="100%">
               <BarChart data={visibleMarket.slippageBuckets}>
                 <CartesianGrid stroke="#242833" vertical={false} />
                 <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
@@ -2054,7 +3922,73 @@ function ExperienceBoard({
                   ))}
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+            </ResponsiveContainer> : <div className="chart-empty">等待后端提供真实成交滑点分布</div>}
+          </div>
+        </div>
+      </div>
+
+      <ExperienceIncidentTimeline market={visibleMarket} />
+
+      <div className="experience-analytics-grid">
+        <div className="panel chart-panel">
+          <div className="panel-title">
+            <span><LineChart size={16} /> 滑点与交易冲击变化</span>
+            <small>{visibleMarket.experienceQuality?.history.length ? timeframe : "等待时序数据"}</small>
+          </div>
+          <div className="chart-frame compact-chart">
+            {visibleMarket.experienceQuality?.history.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={visibleMarket.experienceQuality.history}>
+                  <CartesianGrid stroke="#242833" vertical={false} />
+                  <XAxis
+                    dataKey="ts"
+                    type="number"
+                    domain={[historyStart, historyEnd]}
+                    tickFormatter={(value) => formatAxisTime(Number(value), visibleMarket.startAt, visibleMarket.endAt)}
+                    tickLine={false}
+                    axisLine={false}
+                    stroke="#798191"
+                    fontSize={11}
+                  />
+                  <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} unit="%" />
+                  <Tooltip content={<ChartTooltip />} />
+                  {(visibleMarket.experienceQuality.incidents ?? []).map((incident) => (
+                    <ReferenceLine key={`${incident.kind}-${incident.ts}`} x={incident.ts} stroke={incident.kind === "l1_distance_exceeded" ? "#ff5c6c" : "#ffb020"} strokeDasharray="3 3" />
+                  ))}
+                  <Line type="monotone" dataKey="slippagePct" name="成交滑点" stroke="#ffb020" strokeWidth={2} dot={false} connectNulls={false} />
+                  <Line type="monotone" dataKey="impactPct" name="交易冲击" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">等待后端提供成交时刻基准价与滑点时序</div>}
+          </div>
+          {visibleMarket.historyData ? (
+            <div className="chart-source-note">
+              成交冲击：成交后 {visibleMarket.historyData.impactHorizonSeconds} 秒价格偏离；无样本区间保留为空
+            </div>
+          ) : null}
+        </div>
+
+        <div className="panel chart-panel">
+          <div className="panel-title">
+            <span><TimerReset size={16} /> 按单笔金额分层滑点</span>
+            <small>{visibleMarket.slippageNotionalBuckets?.length ? "notional buckets" : "等待后端数据"}</small>
+          </div>
+          <div className="chart-frame compact-chart">
+            {visibleMarket.slippageNotionalBuckets?.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={visibleMarket.slippageNotionalBuckets}>
+                  <CartesianGrid stroke="#242833" vertical={false} />
+                  <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
+                  <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} unit="%" />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="avgSlippagePct" name="Avg Slippage" radius={[3, 3, 0, 0]}>
+                    {visibleMarket.slippageNotionalBuckets.map((entry) => (
+                      <Cell key={entry.bucket} fill={entry.tone === "good" ? "#20d49b" : entry.tone === "warn" ? "#ffb020" : "#ff5c6c"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="chart-empty">等待后端按成交金额区间返回滑点分布</div>}
           </div>
         </div>
       </div>
@@ -2084,6 +4018,9 @@ function ExperienceBoard({
                 />
                 <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
+                {(visibleMarket.experienceQuality?.incidents ?? []).map((incident) => (
+                  <ReferenceLine key={`${incident.kind}-${incident.ts}`} x={incident.ts} stroke={incident.kind === "l1_distance_exceeded" ? "#ff5c6c" : "#ffb020"} strokeDasharray="3 3" />
+                ))}
                 <Area type="monotone" dataKey="availableLiquidity" name="Liquidity" fill="#20d49b33" stroke="#20d49b" strokeWidth={2} dot={<LiquidityEventDot />} />
                 <Line type="monotone" dataKey="initialBaseline" name="Initial Baseline" stroke="#4cc9f0" strokeDasharray="4 4" strokeWidth={2} dot={false} />
               </ComposedChart>
@@ -2145,6 +4082,7 @@ function RiskBoard({
 
   return (
     <>
+      <MarketLifecycle market={visibleMarket} />
       <div className="detail-grid risk-detail-grid">
         <div className="panel risk-panel">
           <div className="panel-title">
@@ -2156,11 +4094,18 @@ function RiskBoard({
               {statusMeta[visibleMarket.riskStatus].tone === "ok" ? <CircleDot size={18} /> : <AlertTriangle size={18} />}
             </div>
             <div>
-              <strong>{statusMeta[visibleMarket.quoteMode].label}</strong>
+              <strong
+                className="status-label has-tooltip"
+                data-tooltip={riskStatusDescriptions[visibleMarket.quoteMode]}
+                tabIndex={0}
+                title={riskStatusDescriptions[visibleMarket.quoteMode]}
+              >
+                {statusMeta[visibleMarket.quoteMode].label}
+              </strong>
               <p>{visibleMarket.riskReason}</p>
             </div>
           </div>
-          <RiskStatusTimeline events={timelineEvents} startAt={visibleMarket.startAt} endAt={visibleMarket.endAt} />
+          <RiskStatusTimeline market={visibleMarket} events={timelineEvents} />
           <div className="meter-stack">
             <Meter label="Inventory / q_max" value={inventoryUsed} figure={`${visibleMarket.inventory} / ${visibleMarket.qMax}`} />
             <Meter label="Worst PnL / budget" value={lossUsed} figure={`${visibleMarket.worstCasePnl.toFixed(1)} / -${visibleMarket.maxLossBudget}`} tone={lossUsed > 85 ? "bad" : "warn"} />
@@ -2216,32 +4161,88 @@ function RiskBoard({
   );
 }
 
-function RiskStatusTimeline({ events, startAt, endAt }: { events: RiskEvent[]; startAt: string; endAt: string }) {
-  const start = timestamp(startAt);
-  const end = timestamp(endAt);
-  const duration = Math.max(1, end - start);
+type StatusTimelineNode = {
+  ts: number;
+  label: string;
+  detail: string;
+  tone: "open" | "scheduled" | "provisional" | "dispute" | "final" | "ok" | "warn" | "bad";
+};
+
+function lifecycleTimelineNodes(market: Market): StatusTimelineNode[] {
+  const lifecycle = market.lifecycle;
+  const nodes: StatusTimelineNode[] = [
+    { ts: timestamp(market.startAt), label: "市场开盘", detail: "市场开始接受交易", tone: "open" },
+    { ts: timestamp(market.endAt), label: "计划结束", detail: "市场计划停止常规交易", tone: "scheduled" },
+  ];
+  if (!lifecycle || lifecycle.settlementPhase === "none") return nodes;
+
+  const phaseMeta = settlementPhaseMeta[lifecycle.settlementPhase];
+  const phaseAt = optionalIsoTime(lifecycle.updatedAt) ?? market.endAt;
+  if (lifecycle.settlementPhase === "claimable") {
+    nodes.push({
+      ts: timestamp(lifecycle.settledAt ?? phaseAt),
+      label: "链上结算完成",
+      detail: lifecycle.settledOutcome ? `最终结果 ${lifecycle.settledOutcome}` : "市场已进入 claimable/closed 终态",
+      tone: "final",
+    });
+  } else {
+    nodes.push({
+      ts: timestamp(phaseAt),
+      label: phaseMeta.label,
+      detail: `${lifecycle.currentOutcome ? `暂定结果 ${lifecycle.currentOutcome}` : "暂无暂定结果"}${lifecycle.disputeCount ? `，累计质疑 ${lifecycle.disputeCount} 次` : ""}`,
+      tone: lifecycle.settlementPhase.startsWith("dispute") ? "dispute" : "provisional",
+    });
+  }
+  return nodes;
+}
+
+function RiskStatusTimeline({ events, market }: { events: RiskEvent[]; market: Market }) {
+  const start = timestamp(market.startAt);
+  const lifecycle = market.lifecycle;
+  const lifecycleEndCandidates = [
+    timestamp(market.endAt),
+    lifecycle?.phaseEndAt ? timestamp(lifecycle.phaseEndAt) : 0,
+    lifecycle?.settledAt ? timestamp(lifecycle.settledAt) : 0,
+    ...events.map((eventItem) => eventItem.ts ?? start),
+  ];
+  const end = Math.max(start + 1, ...lifecycleEndCandidates);
+  const duration = end - start;
+  const nodes = [
+    ...lifecycleTimelineNodes(market),
+    ...events.map((eventItem) => ({
+      ts: eventItem.ts ?? start,
+      label: getRiskEventLabel(eventItem),
+      detail: eventItem.detail,
+      tone: eventItem.severity,
+    } satisfies StatusTimelineNode)),
+  ].sort((left, right) => left.ts - right.ts);
 
   return (
     <div className="risk-timeline-wrap">
       <div className="risk-timeline-header">
-        <span>状态变化时间轴</span>
-        <small>events</small>
-      </div>
-      <div className="risk-timeline" aria-label="风控状态变化时间轴">
-        <div className="risk-timeline-boundary">
-          <span>{formatAxisTime(start, startAt, endAt)}</span>
-          <span>{formatAxisTime(end, startAt, endAt)}</span>
+        <span>市场生命周期与状态时间轴</span>
+        <div className="timeline-legend" aria-label="生命周期颜色说明">
+          <span className="open">开盘</span>
+          <span className="scheduled">计划结束</span>
+          <span className="dispute">质疑</span>
+          <span className="final">完成结算</span>
         </div>
-        {events.map((eventItem, index) => (
+      </div>
+      <div className="risk-timeline" aria-label="市场生命周期与风控状态变化时间轴">
+        <div className="risk-timeline-boundary">
+          <span>{formatAxisTime(start, market.startAt, new Date(end).toISOString())}</span>
+          <span>{formatAxisTime(end, market.startAt, new Date(end).toISOString())}</span>
+        </div>
+        {nodes.map((node, index) => (
           <div
-            key={`${eventItem.time}-${eventItem.type}-${index}`}
-            className={`risk-timeline-node ${eventItem.severity} ${index % 2 === 0 ? "label-top" : "label-bottom"}`}
-            style={{ left: `${Math.min(88, Math.max(8, (((eventItem.ts ?? start) - start) / duration) * 100))}%` }}
-            title={`${getRiskEventLabel(eventItem)} · ${eventItem.detail}`}
+            key={`${node.ts}-${node.label}-${index}`}
+            className={`risk-timeline-node ${node.tone} ${index % 2 === 0 ? "label-top" : "label-bottom"}`}
+            style={{ left: `${Math.min(96, Math.max(3, ((node.ts - start) / duration) * 100))}%` }}
+            title={`${node.label} · ${node.detail}`}
           >
             <span className="risk-timeline-dot" />
             <div className="risk-timeline-label">
-              <strong>{getRiskEventLabel(eventItem)}</strong>
+              <strong>{node.label}</strong>
             </div>
           </div>
         ))}
@@ -2288,6 +4289,11 @@ function Meter({ label, value, figure, tone = "warn" }: { label: string; value: 
 }
 
 const tinyStatDescriptions: Record<string, string> = {
+  "Live Markets": "当前仍在实时看板范围内的市场数量。",
+  "Attention Markets": "当前风控状态不是正常摆单，或数据新鲜度异常的市场数量。",
+  "Single-side Empty": "观察窗口内 YES 或 NO 仅一侧订单簿为空的次数、累计持续秒数，以及占市场已运行时长的比例。",
+  "Double-side Empty": "观察窗口内 YES 与 NO 两侧订单簿同时为空的次数、累计持续秒数，以及占市场已运行时长的比例。",
+  "L1 Distance > 1%": "闪单价格与当时订单簿一档价格距离超过 1% 的次数、累计持续秒数，以及占市场已运行时长的比例。",
   "Gross Volume": "当前选中市场的累计双边成交额，用于观察这个市场本身的交易规模。",
   "Net Volume": "当前选中市场剔除刷量或内部成交后的真实成交额；未知时显示 unknown。",
   "Trader Count": "当前选中市场内参与过有效交易或关键交互的用户数量。",
@@ -2296,7 +4302,7 @@ const tinyStatDescriptions: Record<string, string> = {
   "Avg Flash Interval": "策略端最近观测到的闪单 pair 平均间隔，用于判断闪单是否按预期 cadence 运行。",
   "Active Pairs": "当前市场正在存活的闪单挂单对数，以及配置允许的最大挂单对数。",
   "Tier-1 Freq": "一档贴近操作的目标触发频率，文档口径约为每 12 秒一次，即 300 次/小时。",
-  "Mid Insert Freq": "中间档位插入的目标触发频率，文档口径约为每 10 秒随机插入一次，即 360 次/小时。",
+  "Mid Freq": "中间档位插入的实际触发频率，按观测窗口折算为每小时次数。",
   "L1 Distance": "闪单生成价格相对当前订单簿一档位置的距离；策略端尚未提供时显示 missing。",
   "Max Live Pairs": "同一市场同一时刻允许存在的最大 Bot 挂单对数，用于控制并发挂单和保证金占用。",
   "Avg Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
