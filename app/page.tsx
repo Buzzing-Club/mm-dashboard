@@ -9,6 +9,7 @@ import {
   CircleDot,
   Database,
   Gauge,
+  History,
   Layers3,
   LineChart,
   Pause,
@@ -50,6 +51,7 @@ type RiskStatus =
 
 type BoardId = "macro" | "experience" | "risk";
 type WorkspaceView = "realtime" | "review";
+type MarketScope = "current" | "history";
 type OutcomeSide = "yes" | "no";
 type ExperienceIncidentKind = "single_sided_empty" | "double_sided_empty" | "l1_distance_exceeded";
 type SettlementPhase = "none" | "announcing" | "ruling1" | "dispute1" | "ruling2" | "dispute2" | "claimable" | "unknown";
@@ -126,6 +128,8 @@ type Market = {
   endAt: string;
   endInMinutes: number;
   lifecycle?: MarketLifecycleInfo;
+  isHistorical?: boolean;
+  snapshotAt?: string | null;
   series: Array<{
     ts?: number;
     time: string;
@@ -362,6 +366,18 @@ type DashboardRealtimeItem = {
       impact_pct?: string | number | null;
     }> | null;
   };
+  snapshot_meta?: {
+    captured_at?: string | number | null;
+    archived_at?: string | number | null;
+    last_seen_at?: string | number | null;
+    source?: string | null;
+  };
+};
+
+type DashboardHistoryPayload = {
+  contract_version: string;
+  generated_at?: number;
+  items?: DashboardRealtimeItem[];
 };
 
 type DashboardIncidentMetric = {
@@ -1600,6 +1616,19 @@ const mockMarkets: Market[] = [...manualMarkets, ...prodMarketSeeds.map((seed, i
     return withMockExperienceQuality(retimeMarket(withMockFlash(lifecycleMarket, index)), index);
   });
 
+const mockHistoricalMarkets: Market[] = mockMarkets
+  .filter((marketItem) => timestamp(marketItem.endAt) <= MOCK_OBSERVATION_AT || marketItem.lifecycle?.closed)
+  .map((marketItem, index) => ({
+    ...marketItem,
+    isHistorical: true,
+    snapshotAt: new Date(Math.min(MOCK_OBSERVATION_AT, timestamp(marketItem.endAt) + (index + 1) * MINUTE_MS)).toISOString(),
+    endInMinutes: 0,
+  }));
+
+const mockCurrentMarkets = mockMarkets.filter(
+  (marketItem) => !mockHistoricalMarkets.some((historicalMarket) => historicalMarket.id === marketItem.id),
+);
+
 const filterOptions = [
   { id: "all", label: "全部类别", tag: null },
   { id: "weather", label: "Weather", tag: "Weather" },
@@ -2184,7 +2213,7 @@ function mapExperienceQuality(
   };
 }
 
-function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | null {
+function mapDashboardItem(item: DashboardRealtimeItem, index: number, isHistorical = false): Market | null {
   const conditionId = item.identity?.condition_id;
   if (!conditionId) return null;
 
@@ -2313,6 +2342,8 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number): Market | 
       updatedAt: optionalIsoTime(item.lifecycle?.lifecycle_updated_at_ms),
       settledAt: optionalIsoTime(item.lifecycle?.settled_at),
     },
+    isHistorical,
+    snapshotAt: isHistorical ? optionalIsoTime(item.snapshot_meta?.captured_at) : null,
     series,
     slippageBuckets: apiSlippageBuckets(item.backend_required?.slippage_distribution),
     slippageNotionalBuckets: apiSlippageNotionalBuckets(item.backend_required?.slippage_distribution_by_notional),
@@ -2365,15 +2396,25 @@ function mapDashboardPayload(payload: DashboardRealtimePayload): Market[] {
     .filter((marketItem): marketItem is Market => Boolean(marketItem));
 }
 
+function mapDashboardHistoryPayload(payload: DashboardHistoryPayload): Market[] {
+  if (payload.contract_version !== "mm-dashboard-history.v1") return [];
+  return (payload.items ?? [])
+    .filter(hasReadableDashboardTitle)
+    .map((item, index) => mapDashboardItem(item, index, true))
+    .filter((marketItem): marketItem is Market => Boolean(marketItem));
+}
+
 export default function Home() {
-  const [markets, setMarkets] = useState<Market[]>(mockMarkets);
+  const [markets, setMarkets] = useState<Market[]>(mockCurrentMarkets);
+  const [historicalMarkets, setHistoricalMarkets] = useState<Market[]>(mockHistoricalMarkets);
   const [dataSource, setDataSource] = useState<DataSourceState>({
     mode: "loading",
     label: "LOADING",
     detail: "正在请求策略端 dashboard API",
   });
   const [refreshTick, setRefreshTick] = useState(0);
-  const [activeId, setActiveId] = useState(mockMarkets[0].id);
+  const [activeId, setActiveId] = useState(mockCurrentMarkets[0].id);
+  const [marketScope, setMarketScope] = useState<MarketScope>("current");
   const [filter, setFilter] = useState("all");
   const [riskStatusFilter, setRiskStatusFilter] = useState<RiskStatus | null>(null);
   const [timeframe, setTimeframe] = useState("1h");
@@ -2425,6 +2466,17 @@ export default function Home() {
           label: "API",
           detail: "策略端 /api/dashboard/realtime",
         });
+        try {
+          const historyResponse = await fetch("/api/dashboard/history?limit=500", {
+            cache: "no-store",
+          });
+          if (!historyResponse.ok) throw new Error(`dashboard history API ${historyResponse.status}`);
+          const historyPayload = await historyResponse.json() as DashboardHistoryPayload;
+          if (!cancelled) setHistoricalMarkets(mapDashboardHistoryPayload(historyPayload));
+        } catch (historyError) {
+          console.warn("dashboard history unavailable", historyError);
+          if (!cancelled) setHistoricalMarkets([]);
+        }
         const conditionIds = nextMarkets
           .map((marketItem) => marketItem.id)
           .filter((conditionId) => /^0x[a-f0-9]{64}$/i.test(conditionId))
@@ -2448,8 +2500,9 @@ export default function Home() {
         }
       } catch (error) {
         if (cancelled) return;
-        setMarkets(mockMarkets);
-        setActiveId((current) => mockMarkets.some((marketItem) => marketItem.id === current) ? current : mockMarkets[0].id);
+        setMarkets(mockCurrentMarkets);
+        setHistoricalMarkets(mockHistoricalMarkets);
+        setActiveId((current) => mockCurrentMarkets.some((marketItem) => marketItem.id === current) ? current : mockCurrentMarkets[0].id);
         setDataSource({
           mode: "mock",
           label: "MOCK",
@@ -2468,12 +2521,19 @@ export default function Home() {
     };
   }, [refreshTick]);
 
+  const historicalIds = useMemo(() => new Set(historicalMarkets.map((marketItem) => marketItem.id)), [historicalMarkets]);
+  const currentMarkets = useMemo(
+    () => markets.filter((marketItem) => !historicalIds.has(marketItem.id)),
+    [historicalIds, markets],
+  );
+  const scopeMarkets = marketScope === "history" ? historicalMarkets : currentMarkets;
+
   const categoryMarkets = useMemo(() => {
     const selectedFilter = filterOptions.find((option) => option.id === filter);
 
-    if (!selectedFilter?.tag) return markets;
-    return markets.filter((marketItem) => marketItem.tags.includes(selectedFilter.tag));
-  }, [filter, markets]);
+    if (!selectedFilter?.tag) return scopeMarkets;
+    return scopeMarkets.filter((marketItem) => marketItem.tags.includes(selectedFilter.tag));
+  }, [filter, scopeMarkets]);
 
   const effectiveRiskStatusFilter = riskStatusFilter && categoryMarkets.some((marketItem) => marketItem.riskStatus === riskStatusFilter)
     ? riskStatusFilter
@@ -2496,12 +2556,18 @@ export default function Home() {
       });
   }, [categoryMarkets, effectiveRiskStatusFilter, query]);
 
-  const activeMarket = markets.find((marketItem) => marketItem.id === activeId) ?? markets[0];
+  const activeMarket = scopeMarkets.find((marketItem) => marketItem.id === activeId) ?? scopeMarkets[0] ?? currentMarkets[0] ?? historicalMarkets[0];
   const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
-  const visibleMarketWithRealtime = applySingleMarketMetrics(visibleMarketBase, singleMarketMetrics[visibleMarketBase.id]);
-  const visibleMarket = applySingleMarketHistory(visibleMarketWithRealtime, singleMarketHistory[visibleMarketBase.id]);
+  const visibleMarketWithRealtime = applySingleMarketMetrics(
+    visibleMarketBase,
+    singleMarketMetrics[visibleMarketBase.id],
+  );
+  const visibleMarket = applySingleMarketHistory(
+    visibleMarketWithRealtime,
+    singleMarketHistory[visibleMarketBase.id],
+  );
 
   useEffect(() => {
     if (!visibleMarketBase?.id) return undefined;
@@ -2551,7 +2617,7 @@ export default function Home() {
 
     loadSingleMarketMetrics();
     return () => controller.abort();
-  }, [refreshTick, timeframe, visibleMarketBase?.id]);
+  }, [marketScope, refreshTick, timeframe, visibleMarketBase?.id]);
 
   useEffect(() => {
     if (workspaceView !== "review" || !visibleMarketBase?.id) return undefined;
@@ -2597,7 +2663,15 @@ export default function Home() {
       label: reviewSource.mode === "api" ? "REVIEW API" : reviewSource.mode === "loading" ? "REVIEW LOADING" : "REVIEW MOCK",
       detail: reviewSource.detail,
     }
-    : dataSource;
+    : marketScope === "history"
+      ? {
+        mode: dataSource.mode,
+        label: "HISTORY SNAPSHOT",
+        detail: visibleMarket.snapshotAt
+          ? `最后快照 ${new Date(visibleMarket.snapshotAt).toLocaleString("zh-CN", { hour12: false })}`
+          : "历史市场最后有效快照",
+      }
+      : dataSource;
   return (
     <main className="terminal-shell">
       <section className="topbar">
@@ -2635,7 +2709,7 @@ export default function Home() {
 
       {workspaceView === "review" ? (
         <ReviewDashboard
-          markets={markets}
+          markets={scopeMarkets}
           visibleMarket={visibleMarket}
           setActiveId={setActiveId}
           reviewSource={reviewSource}
@@ -2643,11 +2717,17 @@ export default function Home() {
       ) : (
         <>
       <MarketOverview
-        allMarkets={markets}
+        allMarkets={scopeMarkets}
         statusScopeMarkets={categoryMarkets}
         filteredMarkets={filteredMarkets}
-        marketCount={markets.length}
+        marketCount={scopeMarkets.length}
         visibleMarket={visibleMarket}
+        marketScope={marketScope}
+        setMarketScope={(scope) => {
+          setMarketScope(scope);
+          setFilter("all");
+          setRiskStatusFilter(null);
+        }}
         filter={filter}
         setFilter={setFilter}
         riskStatusFilter={effectiveRiskStatusFilter}
@@ -2668,6 +2748,11 @@ export default function Home() {
           <div>
             <div className="title-line">
               <h2>{visibleMarket.event}</h2>
+              {visibleMarket.isHistorical ? (
+                <span className="snapshot-chip" title={visibleMarket.snapshotAt ? `最后有效快照：${new Date(visibleMarket.snapshotAt).toLocaleString("zh-CN", { hour12: false })}` : "最后有效快照"}>
+                  <History size={13} /> 历史快照
+                </span>
+              ) : null}
               <span className={`state-chip ${statusMeta[visibleMarket.riskStatus].tone}`}>
                 {statusMeta[visibleMarket.riskStatus].label}
               </span>
@@ -3481,6 +3566,8 @@ function MarketOverview({
   filteredMarkets,
   marketCount,
   visibleMarket,
+  marketScope,
+  setMarketScope,
   filter,
   setFilter,
   riskStatusFilter,
@@ -3494,6 +3581,8 @@ function MarketOverview({
   filteredMarkets: Market[];
   marketCount: number;
   visibleMarket: Market;
+  marketScope: MarketScope;
+  setMarketScope: (value: MarketScope) => void;
   filter: string;
   setFilter: (value: string) => void;
   riskStatusFilter: RiskStatus | null;
@@ -3541,6 +3630,25 @@ function MarketOverview({
       </div>
 
       <div className="overview-filter-stack" aria-label="市场类别与状态筛选">
+        <div className="overview-filter-row">
+          <span>市场范围</span>
+          <div className="segmented market-scope-filters" aria-label="当前市场与历史市场筛选">
+            <button
+              className={marketScope === "current" ? "active" : ""}
+              type="button"
+              onClick={() => setMarketScope("current")}
+            >
+              <Radio size={13} /> 当前市场
+            </button>
+            <button
+              className={marketScope === "history" ? "active" : ""}
+              type="button"
+              onClick={() => setMarketScope("history")}
+            >
+              <History size={13} /> 历史市场
+            </button>
+          </div>
+        </div>
         <div className="overview-filter-row">
           <span>市场类别</span>
           <div className="segmented category-filters">
@@ -3591,14 +3699,18 @@ function MarketOverview({
                 <span className={marketItem.backendData?.pnl === false ? "" : marketItem.pnl >= 0 ? "positive" : "negative"}>
                   {marketItem.backendData?.pnl === false ? "PnL 待接入" : signedCurrency(marketItem.pnl)}
                 </span>
-                <span>{marketItem.staleSeconds}s</span>
+                <span>
+                  {marketItem.isHistorical && marketItem.snapshotAt
+                    ? `快照 ${new Date(marketItem.snapshotAt).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" })}`
+                    : `${marketItem.staleSeconds}s`}
+                </span>
               </div>
             </button>
           );
         })}
       </div>
 
-      <MarketOverviewSummary markets={filteredMarkets} setActiveId={setActiveId} />
+      <MarketOverviewSummary markets={filteredMarkets} marketScope={marketScope} setActiveId={setActiveId} />
     </section>
   );
 }
@@ -3674,7 +3786,15 @@ function overviewMetricLabel(value: number, metric: OverviewRankMetric) {
   return `${Math.round(value)} 次`;
 }
 
-function MarketOverviewSummary({ markets, setActiveId }: { markets: Market[]; setActiveId: (value: string) => void }) {
+function MarketOverviewSummary({
+  markets,
+  marketScope,
+  setActiveId,
+}: {
+  markets: Market[];
+  marketScope: MarketScope;
+  setActiveId: (value: string) => void;
+}) {
   const [rankMetric, setRankMetric] = useState<OverviewRankMetric>("avgSlippage");
   const abnormalMarkets = markets.filter((marketItem) => statusMeta[marketItem.riskStatus].tone !== "ok");
   const singleSidedEvents = markets.reduce((total, marketItem) => total + (marketItem.experienceQuality?.singleSidedEmpty.count ?? 0), 0);
@@ -3686,8 +3806,8 @@ function MarketOverviewSummary({ markets, setActiveId }: { markets: Market[]; se
   return (
     <div className="overview-diagnostics" aria-label="总体市场指标与排名">
       <div className="overview-summary-grid">
-        <TinyStat label="Live Markets" value={`${markets.length}`} tone="ok" />
-        <TinyStat label="Attention Markets" value={`${abnormalMarkets.length}`} tone={abnormalMarkets.length ? "warn" : "ok"} />
+        <TinyStat label={marketScope === "history" ? "Historical Markets" : "Live Markets"} value={`${markets.length}`} tone="ok" />
+        <TinyStat label={marketScope === "history" ? "Snapshot Risks" : "Attention Markets"} value={`${abnormalMarkets.length}`} tone={abnormalMarkets.length ? "warn" : "ok"} />
         <TinyStat label="Single-side Empty" value={`${singleSidedEvents} 次`} tone={singleSidedEvents ? "warn" : "ok"} />
         <TinyStat label="L1 Distance > 1%" value={`${l1DistanceEvents} 次`} tone={l1DistanceEvents ? "bad" : "ok"} />
       </div>
