@@ -35,10 +35,14 @@ const unique = (items: Fact[], key: string) => [...new Map(items.filter(row => r
 // Only integrate between nearby observed decisions. Never carry a stale snapshot
 // across an outage or extrapolate it to the scheduled end of a market.
 const MAX_GAP_MS = 5 * 60_000;
+export function selectReviewJob(conditionId: string, source: ReviewFacts) {
+  return source.jobs.rows.filter(row => same(row.condition_id, conditionId) && row.job_type === "market_maker")
+    .sort((a,b) => Number(Boolean(b.enabled))-Number(Boolean(a.enabled)) || Number(b.job_id)-Number(a.job_id))[0];
+}
 export function buildReviewFacts(conditionId: string, source: ReviewFacts, now: number): ReviewFactsPayload {
   const market = source.catalog.rows.find(row => same(row.condition_id, conditionId)) ?? {};
   const jobs = source.jobs.rows.filter(row => same(row.condition_id, conditionId) && row.job_type === "market_maker");
-  const job = [...jobs].sort((a, b) => Number(Boolean(b.enabled)) - Number(Boolean(a.enabled)) || Number(b.job_id) - Number(a.job_id))[0];
+  const job = selectReviewJob(conditionId, source);
   const start = epochMs(market.start_time) ?? epochMs(market.create_time);
   const end = epochMs(market.end_time);
   const windows = start !== null && end !== null ? marketReviewWindows(new Date(start).toISOString(), new Date(end).toISOString()) : null;

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { buildReviewFacts, map, rows, type FactSource, type ReviewFacts } from "../../../review-facts";
+import { buildReviewFacts, epochMs, map, rows, selectReviewJob, type FactSource, type ReviewFacts } from "../../../review-facts";
+import { mergeReviewObservations } from "../../../review-observations";
 import { validConditionId } from "../openapi";
 
 export const runtime = "nodejs";
@@ -46,6 +47,20 @@ export async function GET(request: Request) {
     }
     if (!cached.data.jobs.available || !cached.data.catalog.available) return NextResponse.json({ error: "Review market sources unavailable" }, { status: 502 });
     const payload = buildReviewFacts(conditionId, cached.data, Date.now());
+    const job = selectReviewJob(conditionId,cached.data);
+    const market = cached.data.catalog.rows.find(row=>row.condition_id===conditionId);
+    if(job && market) {
+      try {
+        const url=new URL('/api/dashboard/review-observations',source);
+        url.searchParams.set('condition_id',conditionId);
+        url.searchParams.set('account_id',String(job.account_id));
+        const response=await fetch(url,{headers,redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(8_000)});
+        if(!response.ok) throw new Error('upstream unavailable');
+        const text=await response.text();
+        if(text.length>256_000) throw new Error('observation size limit');
+        mergeReviewObservations(payload,JSON.parse(text),job,{start:epochMs(market.start_time)??epochMs(market.create_time),end:epochMs(market.end_time)});
+      } catch {payload.coverage.notes.push('策略增量观测暂不可用，保留已有历史采样。');}
+    }
     return NextResponse.json(payload, { headers: { "cache-control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "Review facts unavailable" }, { status: 502 });

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildBackendReview, legSpread, orderedFacts, raw6 } from '../app/review-backend.ts';
+import { buildBackendReview, buildPhaseValuations, legSpread, orderedFacts, raw6 } from '../app/review-backend.ts';
+import { phasePortfolioTotals } from '../app/review-phase-portfolio-data.ts';
 import { readBackendPages, readBoundedJson } from '../app/api/dashboard/review-backend/loader.ts';
 import { pathWithSortedQuery } from '../app/api/dashboard/openapi.ts';
 
@@ -18,6 +19,34 @@ function activity(id,type,minute,patch={}) {
 test('raw6 handles units, decimals and unknown values',()=>{
   assert.equal(raw6('4900000'),4.9); assert.equal(raw6('-96385.6'),-0.0963856);
   for(const value of ['',null,'NaN','9007199254740992']) assert.equal(raw6(value),null);
+});
+test('phase cashflow PnL includes fees, marks residual inventory and separates post-close settlement',()=>{
+  const i=input([fill(1,55,{taker:{...fill(1).taker,price:'0.8'},quote:{has_quote:false}})],[
+    activity(1,'buy',1,{fee_amount:'100000'}),
+    activity(2,'sell',20,{quantity:'5000000',price:'0.6',value:'3000000',fee_amount:'100000'}),
+    activity(3,'win',70,{quantity:'5000000',price:'1',value:'5000000',realized_pnl:'2950000'}),
+    activity(4,'claim',80,{quantity:'5000000',value:'5000000'}),
+  ]);
+  const v=buildPhaseValuations(i);
+  assert.deepEqual(v.map(row=>row.phase),['开盘','盘中','尾盘','盘后']);
+  for(const [index,expected] of [-.1,1.9,1,1].entries()) assert.ok(Math.abs(v[index].phasePnl-expected)<1e-8);
+  assert.equal(v[1].yes,5);assert.ok(Math.abs(v[1].unrealized-.95)<1e-8);
+  assert.equal(v[0].markYes,.4);assert.equal(v[2].markYes,.8);
+  assert.ok(Math.abs(v[3].cumulativePnl-3.8)<1e-8);
+});
+test('valuation refuses missing source inventory, future prices, and truncated ledger',()=>{
+  const i=input([fill(1,20)], [activity(1,'buy',1,{price:undefined})]);
+  assert.equal(buildPhaseValuations(i)[0].phasePnl,null);
+  assert.equal(buildPhaseValuations(i)[0].markAt,null);
+  i.ledger.complete=false;assert.equal(buildPhaseValuations(i)[1].cumulativePnl,null);
+  i.ledger=source([activity(1,'sell',2)]);assert.match(buildPhaseValuations(i)[0].reason,/库存/);
+});
+test('neutral split pairs need no historical price and portfolio sums flows, not cumulative PnL',()=>{
+  const i=input([],['yes','no'].map((outcome,index)=>activity(index+1,'split',1,{outcome,position_id:outcome,price:'0.5',value:'5000000'})));
+  const v=buildPhaseValuations(i);assert.equal(v[0].phasePnl,0);assert.equal(v[0].holdingsValue,10);
+  const rows=[{id:'a',valuations:v,spread:[]},{id:'b',valuations:[{phase:'开盘',phasePnl:2,cumulativePnl:99}],spread:[]},{id:'c',valuations:[],spread:[]}];
+  assert.deepEqual(phasePortfolioTotals(rows,'开盘'),{pnl:2,count:2,spread:null,spreadCount:0,exposure:null,exposureCount:0});
+  assert.equal(phasePortfolioTotals([],'盘中').pnl,null);
 });
 test('pre-batch reference complements the taker outcome; missing quote is not zero',()=>{
   const f=fill(1); assert.ok(Math.abs(legSpread(f,f.maker)+0.2)<1e-10);

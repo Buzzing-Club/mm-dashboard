@@ -60,18 +60,18 @@ export async function readBackendPages(api: Api, path: string, query: Record<str
   return result;
 }
 
-export async function loadBackendReview(conditionId: string): Promise<BackendReview> {
+export async function loadBackendReview(conditionId: string, asOf?:number): Promise<BackendReview> {
   const config = openApiConfig();
   if (!config) throw new Error('OpenAPI credentials are not configured');
   const identity = createHash('sha256').update(`${config.baseUrl}|${config.apiKey}|${config.apiSecret}`).digest('hex');
-  const key = `${identity}:${conditionId}`;
+  const key = `${identity}:${conditionId}:${asOf??'latest'}`;
   const cached = cache.get(key);
   if (cached && cached.expires > Date.now()) return cached.value;
   const active = pending.get(key);
   if (active) return active;
   if (pending.size >= 2) throw new Error('Review queries busy; retry shortly');
   const promise = (async () => {
-    const now = Math.floor(Date.now() / 1000) * 1000;
+    const now = (asOf??Math.floor(Date.now() / 1000)) * 1000;
     const deadline = AbortSignal.timeout(45_000);
     const api: Api = async (path, query) => {
       const target = pathWithSortedQuery(path, query);
