@@ -30,11 +30,16 @@ Codex 自动创建分支时继续使用 `codex/` 前缀。
 
 Preview 服务部署在策略 Preview 主机：
 
+- SSH：`ubuntu@15.134.122.105`（2026-09-11 迁移；旧地址不再使用）
 - 工作目录：`/opt/mm-dashboard`
 - 环境变量文件：`/opt/mm-dashboard/dashboard.env`
 - 容器：`mm-dashboard-preview`
 - 容器监听：`127.0.0.1:3001`
 - 本地访问：SSH 转发到 `http://localhost:3010/`
+
+2026-09-11 后端 Review 接入版使用独立发布目录 `/opt/mm-dashboard-review-backend-20260911`，挂载到容器 `/app`，复用 `/opt/mm-dashboard/node_modules`。环境变量仍从原目录的 `dashboard.env` 读取。切换后旧容器保留为 `mm-dashboard-preview-before-backend-20260911`（停止状态），旧 checkout 不覆盖。后续部署应先检查容器 Mounts，不要误以为修改原目录就会更新运行版本。
+
+该发布给 Dashboard 容器设置 768 MiB 内存上限和 Node 512 MiB 堆上限。该限制不作用于 MM 服务。回退时停止新容器，启动上述旧容器即可恢复同一 localhost:3001 端口；避免同时启动占用同一端口。
 
 `dashboard.env` 至少包含以下变量，文件不得提交：
 
@@ -65,6 +70,7 @@ npm run build
 - `/api/dashboard/history`
 - `/api/dashboard/review?condition_id=<condition_id>`
 - `/api/dashboard/review-facts?condition_id=<condition_id>`（第 7 条采样聚合）
+- `/api/dashboard/review-backend?condition_id=<condition_id>`（后端撮合、账本与结算归因）
 - 实时看板的类别和状态筛选
 - Review 的市场搜索、类别筛选及单市场切换
 

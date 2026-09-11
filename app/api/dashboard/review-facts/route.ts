@@ -7,7 +7,7 @@ let cached: { key: string; expires: number; data: ReviewFacts } | undefined;
 let pending: { key: string; promise: Promise<ReviewFacts> } | undefined;
 
 async function loadSources(source: URL, headers: Headers): Promise<ReviewFacts> {
-  const paths = { jobs: "/api/jobs", catalog: "/api/catalog", decisions: "/api/strategy-decisions", actions: "/api/order-actions", fills: "/api/fills" };
+  const paths = { jobs: "/api/jobs", catalog: "/api/catalog", decisions: "/api/strategy-decisions", fills: "/api/fills" };
   const entries = await Promise.all(Object.entries(paths).map(async ([name, path]) => {
     const url = new URL(path, source);
     const limit = 1000;

@@ -10,6 +10,8 @@
 
 后端接手、合并和部署规则见 [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md)。
 
+Review 后端撮合、账本及结算接入说明、实测与剩余范围见 [`docs/REVIEW_BACKEND_INTEGRATION.md`](docs/REVIEW_BACKEND_INTEGRATION.md)。
+
 ## 当前范围
 
 - 只处理飞书文档中的「市场看板（实时展示）」部分。
@@ -22,6 +24,8 @@
 - 实时看板可在“当前市场 / 历史市场”之间切换；历史市场读取策略端持久化的最后有效运行快照。
 
 ## 数据口径
+
+Review 生命周期 13 项指标和 PnL 归因已按第七节及通用解释核对，详细定义、例子和真实数据缺口见 [Review 指标核对](docs/REVIEW_METRIC_AUDIT.md)。
 
 Mock 数据参考了这些本地材料：
 

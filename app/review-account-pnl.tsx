@@ -45,7 +45,7 @@ export function ReviewAccountPnl({ markets, refreshKey, enabled }: { markets: Ar
       {current?.error ? ` · ${current.error}` : ""}
     </p>
     <div className="review-pnl-summary">
-      {([ ["已实现 PnL", "realized"], ["未实现 PnL", "unrealized"], [snapshot?.missing.length ? "已覆盖市场合计" : "总 PnL", "total"] ] as const).map(([label, field]) => <div key={field}><span title="后端账户口径；已实现 + 未实现 = 总 PnL。与下方尚未接入的点差/敞口归因不同。">{label}</span><strong className={totals && totals[field] < 0 ? "negative" : "positive"}>{totals ? money(totals[field]) : "待接入"}</strong></div>)}
+      {([ ["已实现 PnL", "realized"], ["未实现 PnL", "unrealized"], [snapshot?.missing.length ? "已覆盖市场合计" : "总 PnL", "total"] ] as const).map(([label, field]) => <div key={field}><span title="后端账户口径；已实现 + 未实现 = 总 PnL。与单市场批次前盘口点差、FIFO 敞口归因不同，不应相加。">{label}</span><strong className={totals && totals[field] < 0 ? "negative" : "positive"}>{totals ? money(totals[field]) : "待接入"}</strong></div>)}
     </div>
     <div className="review-seven-table-wrap"><table className="review-seven-table"><thead><tr><th>市场</th><th>已实现 PnL</th><th>未实现 PnL</th><th>总 PnL</th></tr></thead><tbody>
       {[...(snapshot?.rows ?? [])].sort((a, b) => Math.abs(b.total) - Math.abs(a.total)).map(row => <tr key={row.conditionId}><td>{names.get(row.conditionId) ?? row.conditionId}</td><td>{money(row.realized)}</td><td>{money(row.unrealized)}</td><td className={row.total < 0 ? "negative" : "positive"}>{money(row.total)}</td></tr>)}

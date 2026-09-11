@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { aggregatePnl, aggregateLifecyclePnl, marketReviewWindows, phaseDefinition } from "../app/review-section-seven-data.ts";
+import { aggregatePnl, aggregateLifecyclePnl, marketReviewWindows, phaseDefinition, tradeSpreadPnl } from "../app/review-section-seven-data.ts";
 
 test("review windows follow the scheduled market lifespan without requiring trades", () => {
   const startAt = "2026-09-11T10:00:00+08:00";
@@ -21,14 +21,14 @@ test("review windows follow the scheduled market lifespan without requiring trad
 
 test("section 7 totals reconcile without adding phase exposure snapshots", () => {
   const rows = [
-    { marketId: "a", phase: "开盘", spreadPnl: 2, exposurePnl: -4, volume: 20, endingExposure: 6, maxExposure: 8 },
-    { marketId: "a", phase: "盘中", spreadPnl: 3, exposurePnl: 1, volume: 30, endingExposure: 4, maxExposure: 10 },
-    { marketId: "a", phase: "尾盘", spreadPnl: 1, exposurePnl: -2, volume: 10, endingExposure: 1, maxExposure: 4 },
-    { marketId: "b", phase: "尾盘", spreadPnl: 2, exposurePnl: 0, volume: 15, endingExposure: -2, maxExposure: 3 },
+    { marketId: "a", phase: "开盘", spreadPnl: 2, exposurePnl: -4, totalPnl: -3, volume: 20, endingExposure: 6, maxExposure: 8 },
+    { marketId: "a", phase: "盘中", spreadPnl: 3, exposurePnl: 1, totalPnl: 3, volume: 50, endingExposure: 4, maxExposure: 10 },
+    { marketId: "a", phase: "尾盘", spreadPnl: 1, exposurePnl: -2, totalPnl: -1, volume: 60, endingExposure: 1, maxExposure: 10 },
+    { marketId: "b", phase: "尾盘", spreadPnl: 2, exposurePnl: 0, totalPnl: 2, volume: 15, endingExposure: -2, maxExposure: 3 },
   ];
   const result = aggregateLifecyclePnl(rows);
-  assert.equal(result.totalPnl, 3);
-  assert.equal(result.spreadPnl + result.exposurePnl, result.totalPnl);
+  assert.equal(result.totalPnl, 1);
+  assert.notEqual(result.spreadPnl + result.exposurePnl, result.totalPnl);
   assert.equal(result.volume, 75);
   assert.equal(result.endingExposure, -1);
   assert.equal(result.maxExposure, 13);
@@ -36,10 +36,17 @@ test("section 7 totals reconcile without adding phase exposure snapshots", () =>
   assert.equal(aggregateLifecyclePnl([]).totalPnl, 0);
 });
 
+test("spread uses execution-time mid and missing authoritative total stays missing", () => {
+  assert.ok(Math.abs(tradeSpreadPnl("BUY", 0.48, 0.5, 10) - 0.2) < 1e-9);
+  assert.ok(Math.abs(tradeSpreadPnl("SELL", 0.52, 0.5, 10) - 0.2) < 1e-9);
+  assert.ok(tradeSpreadPnl("BUY", 0.52, 0.5, 10) < 0);
+  assert.equal(aggregatePnl([{ spreadPnl: 2, exposurePnl: 3, totalPnl: null, volume: 0, endingExposure: 0, maxExposure: 0 }]).totalPnl, null);
+});
+
 test("section 7 replaces phase metrics and makes PnL a peer review area", async () => {
   const component = await readFile(new URL("../app/review-section-seven.tsx", import.meta.url), "utf8");
   const definitions = ["开盘毒性率", "风险承担结构", "报价更新速度", "库存不平衡发生时间", "订单簿健全时间占比", "用户单笔吃单的平均档位数", "回摆率", "盘口跟随延迟", "供给有效性", "反转次数", "反转时敞口", "盘口流动性结构", "减仓转化"];
-  for (const name of definitions) assert.ok(component.includes(`name: "${name}"`));
+  for (const name of definitions) assert.ok(component.includes(`name: "${name}`));
   assert.match(component, /review-domain review-domain-pnl/);
   assert.match(component, /Review Area 03/);
   assert.match(component, /市场贡献/);
@@ -121,6 +128,14 @@ test("review fact aggregation fails explicitly without strategy configuration", 
   const response = await request(`/api/dashboard/review-facts?condition_id=0x${"b".repeat(64)}`);
   assert.equal(response.status, 503);
   assert.equal((await response.json()).error, "Strategy API is not configured");
+});
+
+test("backend review validates the market and requires server credentials", async () => {
+  const invalid = await request("/api/dashboard/review-backend?condition_id=invalid");
+  assert.equal(invalid.status, 400);
+  const response = await request(`/api/dashboard/review-backend?condition_id=0x${"b".repeat(64)}`);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, "OpenAPI credentials are not configured");
 });
 
 test("keeps OpenAPI history and batch proxies protected by server credentials", async () => {

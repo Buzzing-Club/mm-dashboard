@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ReviewStageMetrics, ReviewPnlAnalysis } from "./review-section-seven";
 import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
+import type { BackendReview } from "./review-backend";
 import {
   Activity,
   AlertTriangle,
@@ -2639,19 +2640,35 @@ export default function Home() {
       setReviewSource({ mode: "loading", payload: null, detail: "正在请求单市场 Review API" });
       try {
         const params = new URLSearchParams({ condition_id: visibleMarketBase.id });
-        const response = await fetch(`/api/dashboard/review-facts?${params.toString()}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`Review API ${response.status}`);
-        const payload = await response.json() as ReviewApiPayload;
+        const [facts, backend] = await Promise.allSettled([
+          fetch(`/api/dashboard/review-facts?${params.toString()}`, {cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(25_000)])}).then(async response => {
+            if (!response.ok) throw new Error(`Review API ${response.status}`);
+            return await response.json() as ReviewApiPayload;
+          }),
+          fetch(`/api/dashboard/review-backend?${params.toString()}`, {cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(50_000)])}).then(async response => {
+            if (!response.ok) throw new Error(`Backend Review API ${response.status}`);
+            const value = await response.json() as BackendReview;
+            if (value.conditionId !== visibleMarketBase.id) throw new Error('Backend market mismatch');
+            return value;
+          }),
+        ]);
+        if (facts.status === 'rejected' && backend.status === 'rejected') throw new Error('策略与后端 Review 数据均不可用');
+        const payload: ReviewApiPayload = facts.status === 'fulfilled' ? facts.value : {
+          contract_version:'mm-dashboard-review.v2',condition_id:visibleMarketBase.id,
+          section_seven:{metrics:{},pnl:null},coverage:{decisionCount:0,fillCount:0,from:null,through:null,notes:['策略历史事实暂不可用']},
+        };
+        if (backend.status === 'fulfilled') {
+          payload.section_seven.backend = backend.value;
+          if (backend.value.levelsMetric) payload.section_seven.metrics.levelsConsumed = backend.value.levelsMetric;
+          else payload.section_seven.unavailable = {...payload.section_seven.unavailable,levelsConsumed:'用户吃单接口已接入；当前盘中阶段没有完整、可分类的真实用户订单样本。'};
+        } else payload.coverage.notes.push('后端 Review 接口暂不可用，账户账本及成交归因未加载。');
         if (!mapReviewApiPayload(payload)) throw new Error("Review API contract mismatch");
         if (payload.condition_id !== visibleMarketBase.id) throw new Error("Review market mismatch");
         if (!controller.signal.aborted) {
           setReviewSource({
             mode: "api",
             payload,
-            detail: "策略历史事实 · 有限采样聚合",
+            detail: "策略历史事实 + 后端撮合与账本 · 有限采样聚合",
           });
         }
       } catch (error) {
@@ -3083,7 +3100,7 @@ function ReviewDashboard({
             </div>
             {review.availability.marketEngagement ? <div className="review-bar-frame">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={review.quoteAttempts} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                <BarChart data={review.quoteAttempts} margin={{ top: 12, right: 12, bottom: 4, left: 0 }} barCategoryGap="28%" maxBarSize={40}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
                   <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
                   <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
@@ -3119,7 +3136,7 @@ function ReviewDashboard({
             </div>
             <div className="review-bar-frame compact">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={review.toxicity} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                <BarChart data={review.toxicity} margin={{ top: 12, right: 12, bottom: 4, left: 0 }} barCategoryGap="28%" maxBarSize={40}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
                   <XAxis dataKey="kind" stroke="#7e8796" tickLine={false} axisLine={false} />
                   <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
