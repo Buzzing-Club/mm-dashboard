@@ -29,7 +29,7 @@ export const stageMetrics: Array<{ id: string; phase: string; range: string; goa
 ];
 
 function Definition({ children, text }: { children: React.ReactNode; text: string }) {
-  return <span className="review-definition" title={text} data-tooltip={text} tabIndex={0}>{children}</span>;
+  return <span className="review-seven-definition" title={text} aria-description={text} tabIndex={0}>{children}</span>;
 }
 
 export function ReviewStageMetrics({ data }: { data: SectionSevenData | null }) {
