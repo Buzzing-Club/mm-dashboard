@@ -1,56 +1,57 @@
-import { reviewPhases, type ReviewMarketInput, type SectionSevenData, type SectionSevenMetric } from "./review-section-seven-data";
+import { reviewPhases, tradeSpreadPnl, type ReviewMarketInput, type SectionSevenData, type SectionSevenMetric } from "./review-section-seven-data.ts";
 
-const round = (value: number) => Math.round(value * 100) / 100;
 const sample = (value: number, unit: string, observations: Array<[string, number]>): SectionSevenMetric => ({ value, observationUnit: unit, observations: observations.map(([label, amount]) => ({ label, value: amount })) });
 
-// Vercel-only deterministic fixtures. Never shipped as Preview measurements.
+// Vercel-only hypothetical fills and inventories, never Preview measurements.
 export function buildSectionSevenDemo(market: ReviewMarketInput, markets: ReviewMarketInput[]): SectionSevenData {
-  const seed = [...market.id].reduce((sum, character) => sum + character.charCodeAt(0), 0);
-  const shift = seed % 5;
-  const openingExposure = 7 + shift;
-  const middleExposure = 18 + shift * 2;
-  const lateExposure = 3 + shift;
-  const consumed = [55 - shift * 3, 32 + shift, 10 + shift, 3 + shift];
   const pnl = markets.flatMap((item, index) => {
-    const weights = [0.2, 0.6, 0.2];
-    const spread = Math.max(2, round(item.grossVolume * 0.001));
-    let usedPnl = 0;
-    let usedVolume = 0;
-    let usedSpread = 0;
+    let volume = 0, inventory = 0;
+    const settlement = index % 2 ? 0 : 1;
     return reviewPhases.map((phase, phaseIndex) => {
-      const totalPnl = phaseIndex === 2 ? round(item.pnl - usedPnl) : round(item.pnl * weights[phaseIndex]);
-      const volume = phaseIndex === 2 ? round(item.grossVolume - usedVolume) : round(item.grossVolume * weights[phaseIndex]);
-      const spreadPnl = phaseIndex === 2 ? round(spread - usedSpread) : round(spread * weights[phaseIndex]);
-      const exposurePnl = round(totalPnl - spreadPnl);
-      usedPnl += totalPnl;
-      usedVolume += volume;
-      usedSpread += spreadPnl;
-      const side = index % 2 ? "ask" as const : "bid" as const;
-      const quantity = Math.max(1, Math.ceil(Math.abs(exposurePnl) / 0.08));
-      const entryPrice = 0.5;
-      const exitPrice = entryPrice + exposurePnl / quantity * (side === "bid" ? 1 : -1);
-      return { marketId: item.id, market: item.event, phase, spreadPnl, exposurePnl, volume,
-        endingExposure: round(quantity * [0.6, 0.3, 0.05][phaseIndex]) * (side === "bid" ? 1 : -1),
-        maxExposure: quantity,
-        lots: [{ outcome: index % 2 ? "NO" : "YES", side, quantity, entryPrice, exitPrice, exposurePnl }],
+      const quantity = 10 + index % 5;
+      const entryPrice = 0.48 + phaseIndex * 0.01;
+      const mid = entryPrice + 0.02;
+      const roundTripQuantity = 20;
+      const spreadPnl = tradeSpreadPnl("BUY", entryPrice, mid, quantity)
+        + tradeSpreadPnl("BUY", 0.49, 0.5, roundTripQuantity)
+        + tradeSpreadPnl("SELL", 0.51, 0.5, roundTripQuantity);
+      const exposurePnl = quantity * (settlement - entryPrice);
+      const totalPnl = quantity * settlement - quantity * entryPrice
+        + roundTripQuantity * 0.51 - roundTripQuantity * 0.49 - 0.01;
+      volume += quantity * entryPrice + roundTripQuantity * (0.49 + 0.51);
+      inventory += quantity;
+      return { marketId: item.id, market: item.event, phase, spreadPnl, exposurePnl, totalPnl, volume,
+        endingExposure: inventory, maxExposure: inventory + roundTripQuantity,
+        lots: [{ outcome: "YES", side: "bid" as const, quantity, entryPrice, exitPrice: settlement, exposurePnl }],
       };
     });
   });
+  const risk = sample(50, "% 风险面积", [["开盘", 50], ["盘中", 40], ["尾盘", 10]]);
+  risk.details = [{ label: "开盘风险面积", value: 600, unit: "sh·min" }, { label: "盘中风险面积", value: 480, unit: "sh·min" }, { label: "尾盘风险面积", value: 120, unit: "sh·min" }];
+  const start = Date.parse(market.startAt ?? ""), end = Date.parse(market.endAt ?? "");
+  if (Number.isFinite(start) && end > start) {
+    const durationMinutes = (end - start) / 60_000;
+    risk.exposureSeries = [[0, 600 / (durationMinutes * 0.2)], [0.2, 480 / (durationMinutes * 0.6)], [0.8, 120 / (durationMinutes * 0.2)], [1, 120 / (durationMinutes * 0.2)]].map(([fraction, value]) => ({ at: start + fraction * (end - start), value }));
+  }
+  const reversal = sample(55, "shares · 最近一次 DOWN 反转", [["反转时", 55], ["+30 秒", 70], ["+120 秒", 65]]);
+  reversal.note = "示例：YES 公允价 0.73 下穿 0.50 后，YES 净多仓持续扩大。";
+  const book = sample(8, "% YES 双边占比", [["Ask量", 80 / 90 * 100], ["Bid量", 10 / 90 * 100], ["Ask档", 6 / 7 * 100], ["Bid档", 1 / 7 * 100]]);
+  book.details = [{ label: "YES Ask 数量", value: 80, unit: "shares" }, { label: "YES Bid 数量", value: 10, unit: "shares" }, { label: "YES Ask 档位", value: 6, unit: "档" }, { label: "YES Bid 档位", value: 1, unit: "档" }];
   return {
     metrics: {
-      toxicity: sample(18 + shift, "不利成交 / 确认成交 (%)", [["开盘", 18 + shift], ["盘中", 14 + shift]]),
-      exposureTime: sample(openingExposure, `股·小时；开盘占比 ${round(openingExposure / (openingExposure + middleExposure + lateExposure) * 100)}%`, [["开盘", openingExposure], ["盘中", middleExposure], ["尾盘", lateExposure]]),
-      requoteLatency: sample(360 + shift * 20, "成交 → 报价确认 (ms)", [["开盘 P50", 140 + shift * 10], ["开盘 P95", 360 + shift * 20], ["盘中 P50", 110 + shift * 10], ["盘中 P95", 280 + shift * 20]]),
-      firstImbalance: sample(12 + shift * 2, "首次触发位置 / 成交生命周期 (%)", [["首次越界", 12 + shift * 2], ["开盘边界", 20]]),
-      healthyBook: sample(94 - shift, "盘中时长占比 (%)", [["双边", 94 - shift], ["单边", 3 + shift], ["空盘", 1], ["非 NORMAL", 2]]),
-      levelsConsumed: sample(round(consumed.reduce((sum, count, index) => sum + count * (index + 1), 0) / 100), "用户吃单档位分布 (%)", consumed.map((count, index) => [`${index + 1}档`, count])),
-      recross: sample(11 + shift, "完整 60 秒观察窗回摆率 (%)", [["买入", 12 + shift], ["卖出", 10 + shift]]),
-      followLatency: sample(420 + shift * 20, "公允价变更 → 确认；各层 P95 (ms)", [["策略", 100 + shift * 5], ["对账", 150 + shift * 5], ["挂撤", 220 + shift * 10], ["端到端", 420 + shift * 20]]),
-      supplyConversion: sample(19 + shift, "确认做市成交的档位占比 (%)", [["第1档", 62 - shift], ["第2档", 28 + shift], ["第3档", 10]]),
-      reversals: sample(3, "公允价穿越 0.5 的次数", [["向上", 2], ["向下", 1]]),
-      reversalExposure: sample(8 + shift, "反转时净库存 (sh)，按时间排列", [["83% ↑", 28 + shift], ["89% ↓", 18 + shift], ["94% ↑", 8 + shift]]),
-      bookStructure: sample(0.25, "数量与档位的双边占比 (%)", [["ask 数量", 20], ["bid 数量", 80], ["ask 档位", 25], ["bid 档位", 75]]),
-      reduction: sample(60, "waiting_result 数量 (sh)；实际卖出 / 峰值 = 40%", [["同向峰值", 60], ["减仓挂单", 36], ["实际卖出", 24]]),
+      toxicity: sample(30, "% 不利成交 / 阶段成交", [["开盘 12/40", 30], ["盘中 8/100", 8]]),
+      exposureTime: risk,
+      requoteLatency: sample(800, "成交 → 报价确认 (ms)", [["开盘 P50", 400], ["开盘 P95", 800], ["盘中 P50", 350], ["盘中 P95", 700]]),
+      firstImbalance: sample(5, "% 市场生命周期", [["首次越界", 5], ["开盘边界", 20]]),
+      healthyBook: sample(97, "% 生命周期时长", [["双边", 97], ["单边", 1], ["空盘", 1], ["非 NORMAL", 1]]),
+      levelsConsumed: sample(1.75, "% 用户单笔吃单档位分布", [["1档", 55], ["2档", 25], ["3档", 10], ["4档", 10]]),
+      recross: sample(15, "% 已完成60秒观察窗", [["买入 10/50", 20], ["卖出 5/50", 10]]),
+      followLatency: sample(1500, "公允价变更 → 确认；各层 P95 (ms)", [["策略", 300], ["对账", 200], ["挂撤", 1000], ["端到端", 1500]]),
+      supplyConversion: { ...sample(3, "% 确认做市成交的档位占比", [["1档 24笔", 80], ["2档 6笔", 20]]), details: [{ label: "计划挂单计数", value: 1000, unit: "笔" }, { label: "确认成交计数", value: 30, unit: "笔" }] },
+      reversals: sample(6, "次", [["UP", 4], ["DOWN", 2]]),
+      reversalExposure: reversal,
+      bookStructure: book,
+      reduction: sample(15 / 45 * 100, "shares · NO 同方向", [["waiting_result 剩余", 15], ["生命周期峰值", 45]]),
     },
     pnl,
   };
