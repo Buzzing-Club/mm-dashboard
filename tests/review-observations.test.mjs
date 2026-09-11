@@ -27,3 +27,15 @@ test('unclassified toxicity stays null and empty phase is not zero',()=>{
   const p=mergeReviewObservations(payload(),c,job,bounds);assert.equal(p.section_seven.metrics.toxicity.value,null);assert.deepEqual(p.section_seven.metrics.toxicity.observations,[]);assert.match(p.section_seven.unavailable.toxicity,/无成熟样本/);
   assert.equal(p.section_seven.metrics.toxicity.details[0].value,100);
 });
+test('directional recross and terminal inventory use existing actor counters',()=>{
+  const c=capture(),o=c.items[0].observations;
+  Object.assign(o.phases.intraday,{recross_buy_count:2,recross_buy_eligible:4,recross_sell_count:1,recross_sell_eligible:5});
+  Object.assign(o,{first_imbalance_pct:12,residual_inventory_pct:20,waiting_result_inventory:-4,peak_yes:8,peak_no:20,reversals:[{at:185,direction:'up',inventory:-4,after_30s:-2,after_120s:null}]});
+  o.phases.tail={reversals_up:1,reversals_down:0};
+  const m=mergeReviewObservations(payload(),c,job,bounds).section_seven.metrics;
+  assert.equal(m.recross.details.find(d=>d.label==='盘中 买入回摆率').value,50);
+  assert.equal(m.recross.details.find(d=>d.label==='盘中 卖出回摆率').value,20);
+  assert.equal(m.firstImbalance.value,12);assert.equal(m.reduction.value,20);
+  assert.equal(m.reduction.observations[1].value,20);assert.equal(m.reversals.value,1);
+  assert.equal(m.reversalExposure.value,-4);assert.equal(m.reversalExposure.details[1].value,null);
+});

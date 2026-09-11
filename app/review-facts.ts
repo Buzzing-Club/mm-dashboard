@@ -9,6 +9,7 @@ export type ReviewFactsPayload = {
   contract_version: "mm-dashboard-review.v2";
   condition_id: string;
   section_seven: SectionSevenData;
+  order_flow?: { sampleCount:number; candidateCount:number; averageScore:number|null; favorableRate:number|null; distribution:Array<{kind:string;count:number;color:string}>; note:string };
   coverage: { decisionCount: number; fillCount: number; from: number | null; through: number | null; notes: string[] };
 };
 
@@ -173,5 +174,19 @@ export function buildReviewFacts(conditionId: string, source: ReviewFacts, now: 
   } else {
     unavailable.reduction = "缺少 waiting_result 阶段库存；减仓挂单量或市场最新库存不能代替。";
   }
-  return { contract_version: "mm-dashboard-review.v2", condition_id: conditionId, section_seven: { metrics, unavailable, pnl: null }, coverage };
+  const scores:number[]=[];
+  for(const fill of fills) {
+    const time=epochMs(fill.settled_at), price=finite(fill.price);
+    if(time===null || price===null || price<0 || price>1 || !['BUY','SELL'].includes(upper(fill.side))) continue;
+    const outcome=same(fill.position_id,yesId)?'yes':same(fill.position_id,noId)?'no':null;
+    if(!outcome || time+60_000>now) continue;
+    const reference=decisions.find(row=>row.ts!>=time+60_000 && row.ts!<=time+90_000 && row.fair!==null && row.fair>=0 && row.fair<=1);
+    if(!reference) continue;
+    const mark=outcome==='yes'?reference.fair!:1-reference.fair!;
+    scores.push((upper(fill.side)==='BUY'?mark-price:price-mark)*100);
+  }
+  const order_flow={sampleCount:scores.length,candidateCount:fills.length,averageScore:scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:null,favorableRate:scores.length?100*scores.filter(n=>n>1e-8).length/scores.length:null,
+    distribution:[{kind:'有利',count:scores.filter(n=>n>1e-8).length,color:'#20d49b'},{kind:'中性',count:scores.filter(n=>Math.abs(n)<=1e-8).length,color:'#939daa'},{kind:'不利',count:scores.filter(n=>n< -1e-8).length,color:'#ff536b'}],
+    note:'历史确认成交后60至90秒内首个公允价采样；YES/NO及买卖方向分别换算，等权按笔计分。只统计同账户MM_QUOTE，不用当前价回填；不等同于30秒毒性率。'};
+  return { contract_version: "mm-dashboard-review.v2", condition_id: conditionId, section_seven: { metrics, unavailable, pnl: null }, order_flow, coverage };
 }
