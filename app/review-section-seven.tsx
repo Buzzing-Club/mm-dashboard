@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown, LineChart } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { aggregateLifecyclePnl, aggregatePnl, marketReviewWindows, phaseDefinition, reviewPhases, type MetricId, type SectionSevenData, type ReviewPhase } from "./review-section-seven-data";
+import { ReviewAccountPnl } from "./review-account-pnl";
 
 type MetricDefinition = { id: MetricId; name: string; unit: string; definition: string; source: string };
 export const stageMetrics: Array<{ id: string; phase: string; range: string; goal: string; metrics: MetricDefinition[] }> = [
@@ -47,6 +48,7 @@ export function ReviewStageMetrics({ data, startAt, endAt }: { data: SectionSeve
           return <article className="review-seven-metric" key={metric.id}>
             <h4><Definition text={`${metric.definition}\n数据来源：${metric.source}`}>{metric.name}</Definition></h4>
             <div className="review-seven-value"><strong>{sample ? Number(sample.value.toFixed(2)) : "待接入"}</strong><small>{sample ? metric.unit : "缺少阶段统计"}</small></div>
+            {sample?.note && <p className="review-data-coverage" title={sample.note}>采样估算 · {sample.note}</p>}
             {sample?.observations.length ? <><small className="review-chart-unit">{sample.observationUnit}</small><div className="review-seven-chart">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={sample.observations} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
@@ -75,7 +77,7 @@ const pnlDefinitions = {
   totalPnl: "此表总 PnL = 点差 PnL + 敞口 PnL，按第 7 条两项拆分。费用未单列，不能与不同费用口径的净 PnL 混用。",
 };
 
-export function ReviewPnlAnalysis({ data, marketCount }: { data: SectionSevenData | null; marketCount: number }) {
+export function ReviewPnlAnalysis({ data, marketCount, accountMarkets, refreshKey = 0, live = false }: { data: SectionSevenData | null; marketCount: number; accountMarkets?: Array<{ id: string; event: string }>; refreshKey?: number; live?: boolean }) {
   const [selected, setSelected] = useState<{ phase: ReviewPhase | "合计"; measure: PnlMeasure }>({ phase: "开盘", measure: "totalPnl" });
   const rows = data?.pnl ?? [];
   const total = aggregateLifecyclePnl(rows);
@@ -91,6 +93,8 @@ export function ReviewPnlAnalysis({ data, marketCount }: { data: SectionSevenDat
       <span className="review-domain-icon"><LineChart size={19} /></span>
       <div><p className="section-label">Review Area 03</p><h2 id="review-pnl-title">PnL 分析</h2><small>全部市场 · {rows.length ? new Set(rows.map((row) => row.marketId)).size : marketCount} 个市场</small></div>
     </div>
+    <ReviewAccountPnl markets={accountMarkets ?? []} refreshKey={refreshKey} enabled={live} />
+    {live && <h3>点差 / 敞口归因</h3>}
     <div className="review-pnl-summary">
       {(Object.keys(pnlLabels) as PnlMeasure[]).map((key) => <div key={key}><Definition text={pnlDefinitions[key]}>{pnlLabels[key]}</Definition><strong className={rows.length && total[key] < 0 ? "negative" : "positive"}>{rows.length ? money(total[key]) : "待接入"}</strong></div>)}
     </div>

@@ -2871,3 +2871,21 @@ h3 {
     padding-bottom: 8px;
   }
 }
+.review-data-coverage {
+  color: #939daa;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  margin: 8px 0 12px;
+}
+
+.review-account-pnl {
+  padding: 16px 0;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #303640;
+}
+
+.review-account-pnl h3 {
+  font-size: 16px;
+  margin: 0;
+}

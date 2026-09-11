@@ -64,6 +64,7 @@ npm run build
 - `/api/dashboard/realtime`
 - `/api/dashboard/history`
 - `/api/dashboard/review?condition_id=<condition_id>`
+- `/api/dashboard/review-facts?condition_id=<condition_id>`（第 7 条采样聚合）
 - 实时看板的类别和状态筛选
 - Review 的市场搜索、类别筛选及单市场切换
 
@@ -90,11 +91,12 @@ Vercel 项目的 Production Branch 应设置为 `vercel-mock`。该环境不配�
 - `app/api/dashboard/market-realtime-batch`
 - `app/api/dashboard/market-history`
 - `app/api/dashboard/review`
+- `app/api/dashboard/review-facts`
 
 前端页面只消费这些 Dashboard BFF 路由，不应直接持有后端 API Key。新增字段时先在 `preview` 验证数据口径、空值和超时行为，再决定是否为 `vercel-mock` 增加对应 Mock 样本。
 
 ## 已知状态
 
 - Vercel Mock 与 Preview 当前从同一版 UI 起步。
-- Preview 已配置策略端和后端凭据，但 Review 上游偶尔返回 `400/502`，页面会回退演示复盘。
+- Preview 已配置策略端和后端凭据。新版 Review 读取现有只读事实进行聚合；上游失败显示不可用，不回退演示数据。Vercel Mock 仍使用独立演示数据。
 - Preview 目前没有仓库级自动部署。后端接手后应优先补充只针对 `preview` 分支的 CI/CD，并把 SSH 主机、用户和私钥放入 GitHub Actions Secrets。

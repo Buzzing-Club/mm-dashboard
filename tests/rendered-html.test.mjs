@@ -115,6 +115,14 @@ test("validates and exposes the strategy Review proxy", async () => {
   assert.equal(payload.error, "Strategy dashboard Review API is not configured");
 });
 
+test("review fact aggregation fails explicitly without strategy configuration", async () => {
+  const invalid = await request("/api/dashboard/review-facts?condition_id=invalid");
+  assert.equal(invalid.status, 400);
+  const response = await request(`/api/dashboard/review-facts?condition_id=0x${"b".repeat(64)}`);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, "Strategy API is not configured");
+});
+
 test("keeps OpenAPI history and batch proxies protected by server credentials", async () => {
   const conditionId = `0x${"a".repeat(64)}`;
   const [historyResponse, batchResponse] = await Promise.all([
@@ -182,7 +190,7 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.match(page, /ReviewStageMetrics/);
   assert.match(page, /ReviewPnlAnalysis/);
   assert.doesNotMatch(page, /盘前 · 接管与收敛|启动收敛落点分布|报价活动 × 尾盘距离|Planned 决策|退出流转与库存退出/);
-  assert.match(page, /mm-dashboard-review\.v1/);
+  assert.match(page, /mm-dashboard-review\.v2/);
   assert.match(page, /REVIEW API/);
   assert.match(page, /市场漏斗待接入/);
   assert.doesNotMatch(page, /开盘定价合理性/);

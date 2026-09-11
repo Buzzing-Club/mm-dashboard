@@ -5,6 +5,8 @@ export type MetricId = "toxicity" | "exposureTime" | "requoteLatency" | "firstIm
 export type ReviewObservation = { label: string; value: number };
 export type SectionSevenMetric = {
   value: number;
+  precision?: "sampled";
+  note?: string;
   observationUnit?: string;
   observations: ReviewObservation[];
 };
