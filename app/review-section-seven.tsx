@@ -58,7 +58,7 @@ export function ReviewStageMetrics({ data, startAt, endAt }: { data: SectionSeve
                   <CartesianGrid stroke="#252a33" vertical={false} />
                   <XAxis dataKey="label" stroke="#939daa" tickLine={false} interval="preserveStartEnd" minTickGap={12} tick={{ fontSize: 11 }} />
                   <YAxis width={42} stroke="#939daa" axisLine={false} tickLine={false} tickCount={4} tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: "#11151a", border: "1px solid #39414d", color: "#e4e9ef" }} />
+                  <Tooltip cursor={{ fill: "#ffffff", fillOpacity: 0.04 }} contentStyle={{ background: "#11151a", border: "1px solid #39414d", color: "#e4e9ef" }} />
                   <Bar dataKey="value" name={metric.name} fill={index === 0 ? "#ffb020" : index === 1 ? "#4cc9f0" : "#20d49b"} radius={[3, 3, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
