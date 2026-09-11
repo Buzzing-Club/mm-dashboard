@@ -39,3 +39,16 @@ test('directional recross and terminal inventory use existing actor counters',()
   assert.equal(m.reduction.observations[1].value,20);assert.equal(m.reversals.value,1);
   assert.equal(m.reversalExposure.value,-4);assert.equal(m.reversalExposure.details[1].value,null);
 });
+
+test('durable captures show merged coverage and do not mix other jobs',()=>{
+  const c=capture();c.items[0].job_id=7;c.items[0].revisions=[1,2];
+  Object.assign(c.items[0].observations,{source:'durable_review_aggregates'});
+  Object.assign(c.items[0].observations.coverage,{capture_count:2,between_capture_gap_seconds:30,history_capped:true});
+  const p=payload();p.section_seven.unavailable={toxicity:'old missing reason'};
+  const m=mergeReviewObservations(p,c,{...job,job_id:7},bounds).section_seven;
+  assert.match(m.metrics.toxicity.note,/历史累计 2 段/);
+  assert.match(m.metrics.toxicity.note,/历史读取已截断/);
+  assert.match(m.metrics.requoteLatency.note,/直方图/);
+  assert.equal(m.unavailable.toxicity,undefined);
+  assert.deepEqual(mergeReviewObservations(payload(),c,{...job,job_id:8},bounds).section_seven.metrics,{});
+});
