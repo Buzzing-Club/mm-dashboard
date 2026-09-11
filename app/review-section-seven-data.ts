@@ -25,7 +25,16 @@ export type SectionSevenData = {
 };
 export type ReviewMarketInput = { id: string; event: string; pnl: number; grossVolume: number };
 
-export const phaseDefinition = "按每个市场第一笔至最后一笔成交的时间跨度分段：前 20% 开盘、中间 60% 盘中、后 20% 尾盘。按时间而非成交笔数分组；未结束市场为暂定分段。遵循第 7 条正文，表格开盘行的 10% clamp 另待确认。无成交或首末成交同刻时，不计算阶段指标。";
+export const phaseDefinition = "按市场开始时间至计划结束时间分段：前 20% 开盘、中间 60% 盘中、后 20% 尾盘。开始时间缺失时使用创建时间；不使用首末成交时间、成交笔数或刷新时间。无成交也有阶段边界，但无样本指标不记为 0。盘后结算和减仓单独观察，不延长尾盘区间。缺少有效起止时间时不计算阶段指标。";
+
+export function marketReviewWindows(startAt: string, endAt: string) {
+  const start = Date.parse(startAt);
+  const end = Date.parse(endAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  const duration = end - start;
+  const boundaries = [start, start + duration * 0.2, start + duration * 0.8, end];
+  return reviewPhases.map((phase, index) => ({ phase, start: boundaries[index], end: boundaries[index + 1] }));
+}
 
 export function aggregatePnl(rows: PnlContribution[]) {
   return {
