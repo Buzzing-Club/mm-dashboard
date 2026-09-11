@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ReviewStageMetrics, ReviewPnlAnalysis } from "./review-section-seven";
 import { buildSectionSevenDemo } from "./review-section-seven-demo";
+import type { ReviewFactsPayload } from "./review-facts";
+import type { BackendReview } from "./review-backend";
 import {
   Activity,
   AlertTriangle,
@@ -2625,32 +2627,54 @@ export default function Home() {
     return () => controller.abort();
   }, [marketScope, refreshTick, timeframe, visibleMarketBase?.id]);
 
+  const reviewIsDemo = buildSectionSevenDemo(visibleMarketBase, []) !== null;
   useEffect(() => {
     if (workspaceView !== "review" || !visibleMarketBase?.id) return undefined;
     const controller = new AbortController();
 
     async function loadReview() {
+      if (reviewIsDemo) {
+        setReviewSource({ mode: "mock", payload: null, detail: "独立演示数据" });
+        return;
+      }
       setReviewSource({ mode: "loading", payload: null, detail: "正在请求单市场 Review API" });
       try {
         const params = new URLSearchParams({ condition_id: visibleMarketBase.id });
-        const response = await fetch(`/api/dashboard/review?${params.toString()}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`Review API ${response.status}`);
-        const payload = await response.json() as ReviewApiPayload;
+        const [facts, backend] = await Promise.allSettled([
+          fetch(`/api/dashboard/review-facts?${params.toString()}`, {cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(25_000)])}).then(async response => {
+            if (!response.ok) throw new Error(`Review API ${response.status}`);
+            return await response.json() as ReviewApiPayload;
+          }),
+          fetch(`/api/dashboard/review-backend?${params.toString()}`, {cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(50_000)])}).then(async response => {
+            if (!response.ok) throw new Error(`Backend Review API ${response.status}`);
+            const value = await response.json() as BackendReview;
+            if (value.conditionId !== visibleMarketBase.id) throw new Error('Backend market mismatch');
+            return value;
+          }),
+        ]);
+        if (facts.status === 'rejected' && backend.status === 'rejected') throw new Error('策略与后端 Review 数据均不可用');
+        const payload: ReviewApiPayload = facts.status === 'fulfilled' ? facts.value : {
+          contract_version:'mm-dashboard-review.v2',condition_id:visibleMarketBase.id,
+          section_seven:{metrics:{},pnl:null},coverage:{decisionCount:0,fillCount:0,from:null,through:null,notes:['策略历史事实暂不可用']},
+        };
+        if (backend.status === 'fulfilled') {
+          payload.section_seven.backend = backend.value;
+          if (backend.value.levelsMetric) payload.section_seven.metrics.levelsConsumed = backend.value.levelsMetric;
+          else payload.section_seven.unavailable = {...payload.section_seven.unavailable,levelsConsumed:'用户吃单接口已接入；当前盘中阶段没有完整、可分类的真实用户订单样本。'};
+        } else payload.coverage.notes.push('后端 Review 接口暂不可用，账户账本及成交归因未加载。');
         if (!mapReviewApiPayload(payload)) throw new Error("Review API contract mismatch");
+        if (payload.condition_id !== visibleMarketBase.id) throw new Error("Review market mismatch");
         if (!controller.signal.aborted) {
           setReviewSource({
             mode: "api",
             payload,
-            detail: "策略端 /api/dashboard/review · 单市场持久化事实",
+            detail: "策略历史事实 + 后端撮合与账本 · 有限采样聚合",
           });
         }
       } catch (error) {
         if (controller.signal.aborted) return;
         setReviewSource({
-          mode: "mock",
+          mode: "error",
           payload: null,
           detail: error instanceof Error ? error.message : "Review API unavailable",
         });
@@ -2659,14 +2683,14 @@ export default function Home() {
 
     loadReview();
     return () => controller.abort();
-  }, [refreshTick, visibleMarketBase?.id, workspaceView]);
+  }, [refreshTick, visibleMarketBase?.id, workspaceView, reviewIsDemo]);
 
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
   const displayedSource = workspaceView === "review"
     ? {
       mode: reviewSource.mode,
-      label: reviewSource.mode === "api" ? "REVIEW API" : reviewSource.mode === "loading" ? "REVIEW LOADING" : "REVIEW MOCK",
+      label: reviewSource.mode === "api" ? "REVIEW API" : reviewSource.mode === "loading" ? "REVIEW LOADING" : reviewSource.mode === "error" ? "REVIEW UNAVAILABLE" : "REVIEW MOCK",
       detail: reviewSource.detail,
     }
     : marketScope === "history"
@@ -2719,6 +2743,8 @@ export default function Home() {
           visibleMarket={visibleMarket}
           setActiveId={setActiveId}
           reviewSource={reviewSource}
+          accountMarkets={[...new Map([...historicalMarkets, ...markets].map(market => [market.id, market])).values()]}
+          refreshKey={refreshTick}
         />
       ) : (
         <>
@@ -2836,13 +2862,10 @@ type ReviewData = {
   favorableRate: number;
 };
 
-type ReviewApiPayload = {
-  contract_version?: string;
-  condition_id?: string;
-};
+type ReviewApiPayload = ReviewFactsPayload;
 
 type ReviewSourceState = {
-  mode: "loading" | "api" | "mock";
+  mode: "loading" | "api" | "mock" | "error";
   payload: ReviewApiPayload | null;
   detail: string;
 };
@@ -2884,13 +2907,16 @@ function buildReviewData(market: Market): ReviewData {
   };
 }
 
-function mapReviewApiPayload(payload: ReviewApiPayload): ReviewData | null {
-  if (payload.contract_version !== "mm-dashboard-review.v1") return null;
-  // The v1 operational counters do not measure the new Section 7 review metrics.
+function emptyReviewData(): ReviewData {
   return {
     availability: { marketEngagement: false, toxicity: false },
     funnel: [], toxicity: [], quoteAttempts: [], averageScore: 0, favorableRate: 0,
   };
+}
+
+function mapReviewApiPayload(payload: ReviewApiPayload): ReviewData | null {
+  if (payload.contract_version !== "mm-dashboard-review.v2" || !payload.section_seven || !payload.coverage) return null;
+  return emptyReviewData();
 }
 
 function ReviewDashboard({
@@ -2898,15 +2924,19 @@ function ReviewDashboard({
   visibleMarket,
   setActiveId,
   reviewSource,
+  accountMarkets,
+  refreshKey,
 }: {
   markets: Market[];
   visibleMarket: Market;
   setActiveId: (value: string) => void;
   reviewSource: ReviewSourceState;
+  accountMarkets: Market[];
+  refreshKey: number;
 }) {
   const review = useMemo(
-    () => reviewSource.payload ? mapReviewApiPayload(reviewSource.payload) ?? buildReviewData(visibleMarket) : buildReviewData(visibleMarket),
-    [reviewSource.payload, visibleMarket],
+    () => reviewSource.mode === "mock" ? buildReviewData(visibleMarket) : emptyReviewData(),
+    [reviewSource.mode, visibleMarket],
   );
   const [reviewFocus, setReviewFocus] = useState<"all" | "premarket" | "intraday" | "postmarket">("all");
   const [reviewMarketQuery, setReviewMarketQuery] = useState("");
@@ -2938,8 +2968,8 @@ function ReviewDashboard({
   const quoteAttemptCount = review.funnel[2]?.count ?? 0;
   const submittedCount = review.funnel[3]?.count ?? 0;
   const cancellationRate = quoteAttemptCount > 0 ? ((quoteAttemptCount - submittedCount) / quoteAttemptCount) * 100 : 0;
-  const sectionSeven = useMemo(() => reviewSource.mode === "mock" ? buildSectionSevenDemo(visibleMarket, markets) : null, [reviewSource.mode, visibleMarket, markets]);
-  const sourceChip = reviewSource.mode === "api" ? "真实复盘" : reviewSource.mode === "loading" ? "正在加载" : "演示复盘";
+  const sectionSeven = useMemo(() => reviewSource.mode === "mock" ? buildSectionSevenDemo(visibleMarket, markets) : reviewSource.payload?.condition_id === visibleMarket.id ? reviewSource.payload.section_seven : null, [reviewSource.mode, reviewSource.payload, visibleMarket, markets]);
+  const sourceChip = reviewSource.mode === "api" ? "历史采样复盘" : reviewSource.mode === "loading" ? "正在加载" : reviewSource.mode === "error" ? "数据暂不可用" : "演示复盘";
   const focusReviewSection = (focus: "all" | "premarket" | "intraday" | "postmarket", targetId: string) => {
     setReviewFocus(focus);
     window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -3070,7 +3100,7 @@ function ReviewDashboard({
             </div>
             {review.availability.marketEngagement ? <div className="review-bar-frame">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={review.quoteAttempts} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                <BarChart data={review.quoteAttempts} margin={{ top: 12, right: 12, bottom: 4, left: 0 }} barCategoryGap="28%" maxBarSize={40}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
                   <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
                   <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
@@ -3106,7 +3136,7 @@ function ReviewDashboard({
             </div>
             <div className="review-bar-frame compact">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={review.toxicity} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                <BarChart data={review.toxicity} margin={{ top: 12, right: 12, bottom: 4, left: 0 }} barCategoryGap="28%" maxBarSize={40}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
                   <XAxis dataKey="kind" stroke="#7e8796" tickLine={false} axisLine={false} />
                   <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
@@ -3116,10 +3146,12 @@ function ReviewDashboard({
               </ResponsiveContainer>
             </div></> : <ReviewUnavailable title="订单流毒性待接入" detail="需要后端提供完整成交序列、成交方向，以及成交后 1 分钟的价格基准。" />}
           </div>
+        {reviewSource.payload?.condition_id === visibleMarket.id && <p className="review-data-coverage">{reviewSource.payload.coverage.decisionCount} 条决策 · {reviewSource.payload.coverage.fillCount} 笔做市成交 · {reviewSource.payload.coverage.notes.join("；")}</p>}
+        {reviewSource.mode === "error" && <p className="review-data-coverage">{reviewSource.detail}</p>}
         <ReviewStageMetrics data={sectionSeven} startAt={visibleMarket.reviewWindow === undefined ? visibleMarket.startAt : visibleMarket.reviewWindow?.startAt ?? ""} endAt={visibleMarket.reviewWindow === undefined ? visibleMarket.endAt : visibleMarket.reviewWindow?.endAt ?? ""} />
 
       </section>
-      <ReviewPnlAnalysis data={sectionSeven} marketCount={markets.length} />
+      <ReviewPnlAnalysis data={sectionSeven} marketCount={accountMarkets.length} accountMarkets={accountMarkets} refreshKey={refreshKey} live={reviewSource.mode !== "mock"} />
 
     </section>
   );
