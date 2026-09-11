@@ -1,6 +1,36 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { aggregatePnl, aggregateLifecyclePnl } from "../app/review-section-seven-data.ts";
+
+test("section 7 totals reconcile without adding phase exposure snapshots", () => {
+  const rows = [
+    { marketId: "a", phase: "开盘", spreadPnl: 2, exposurePnl: -4, volume: 20, endingExposure: 6, maxExposure: 8 },
+    { marketId: "a", phase: "盘中", spreadPnl: 3, exposurePnl: 1, volume: 30, endingExposure: 4, maxExposure: 10 },
+    { marketId: "a", phase: "尾盘", spreadPnl: 1, exposurePnl: -2, volume: 10, endingExposure: 1, maxExposure: 4 },
+    { marketId: "b", phase: "尾盘", spreadPnl: 2, exposurePnl: 0, volume: 15, endingExposure: -2, maxExposure: 3 },
+  ];
+  const result = aggregateLifecyclePnl(rows);
+  assert.equal(result.totalPnl, 3);
+  assert.equal(result.spreadPnl + result.exposurePnl, result.totalPnl);
+  assert.equal(result.volume, 75);
+  assert.equal(result.endingExposure, -1);
+  assert.equal(result.maxExposure, 13);
+  assert.equal(aggregatePnl(rows.filter(row => row.phase === "尾盘")).totalPnl, 1);
+  assert.equal(aggregateLifecyclePnl([]).totalPnl, 0);
+});
+
+test("section 7 replaces phase metrics and makes PnL a peer review area", async () => {
+  const component = await readFile(new URL("../app/review-section-seven.tsx", import.meta.url), "utf8");
+  const definitions = ["开盘毒性率", "风险承担结构", "报价更新速度", "库存不平衡发生时间", "订单簿健全时间占比", "用户单笔吃单的平均档位数", "回摆率", "盘口跟随延迟", "供给有效性", "反转次数", "反转时敞口", "盘口流动性结构", "减仓转化"];
+  for (const name of definitions) assert.ok(component.includes(`name: "${name}"`));
+  assert.match(component, /review-domain review-domain-pnl/);
+  assert.match(component, /Review Area 03/);
+  assert.match(component, /市场贡献/);
+  assert.match(component, /敞口来源/);
+  assert.match(component, /data\?\.metrics/);
+  assert.match(component, /缺少阶段统计/);
+});
 
 async function request(path, options = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -133,16 +163,11 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.doesNotMatch(page, /className="review-market-select"/);
   assert.match(page, /市场活跃度与成交漏斗/);
   assert.match(page, /订单流毒性/);
-  assert.match(page, /盈亏归因/);
-  assert.match(page, /盘前 · 接管与收敛/);
-  assert.match(page, /启动收敛落点分布/);
-  assert.match(page, /报价活动 × 尾盘距离/);
-  assert.match(page, /Planned 决策/);
-  assert.match(page, /尾盘 \/ 盘后 · 退出流转与库存退出/);
-  assert.match(page, /waiting_result_reduce_only_sell/);
+  assert.match(page, /ReviewStageMetrics/);
+  assert.match(page, /ReviewPnlAnalysis/);
+  assert.doesNotMatch(page, /盘前 · 接管与收敛|启动收敛落点分布|报价活动 × 尾盘距离|Planned 决策|退出流转与库存退出/);
   assert.match(page, /mm-dashboard-review\.v1/);
   assert.match(page, /REVIEW API/);
-  assert.match(page, /策略 Review API · 持久决策投影/);
   assert.match(page, /市场漏斗待接入/);
   assert.doesNotMatch(page, /开盘定价合理性/);
   assert.doesNotMatch(page, /MAE100/);
