@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ReviewStageMetrics, ReviewPnlAnalysis } from "./review-section-seven";
 import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
@@ -2414,7 +2414,8 @@ function mapDashboardHistoryPayload(payload: DashboardHistoryPayload): Market[] 
 
 export default function Home() {
   const [markets, setMarkets] = useState<Market[]>(mockCurrentMarkets);
-  const [historicalMarkets, setHistoricalMarkets] = useState<Market[]>(mockHistoricalMarkets);
+  const [historicalMarkets, setHistoricalMarkets] = useState<Market[]>([]);
+  const hasLiveData=useRef(false);
   const [dataSource, setDataSource] = useState<DataSourceState>({
     mode: "loading",
     label: "LOADING",
@@ -2464,6 +2465,7 @@ export default function Home() {
         const payload = await response.json() as DashboardRealtimePayload;
         const nextMarkets = mapDashboardPayload(payload);
         if (cancelled) return;
+        hasLiveData.current=true;
         if(nextMarkets.length) setMarkets(nextMarkets);
         setDataSource({
           mode: "api",
@@ -2507,6 +2509,10 @@ export default function Home() {
         }
       } catch (error) {
         if (cancelled) return;
+        if(hasLiveData.current) {
+          setDataSource({mode:'api',label:'API',detail:'刷新暂不可用，保留上次读取的真实数据与结束快照'});
+          return;
+        }
         setMarkets(mockCurrentMarkets);
         setHistoricalMarkets(mockHistoricalMarkets);
         setActiveId((current) => mockCurrentMarkets.some((marketItem) => marketItem.id === current) ? current : mockCurrentMarkets[0].id);
