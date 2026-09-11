@@ -128,6 +128,7 @@ type Market = {
   liquidity: number;
   startAt: string;
   endAt: string;
+  reviewWindow?: { startAt: string; endAt: string } | null;
   endInMinutes: number;
   lifecycle?: MarketLifecycleInfo;
   isHistorical?: boolean;
@@ -2228,6 +2229,8 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number, isHistoric
     now - 4 * 60 * MINUTE_MS,
   );
   const endAt = isoTime(item.lifecycle?.end_time, now + 2 * 60 * MINUTE_MS);
+  const reviewStartAt = optionalIsoTime(item.lifecycle?.start_time) ?? optionalIsoTime(item.lifecycle?.create_time);
+  const reviewEndAt = optionalIsoTime(item.lifecycle?.end_time);
   const riskStatus = statusValue(item.quote_state?.risk_status);
   const quoteMode = statusValue(item.quote_state?.quote_mode ?? item.quote_state?.risk_status);
   const bestBid = numberValue(item.orderbook_quality?.best_bid) ?? 0;
@@ -2332,6 +2335,7 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number, isHistoric
     liquidity,
     startAt,
     endAt,
+    reviewWindow: reviewStartAt && reviewEndAt ? { startAt: reviewStartAt, endAt: reviewEndAt } : null,
     endInMinutes: endMinutes(endAt),
     lifecycle: {
       settlementPhase: phase,
@@ -3112,7 +3116,7 @@ function ReviewDashboard({
               </ResponsiveContainer>
             </div></> : <ReviewUnavailable title="订单流毒性待接入" detail="需要后端提供完整成交序列、成交方向，以及成交后 1 分钟的价格基准。" />}
           </div>
-        <ReviewStageMetrics data={sectionSeven} />
+        <ReviewStageMetrics data={sectionSeven} startAt={visibleMarket.reviewWindow === undefined ? visibleMarket.startAt : visibleMarket.reviewWindow?.startAt ?? ""} endAt={visibleMarket.reviewWindow === undefined ? visibleMarket.endAt : visibleMarket.reviewWindow?.endAt ?? ""} />
 
       </section>
       <ReviewPnlAnalysis data={sectionSeven} marketCount={markets.length} />

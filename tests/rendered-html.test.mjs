@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { aggregatePnl, aggregateLifecyclePnl } from "../app/review-section-seven-data.ts";
+import { aggregatePnl, aggregateLifecyclePnl, marketReviewWindows, phaseDefinition } from "../app/review-section-seven-data.ts";
+
+test("review windows follow the scheduled market lifespan without requiring trades", () => {
+  const startAt = "2026-09-11T10:00:00+08:00";
+  const endAt = "2026-09-11T11:00:00+08:00";
+  const windows = marketReviewWindows(startAt, endAt);
+  assert.deepEqual(windows.map(row => row.phase), ["开盘", "盘中", "尾盘"]);
+  assert.deepEqual(windows.map(row => (row.end - row.start) / 60000), [12, 36, 12]);
+  assert.equal(windows[0].start, Date.parse(startAt));
+  assert.equal(windows[2].end, Date.parse(endAt));
+  assert.equal(windows[0].end, windows[1].start);
+  assert.equal(windows[1].end, windows[2].start);
+  assert.equal(marketReviewWindows("", endAt), null);
+  assert.equal(marketReviewWindows(startAt, startAt), null);
+  assert.equal(marketReviewWindows(endAt, startAt), null);
+  assert.match(phaseDefinition, /市场开始时间至计划结束时间/);
+});
 
 test("section 7 totals reconcile without adding phase exposure snapshots", () => {
   const rows = [
