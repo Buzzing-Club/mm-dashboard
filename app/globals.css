@@ -1848,6 +1848,11 @@ h3 {
 .review-seven-chart { height: 150px; width: 100%; min-width: 0; margin-top: 16px; }
 .review-chart-unit { display: block; margin-top: 12px; color: var(--muted); font-size: 11px; }
 .review-seven-definition { cursor: help; text-decoration: underline dotted #7e8796; text-underline-offset: 4px; }
+.review-metric-details { margin: 12px 0 0; font-size: 12px; }
+.review-metric-details > div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.review-metric-details dt { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+.review-metric-details dd { margin: 0; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.review-data-coverage { color: #939daa; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; margin: 8px 0 12px; }
 .review-stage-section .review-phase-header h3 { font-size: 20px; }
 .review-seven-empty { min-height: 70px; padding: 20px 0; color: var(--muted); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .review-pnl-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
