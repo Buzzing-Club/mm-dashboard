@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, LineChart } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { aggregateLifecyclePnl, aggregatePnl, phaseDefinition, reviewPhases, type MetricId, type SectionSevenData, type ReviewPhase } from "./review-section-seven-data";
+import { aggregateLifecyclePnl, aggregatePnl, marketReviewWindows, phaseDefinition, reviewPhases, type MetricId, type SectionSevenData, type ReviewPhase } from "./review-section-seven-data";
 
 type MetricDefinition = { id: MetricId; name: string; unit: string; definition: string; source: string };
 export const stageMetrics: Array<{ id: string; phase: string; range: string; goal: string; metrics: MetricDefinition[] }> = [
@@ -11,7 +11,7 @@ export const stageMetrics: Array<{ id: string; phase: string; range: string; goa
     { id: "toxicity", name: "开盘毒性率", unit: "%", definition: "阶段内成交后发生不利漂移的确认成交笔数 / 该阶段确认成交笔数；与盘中毒性率并排比较。不利判定遵循 RecentFillToxicity。只统计做市角色，排除刷量成交。", source: "RecentFillToxicity 逐笔判定 + fills_total，按阶段汇总" },
     { id: "exposureTime", name: "风险承担结构", unit: "sh·h", definition: "逐 tick 累加 |净敞口| × 持有时长，按开盘、盘中、尾盘分桶；单位为股·小时。开盘占比 = 开盘敞口时间 / 全生命周期敞口时间。", source: "库存 q × tick 时间差，按阶段累计" },
     { id: "requoteLatency", name: "报价更新速度", unit: "ms P95", definition: "成交发生到更新后的报价中心确认挂出的端到端耗时分布，比较开盘和盘中 P50/P95。包含成交处理、决策、对账和挂撤单，不用挂撤单耗时代替全链路。", source: "on_my_fill 时间戳 → _sync_quotes 确认" },
-    { id: "firstImbalance", name: "库存不平衡发生时间", unit: "% 生命周期", definition: "首次满足 |净仓| > 15 shares 且单边持仓占比 > 90% 的时间，减首笔成交时间，再除以首末成交时间跨度。阈值可配置；未触发不是 0，显示无样本。", source: "逐 tick 持仓、首次阈值越界时间、首末成交时间" },
+    { id: "firstImbalance", name: "库存不平衡发生时间", unit: "% 生命周期", definition: "市场运行期间首次满足 |净仓| > 15 shares 且单边持仓占比 > 90% 的时间，减市场开始时间，再除以市场开始至计划结束的时间跨度；开始时间缺失时使用创建时间。阈值可配置；未触发不是 0，显示无样本。", source: "逐 tick 持仓、首次阈值越界时间、市场起止时间" },
   ] },
   { id: "intraday", phase: "盘中", range: "20–80%", goal: "充足流动性、避免不合理波动、快速跟随定价", metrics: [
     { id: "healthyBook", name: "订单簿健全时间占比", unit: "%", definition: "NORMAL 模式下双边有单的累计时长 / 盘中总时长；同时展示单边、空盘和非 NORMAL 时间。不是盘口快照数量占比。", source: "覆盖状态持续时间，按生命周期分桶" },
@@ -32,12 +32,14 @@ function Definition({ children, text }: { children: React.ReactNode; text: strin
   return <span className="review-seven-definition" title={text} aria-description={text} tabIndex={0}>{children}</span>;
 }
 
-export function ReviewStageMetrics({ data }: { data: SectionSevenData | null }) {
+export function ReviewStageMetrics({ data, startAt, endAt }: { data: SectionSevenData | null; startAt: string; endAt: string }) {
+  const windows = marketReviewWindows(startAt, endAt);
+  const formatTime = (value: number) => new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
   return <div className="review-phases">
     {stageMetrics.map((stage, index) => <section className="review-stage-section" id={`review-${stage.id}`} key={stage.id} aria-labelledby={`stage-${stage.id}`}>
       <header className="review-phase-header">
         <span className="review-phase-index">{String(index + 1).padStart(2, "0")}</span>
-        <div><small><Definition text={phaseDefinition}>{stage.range} · 交易生命周期</Definition></small><h3 id={`stage-${stage.id}`}>{stage.phase}</h3><p>{stage.goal}</p></div>
+        <div><small><Definition text={`${phaseDefinition}\n${windows ? `阶段时间（UTC+8）：${formatTime(windows[index].start)} 至 ${formatTime(windows[index].end)}` : "市场起止时间待补充"}`}>{stage.range} · 市场生命周期</Definition></small><h3 id={`stage-${stage.id}`}>{stage.phase}</h3><p>{stage.goal}</p></div>
       </header>
       <div className="review-seven-grid">
         {stage.metrics.map((metric) => {
