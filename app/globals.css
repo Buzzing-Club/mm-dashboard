@@ -1915,6 +1915,14 @@ h3 {
 .review-pnl-detail-title { font-size: 16px; margin-top: 20px; }
 .review-backend-panel { min-width: 0; border-top: 1px solid var(--line); padding-top: 20px; }
 .review-backend-panel h3 { font-size: 16px; overflow-wrap: anywhere; }
+.review-phase-portfolio { min-width: 0; border-block: 1px solid var(--line); padding-block: 20px; margin-bottom: 20px; }
+.review-portfolio-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.review-portfolio-heading h3 { font-size: 16px; }
+.review-portfolio-heading > div { display: flex; gap: 8px; flex-shrink: 0; }
+.review-portfolio-heading button { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--cyan); cursor: pointer; }
+.review-portfolio-heading button:disabled { opacity: .5; cursor: default; }
+.review-phase-portfolio .review-seven-table td:last-child { max-width: 400px; white-space: normal; overflow-wrap: anywhere; }
+.review-account-pnl > .review-seven-table-wrap { max-height: 330px; overflow: auto; }
 .review-settlement { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
 .review-settlement-hash { font-family: monospace; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .review-settlement-events { list-style: none; padding: 0 0 0 12px; border-left: 1px solid var(--line-strong); }

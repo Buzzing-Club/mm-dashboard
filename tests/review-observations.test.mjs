@@ -1,0 +1,29 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {mergeReviewObservations} from '../app/review-observations.ts';
+const payload=()=>({condition_id:'a',section_seven:{metrics:{},pnl:null},coverage:{notes:[]}});
+const bounds={start:100000,end:200000};
+const job={account_id:1,revision:2};
+const capture=()=>({contract_version:'mm-review-observations.v1',items:[{condition_id:'a',account_id:1,revision:2,job_type:'market_maker',observation_failed:false,observations:{contract_version:'mm-review-observations.v1',start_time:100,end_time:200,coverage:{phase_bounds_valid:true,observed_from:110,observed_through:190},phases:{opening:{toxicity_pct:25,toxicity_coverage_pct:100,requote:{p50_ms:100,p95_ms:200,sample_count:8}},intraday:{recross_pct:40,recross_eligible:10,healthy_book_pct:80,observed_seconds:50,book_healthy_seconds:40,supply_conversion_pct:5,planned_orders:100,fills:5,follow:{p50_ms:200,p95_ms:800,sample_count:10}}}}}]});
+test('six actor observation metrics map with account/revision and partial coverage semantics',()=>{
+  const r=mergeReviewObservations(payload(),capture(),job,bounds).section_seven.metrics;
+  assert.equal(r.toxicity.value,25);assert.equal(r.requoteLatency.value,200);assert.equal(r.recross.value,40);
+  assert.equal(r.healthyBook.value,80);assert.equal(r.supplyConversion.value,5);assert.equal(r.followLatency.value,800);
+  assert.match(r.followLatency.note,/上界/);assert.match(r.healthyBook.note,/不是完整生命周期/);
+});
+test('missing bounds, failed capture, ambiguous revisions and other accounts are rejected',()=>{
+  for(const mutate of [x=>x.items[0].account_id=2,x=>x.items[0].observation_failed=true,x=>x.items.push(x.items[0]),x=>x.items[0].observations.start_time=0]){
+    const c=capture();mutate(c);const p=mergeReviewObservations(payload(),c,job,bounds);assert.deepEqual(p.section_seven.metrics,{});assert.ok(p.coverage.notes.length);
+  }
+});
+test('unique active runtime revision remains visible with desired revision drift explicitly marked',()=>{
+  const c=capture();c.items[0].revision=1;
+  const p=mergeReviewObservations(payload(),c,job,bounds);
+  assert.equal(p.section_seven.metrics.toxicity.value,25);
+  assert.match(p.coverage.notes[0],/实际运行 revision 1/);
+});
+test('unclassified toxicity stays null and empty phase is not zero',()=>{
+  const c=capture();c.items[0].observations.phases.opening.toxicity_pct=null;
+  const p=mergeReviewObservations(payload(),c,job,bounds);assert.equal(p.section_seven.metrics.toxicity.value,null);assert.deepEqual(p.section_seven.metrics.toxicity.observations,[]);assert.match(p.section_seven.unavailable.toxicity,/无成熟样本/);
+  assert.equal(p.section_seven.metrics.toxicity.details[0].value,100);
+});

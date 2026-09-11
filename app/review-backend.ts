@@ -8,10 +8,18 @@ export type BackendReview = {
   complete: boolean; notes: string[]; classificationVersions: string[];
   fills: number; userOrders: number; quoteFills: number; selfLegs: number; quotedSelfLegs: number;
   levelsMetric: SectionSevenMetric | null;
+  valuations: PhaseValuation[];
   ledger: { rows: number; realized: number | null; fees: number | null; claims: number | null; splits: number | null; merges: number | null };
   phases: Array<{ phase: string; spread: number | null; quotedLegs: number; totalLegs: number; exposure: number | null; realized: number | null }>;
   lots: Array<{ phase: string; outcome: string; quantity: number; entryPrice: number; exitPrice: number; pnl: number }>;
   settlement: { chainId: string; status: string; tx: string; timeline: Array<{ at: string; phase: string; outcome: string; tx: string }> };
+};
+
+export type PhaseValuation = {
+  phase:string; at:string; phaseComplete:boolean; yes:number|null; no:number|null;
+  cash:number|null; holdingsValue:number|null; unrealized:number|null;
+  cumulativePnl:number|null; phasePnl:number|null;
+  markYes:number|null; markAt:string|null; markSource:string; reason:string;
 };
 
 const text = (value: unknown) => String(value ?? '');
@@ -147,7 +155,70 @@ export function buildBackendReview(input: BackendReviewInput): BackendReview {
     conditionId,title:text(market.question || event.title || conditionId),asOf:new Date(now).toISOString(),
     complete:input.fills.complete && input.ledger.complete, notes,classificationVersions:input.fills.versions,
     fills:fills.length,userOrders:orderSamples.length,quoteFills:fills.filter(row => map(row.quote).has_quote === true && finite(map(row.quote).mid) !== null).length,selfLegs,quotedSelfLegs,
-    levelsMetric,ledger:summary,phases,lots:reliable ? lots.slice(0,500) : [],
+    levelsMetric,valuations:buildPhaseValuations(input),ledger:summary,phases,lots:reliable ? lots.slice(0,500) : [],
     settlement:{chainId:text(settlement.chain_id),status:text(settlement.report_status),tx:text(settlement.report_tx_hash),timeline:rows(settlement.timeline).slice(-100).map(row=>({at:text(row.created_at),phase:text(row.to_settlement_phase),outcome:text(row.outcome),tx:text(row.report_tx_hash)}))},
   };
+}
+
+export function buildPhaseValuations(input:BackendReviewInput):PhaseValuation[] {
+  const market=map(input.market.market), event=map(input.market.event);
+  const start=epochMs(market.start_time)??epochMs(event.start_date)??epochMs(market.create_time)??epochMs(event.create_time);
+  const end=epochMs(market.market_end_date)??epochMs(event.end_date);
+  if(start===null || end===null || end<=start) return [];
+  const windows=marketReviewWindows(new Date(start).toISOString(),new Date(end).toISOString())!;
+  const sourceValid=input.ledger.available && input.ledger.complete && input.ledger.items.every(row=>row.entry_id && ns(row.timestamp_ns)!==null && text(row.condition_id).toLowerCase()===input.conditionId.toLowerCase() && ['success','failed','pending','init','settlement_abandoned'].includes(text(row.status)));
+  const ledger=orderedFacts(input.ledger.items,'entry_id').filter(row=>row.status==='success');
+  const prices:Array<{at:number;price:number;source:string}>=[];
+  for(const row of orderedFacts(input.fills.items,'id')) {
+    if(!['init','pending','success'].includes(text(row.status))) continue;
+    const taker=map(row.taker), quote=map(row.quote), mid=finite(quote.mid), price=finite(taker.price);
+    if(!['yes','no'].includes(text(taker.outcome))) continue;
+    if(price!==null && price>=0 && price<=1) prices.push({at:at(row)!,price:taker.outcome==='yes'?price:1-price,source:row.wash_flag==='none'?'市场成交价':'内部成交价（近似）'});
+    const quoteNs=ns(quote.observed_at_ns);
+    if(quote.has_quote===true && quote.reference_timing==='pre_batch' && mid!==null && mid>0 && mid<1 && quoteNs!==null) prices.push({at:Number(quoteNs/BigInt(1_000_000)),price:taker.outcome==='yes'?mid:1-mid,source:'pre_batch mid'});
+  }
+  for(const row of ledger) {
+    const price=finite(row.price);
+    if(['buy','sell'].includes(text(row.type)) && ['yes','no'].includes(text(row.outcome)) && price!==null && price>=0 && price<=1) prices.push({at:at(row)!,price:row.outcome==='yes'?price:1-price,source:'账户成交价（近似）'});
+  }
+  prices.sort((a,b)=>a.at-b.at || Number(a.source==='pre_batch mid')-Number(b.source==='pre_batch mid'));
+  const snapshot=(target:number):Omit<PhaseValuation,'phase'|'phasePnl'|'phaseComplete'>=>{
+    const base={at:new Date(target).toISOString(),yes:null,no:null,cash:null,holdingsValue:null,unrealized:null,cumulativePnl:null,markYes:null,markAt:null,markSource:'无估值',reason:''};
+    if(!sourceValid) return {...base,reason:'账户账本未完整读取，不能重建库存和现金流'};
+    const pools=new Map<string,{quantity:number;cost:number;outcome:string}>();
+    let cash=0;
+    for(const row of ledger) {
+      if(at(row)!>=target) break;
+      const type=text(row.type);
+      if(type==='claim') continue; // win/lose already recognize the receivable.
+      const quantity=raw6(row.quantity), value=raw6(row.value), fee=['buy','sell'].includes(type)?raw6(row.fee_amount):0;
+      if(!['buy','sell','split','merge','win','lose'].includes(type) || !row.position_id || !row.ownership_type || !['yes','no'].includes(text(row.outcome)) || quantity===null || quantity<0 || value===null || value<0 || fee===null || fee<0) return {...base,reason:'账本数量、金额或资金归属不完整'};
+      const key=[row.position_id,row.ownership_type,row.funding_account_type??'',row.funding_account_id??''].join(':');
+      const pool=pools.get(key)??{quantity:0,cost:0,outcome:text(row.outcome)};
+      if(type==='buy' || type==='split') {pool.quantity+=quantity;pool.cost+=value+fee;cash-=value+fee;}
+      else {
+        if(quantity>pool.quantity+1e-6) return {...base,reason:'处置数量超过可追溯库存，可能缺少历史来源'};
+        pool.cost=pool.quantity>0?pool.cost*Math.max(0,pool.quantity-quantity)/pool.quantity:0;
+        pool.quantity=Math.max(0,pool.quantity-quantity);cash+=value-fee;
+      }
+      pools.set(key,pool);
+    }
+    let yes=0,no=0,cost=0;
+    for(const pool of pools.values()) {if(pool.outcome==='yes') yes+=pool.quantity;else no+=pool.quantity;cost+=pool.cost;}
+    const mark=prices.filter(row=>row.at<target).at(-1);
+    const neutral=Math.abs(yes-no)<1e-6;
+    if(!neutral && !mark) return {...base,yes,no,cash,reason:'阶段末之前没有可用价格；不使用之后的成交倒填'};
+    const holdingsValue=neutral?Math.min(yes,no):yes*mark!.price+no*(1-mark!.price);
+    return {at:base.at,yes,no,cash,holdingsValue,unrealized:holdingsValue-cost,cumulativePnl:cash+holdingsValue,markYes:mark?.price??null,markAt:mark?new Date(mark.at).toISOString():null,markSource:neutral?(yes+no<1e-6?'无剩余库存':'YES+NO 配对兑付恒等式'):mark!.source,reason:neutral?'':'历史参考价格近似估值，价格时间与阶段末可能存在间隔'};
+  };
+  let previous=snapshot(start).cumulativePnl;
+  const result:PhaseValuation[]=[];
+  const stages=[...windows,...(input.now>end?[{phase:'盘后' as const,start:end,end:input.now}]:[])];
+  for(const window of stages) {
+    if(input.now<=window.start) {result.push({...snapshot(window.start),phase:window.phase,phaseComplete:false,yes:null,no:null,cash:null,holdingsValue:null,unrealized:null,cumulativePnl:null,phasePnl:null,reason:'该阶段尚未开始'});continue;}
+    const value=snapshot(Math.min(window.end,input.now));
+    result.push({...value,phase:window.phase,phaseComplete:window.phase!=='盘后' && input.now>=window.end,phasePnl:value.cumulativePnl!==null && previous!==null?value.cumulativePnl-previous:null});
+    previous=value.cumulativePnl;
+  }
+  return result;
 }

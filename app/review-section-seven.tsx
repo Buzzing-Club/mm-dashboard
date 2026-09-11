@@ -6,6 +6,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Too
 import { aggregateLifecyclePnl, aggregatePnl, marketReviewWindows, phaseDefinition, reviewPhases, type MetricId, type SectionSevenData, type ReviewPhase } from "./review-section-seven-data";
 import { ReviewAccountPnl } from "./review-account-pnl";
 import { ReviewBackendPanel } from "./review-backend-panel";
+import { ReviewPhasePortfolio } from "./review-phase-portfolio";
 
 type MetricDefinition = { id: MetricId; name: string; unit: string; definition: string; source: string; example?: string };
 export const stageMetrics: Array<{ id: string; phase: string; range: string; goal: string; metrics: MetricDefinition[] }> = [
@@ -49,7 +50,7 @@ export function ReviewStageMetrics({ data, startAt, endAt }: { data: SectionSeve
           return <article className="review-seven-metric" key={metric.id}>
             <div className="review-metric-heading">
             <h4><Definition text={`${metric.definition}${metric.example ? `\n举例：${metric.example}` : ""}\n数据来源：${metric.source}`}>{metric.name}</Definition></h4>
-            <div className="review-seven-value"><strong>{sample?.value != null ? Number(sample.value.toFixed(2)) : sample ? "不可计算" : "待接入"}</strong><small>{sample ? metric.unit : "缺少阶段统计"}</small></div>
+            <div className="review-seven-value"><strong>{sample?.value != null ? Number(sample.value.toFixed(2)) : sample ? (sample.observations.length ? "不可计算" : "暂无样本") : "待接入"}</strong><small>{sample ? metric.unit : "缺少阶段统计"}</small></div>
             {sample?.note && <p className="review-data-coverage" title={sample.note}>{sample.precision === "sampled" ? "采样估算 · " : ""}{sample.note}</p>}
             </div>
             <div className={`review-metric-plots${sample?.exposureSeries?.length ? " paired" : ""}`}>
@@ -95,10 +96,11 @@ export function ReviewPnlAnalysis({ data, marketCount, accountMarkets, refreshKe
     return { id, market: entries[0].market, ...aggregatePnl(entries) };
   }).sort((a, b) => Math.abs(b[selected.measure] ?? 0) - Math.abs(a[selected.measure] ?? 0));
   const maxAbsolute = Math.max(0, ...contributions.map((row) => Math.abs(row[selected.measure] ?? 0)));
-  if (live && data?.backend) return <section className="review-domain review-domain-pnl" aria-labelledby="review-pnl-title">
+  if (live) return <section className="review-domain review-domain-pnl" aria-labelledby="review-pnl-title">
     <div className="review-domain-header"><span className="review-domain-icon"><LineChart size={19} /></span><div><p className="section-label">Review Area 03</p><h2 id="review-pnl-title">PnL 分析</h2><small>账户汇总与单市场归因</small></div></div>
     <ReviewAccountPnl markets={accountMarkets ?? []} refreshKey={refreshKey} enabled={live} />
-    <ReviewBackendPanel data={data.backend} />
+    <ReviewPhasePortfolio markets={accountMarkets ?? []} />
+    {data?.backend && <ReviewBackendPanel data={data.backend} />}
   </section>;
   return <section className="review-domain review-domain-pnl" aria-labelledby="review-pnl-title">
     <div className="review-domain-header">

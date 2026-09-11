@@ -41,6 +41,8 @@ Preview 服务部署在策略 Preview 主机：
 
 该发布给 Dashboard 容器设置 768 MiB 内存上限和 Node 512 MiB 堆上限。该限制不作用于 MM 服务。回退时停止新容器，启动上述旧容器即可恢复同一 localhost:3001 端口；避免同时启动占用同一端口。
 
+后续阶段聚合版本发布目录为 `/opt/mm-dashboard-review-phases-20260911`，沿用上述凭据、依赖及内存限制。候选在 localhost:3002 验证后切到3001，保留前一版容器为 `mm-dashboard-preview-before-phases-20260911`。部署时核对容器 revision 标签和 Mounts；阶段 PnL 只在用户主动开始时顺序聚合，不设置定时全市场任务。实际发布状态以 PR 验证评论为准。
+
 `dashboard.env` 至少包含以下变量，文件不得提交：
 
 ```text
