@@ -517,6 +517,37 @@ h3 {
   gap: 6px;
 }
 
+.market-scope-filters {
+  display: inline-flex;
+  width: max-content;
+}
+
+.market-scope-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 112px;
+  justify-content: center;
+}
+
+.market-scope-filters button.active:last-child {
+  color: var(--amber);
+}
+
+.snapshot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(255, 176, 32, 0.42);
+  border-radius: 5px;
+  background: rgba(255, 176, 32, 0.1);
+  color: var(--amber);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+
 .category-filters button b {
   color: var(--muted);
   font-family: var(--font-mono);

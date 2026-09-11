@@ -40,6 +40,7 @@ Preview 服务部署在策略 Preview 主机：
 
 ```text
 STRATEGY_DASHBOARD_API
+STRATEGY_DASHBOARD_HISTORY_API  # 可选；默认由 realtime 地址推导
 OPENAPI_BASE_URL
 OPENAPI_API_KEY
 OPENAPI_API_SECRET
@@ -61,6 +62,7 @@ npm run build
 完成构建后重启 `mm-dashboard-preview`，并分别验证：
 
 - `/api/dashboard/realtime`
+- `/api/dashboard/history`
 - `/api/dashboard/review?condition_id=<condition_id>`
 - 实时看板的类别和状态筛选
 - Review 的市场搜索、类别筛选及单市场切换
@@ -83,6 +85,7 @@ Vercel 项目的 Production Branch 应设置为 `vercel-mock`。该环境不配�
 后端主要维护 Dashboard 的服务端聚合层：
 
 - `app/api/dashboard/realtime`
+- `app/api/dashboard/history`
 - `app/api/dashboard/market-realtime`
 - `app/api/dashboard/market-realtime-batch`
 - `app/api/dashboard/market-history`
