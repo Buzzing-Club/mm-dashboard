@@ -1847,6 +1847,8 @@ h3 {
 .review-seven-value small { color: var(--muted); font-size: 12px; }
 .review-seven-chart { height: 150px; width: 100%; min-width: 0; margin-top: 16px; }
 .review-chart-unit { display: block; margin-top: 12px; color: var(--muted); font-size: 11px; }
+.review-seven-definition { cursor: help; text-decoration: underline dotted #7e8796; text-underline-offset: 4px; }
+.review-stage-section .review-phase-header h3 { font-size: 20px; }
 .review-seven-empty { min-height: 70px; padding: 20px 0; color: var(--muted); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .review-pnl-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
 .review-pnl-summary > div { display: grid; gap: 12px; padding: 20px 12px; }
