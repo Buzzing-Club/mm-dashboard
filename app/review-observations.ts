@@ -7,7 +7,7 @@ export function mergeReviewObservations(payload: ReviewFactsPayload, raw: unknow
   const json=map(raw);
   const reject=(reason:string)=>{payload.coverage.notes.push(`策略观测：${reason}`);return payload;};
   if(json.contract_version!=='mm-review-observations.v1') return reject('接口不可用或版本不支持');
-  const candidates=rows(json.items).filter(row=>row.condition_id===payload.condition_id && String(row.account_id)===String(job.account_id) && row.job_type==='market_maker');
+  const candidates=rows(json.items).filter(row=>row.condition_id===payload.condition_id && String(row.account_id)===String(job.account_id) && row.job_type==='market_maker' && (row.job_id==null || job.job_id==null || String(row.job_id)===String(job.job_id)));
   if(candidates.length!==1) return reject('没有唯一匹配的账户/任务版本观测，不合并其他账户或版本');
   const item=candidates[0], capture=map(item.observations), coverage=map(capture.coverage);
   if(job.revision!==undefined && String(job.revision)!==String(item.revision)) payload.coverage.notes.push(`观测来自实际运行 revision ${String(item.revision)}；配置期望 revision ${String(job.revision)}，未合并两个版本。`);
@@ -16,7 +16,8 @@ export function mergeReviewObservations(payload: ReviewFactsPayload, raw: unknow
   const from=epochMs(coverage.observed_from), through=epochMs(coverage.observed_through);
   if(from===null || through===null || through<from) return reject('尚无有效观察时间窗');
   const data=phases.map(phase=>map(map(capture.phases)[phase]));
-  const context=`账户 ${String(item.account_id)} / revision ${String(item.revision)}；${new Date(from).toISOString()} 至 ${new Date(through).toISOString()}，仅捕获区间；重启或任务移除会重置。`;
+  const durable=capture.source==='durable_review_aggregates';
+  const context=`账户 ${String(item.account_id)} / revision ${Array.isArray(item.revisions)?item.revisions.join(', '):String(item.revision)}；${new Date(from).toISOString()} 至 ${new Date(through).toISOString()}，仅捕获区间；${durable?`历史累计 ${finite(coverage.capture_count)??0} 段，已落盘 ${finite(coverage.saved_capture_count)??0} 段，运行段间空档 ${finite(coverage.between_capture_gap_seconds)??0} 秒；${coverage.history_capped?'历史读取已截断。':'已接持久化读取。'}`:'当前内存观测，未确认持久化。'}`;
   payload.coverage.notes.push(context);
   const add=(id:MetricId, value:number|null, observations:SectionSevenMetric['observations'], note:string, unit:string, details:SectionSevenMetric['details']=[])=>{
     // Do not replace useful durable samples with an empty capture.
@@ -25,9 +26,10 @@ export function mergeReviewObservations(payload: ReviewFactsPayload, raw: unknow
       if(payload.section_seven.metrics[id]) return;
     }
     payload.section_seven.metrics[id]={value,observations,precision:'sampled',observationUnit:unit,note:`${note} ${context}`,details};
+    if(value!==null || observations.length) delete payload.section_seven.unavailable?.[id];
   };
   const series=(field:string)=>data.flatMap((row,i)=>finite(row[field])===null?[]:[{label:names[i],value:finite(row[field])!}]);
-  add('toxicity',finite(data[0].toxicity_pct),series('toxicity_pct').filter(row=>row.label!=='尾盘'),'30 秒不利漂移确认；该阶段捕获成交全部完成分类后才给毒性率。','毒性率 (%)',data.flatMap((row,i)=>[{label:`${names[i]} 已分类覆盖率`,value:finite(row.toxicity_coverage_pct),unit:'%'}]));
+  add('toxicity',finite(data[0].toxicity_pct),series('toxicity_pct').filter(row=>row.label!=='尾盘'),durable?'30 秒不利漂移确认；按已完成分类的成交计算，分类覆盖率单列，未完成窗口不算零。':'30 秒不利漂移确认；该阶段捕获成交全部完成分类后才给毒性率。','毒性率 (%)',data.flatMap((row,i)=>[{label:`${names[i]} 已分类覆盖率`,value:finite(row.toxicity_coverage_pct),unit:'%'}]));
   const directionDetails=data.flatMap((row,i)=>['BUY','SELL'].map(side=>{
     const count=finite(row[`recross_${side.toLowerCase()}_count`]), total=finite(row[`recross_${side.toLowerCase()}_eligible`]);
     return {label:`${names[i]} ${side==='BUY'?'买入':'卖出'}回摆率`,value:total!==null&&total>0&&count!==null?100*count/total:null,unit:'%'};
@@ -40,7 +42,7 @@ export function mergeReviewObservations(payload: ReviewFactsPayload, raw: unknow
   for(const [id,kind,index] of [['requoteLatency','requote',0],['followLatency','follow',1]] as const) {
     const stats=data.map(row=>map(row[kind]));
     const samples=stats.flatMap((row,i)=>['p50_ms','p95_ms'].flatMap(field=>finite(row[field])===null?[]:[{label:`${names[i]} ${field.slice(0,3).toUpperCase()}`,value:finite(row[field])!}]));
-    add(id,finite(stats[index].p95_ms),samples,'策略 actor 观测触发至变化报价确认的耗时上界，最新 128 个完成样本；不含外部源发布时间和分层网络耗时。','耗时 (ms)',stats.map((row,i)=>({label:`${names[i]} 确认样本`,value:finite(row.sample_count),unit:'个'})));
+    add(id,finite(stats[index].p95_ms),samples,durable?'累计耗时直方图合并后计算 P50/P95，值为桶上界；策略 actor 触发到变化报价确认，不含分层网络耗时。':'策略 actor 观测触发至变化报价确认的耗时上界；不含外部源发布时间和分层网络耗时。','耗时 (ms)',stats.map((row,i)=>({label:`${names[i]} 确认样本`,value:finite(row.sample_count),unit:'个'})));
   }
   const first=finite(capture.first_imbalance_pct);
   const oldFirst=payload.section_seven.metrics.firstImbalance?.value;
