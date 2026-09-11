@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ReviewStageMetrics, ReviewPnlAnalysis } from "./review-section-seven";
 import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
@@ -2414,7 +2414,8 @@ function mapDashboardHistoryPayload(payload: DashboardHistoryPayload): Market[] 
 
 export default function Home() {
   const [markets, setMarkets] = useState<Market[]>(mockCurrentMarkets);
-  const [historicalMarkets, setHistoricalMarkets] = useState<Market[]>(mockHistoricalMarkets);
+  const [historicalMarkets, setHistoricalMarkets] = useState<Market[]>([]);
+  const hasLiveData=useRef(false);
   const [dataSource, setDataSource] = useState<DataSourceState>({
     mode: "loading",
     label: "LOADING",
@@ -2463,12 +2464,9 @@ export default function Home() {
         }
         const payload = await response.json() as DashboardRealtimePayload;
         const nextMarkets = mapDashboardPayload(payload);
-        if (!nextMarkets.length) {
-          throw new Error("dashboard API returned no markets");
-        }
         if (cancelled) return;
-        setMarkets(nextMarkets);
-        setActiveId((current) => nextMarkets.some((marketItem) => marketItem.id === current) ? current : nextMarkets[0].id);
+        hasLiveData.current=true;
+        if(nextMarkets.length) setMarkets(nextMarkets);
         setDataSource({
           mode: "api",
           label: "API",
@@ -2480,10 +2478,13 @@ export default function Home() {
           });
           if (!historyResponse.ok) throw new Error(`dashboard history API ${historyResponse.status}`);
           const historyPayload = await historyResponse.json() as DashboardHistoryPayload;
-          if (!cancelled) setHistoricalMarkets(mapDashboardHistoryPayload(historyPayload));
+          if (!cancelled) {
+            const history=mapDashboardHistoryPayload(historyPayload);
+            setHistoricalMarkets(history);
+            if(nextMarkets.length || history.length) setMarkets(nextMarkets);
+          }
         } catch (historyError) {
           console.warn("dashboard history unavailable", historyError);
-          if (!cancelled) setHistoricalMarkets([]);
         }
         const conditionIds = nextMarkets
           .map((marketItem) => marketItem.id)
@@ -2508,6 +2509,10 @@ export default function Home() {
         }
       } catch (error) {
         if (cancelled) return;
+        if(hasLiveData.current) {
+          setDataSource({mode:'api',label:'API',detail:'刷新暂不可用，保留上次读取的真实数据与结束快照'});
+          return;
+        }
         setMarkets(mockCurrentMarkets);
         setHistoricalMarkets(mockHistoricalMarkets);
         setActiveId((current) => mockCurrentMarkets.some((marketItem) => marketItem.id === current) ? current : mockCurrentMarkets[0].id);
@@ -2568,17 +2573,17 @@ export default function Home() {
   const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
-  const visibleMarketWithRealtime = applySingleMarketMetrics(
+  const visibleMarketWithRealtime = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketMetrics(
     visibleMarketBase,
     singleMarketMetrics[visibleMarketBase.id],
   );
-  const visibleMarket = applySingleMarketHistory(
+  const visibleMarket = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketHistory(
     visibleMarketWithRealtime,
     singleMarketHistory[visibleMarketBase.id],
   );
 
   useEffect(() => {
-    if (!visibleMarketBase?.id) return undefined;
+    if (!visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
     const controller = new AbortController();
 
     async function loadSingleMarketMetrics() {
@@ -2625,7 +2630,7 @@ export default function Home() {
 
     loadSingleMarketMetrics();
     return () => controller.abort();
-  }, [marketScope, refreshTick, timeframe, visibleMarketBase?.id]);
+  }, [marketScope, refreshTick, timeframe, visibleMarketBase?.id, visibleMarketBase?.isHistorical]);
 
   const reviewIsDemo = buildSectionSevenDemo(visibleMarketBase, []) !== null;
   useEffect(() => {
@@ -2916,7 +2921,14 @@ function emptyReviewData(): ReviewData {
 
 function mapReviewApiPayload(payload: ReviewApiPayload): ReviewData | null {
   if (payload.contract_version !== "mm-dashboard-review.v2" || !payload.section_seven || !payload.coverage) return null;
-  return emptyReviewData();
+  const review=emptyReviewData(), flow=payload.order_flow;
+  if(flow && flow.sampleCount>0 && flow.averageScore!==null && flow.favorableRate!==null) {
+    review.availability.toxicity=true;
+    review.toxicity=flow.distribution;
+    review.averageScore=Number(flow.averageScore.toFixed(3));
+    review.favorableRate=Number(flow.favorableRate.toFixed(1));
+  }
+  return review;
 }
 
 function ReviewDashboard({
@@ -2935,8 +2947,8 @@ function ReviewDashboard({
   refreshKey: number;
 }) {
   const review = useMemo(
-    () => reviewSource.mode === "mock" ? buildReviewData(visibleMarket) : emptyReviewData(),
-    [reviewSource.mode, visibleMarket],
+    () => reviewSource.mode === "mock" ? buildReviewData(visibleMarket) : reviewSource.payload?.condition_id===visibleMarket.id ? mapReviewApiPayload(reviewSource.payload)??emptyReviewData() : emptyReviewData(),
+    [reviewSource, visibleMarket],
   );
   const [reviewFocus, setReviewFocus] = useState<"all" | "premarket" | "intraday" | "postmarket">("all");
   const [reviewMarketQuery, setReviewMarketQuery] = useState("");
@@ -3132,7 +3144,7 @@ function ReviewDashboard({
             {review.availability.toxicity ? <><div className="review-kpi-row">
               <span><ReviewDefinition label="平均 Score" /><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
               <span><ReviewDefinition label="有利成交" /><strong>{review.favorableRate}%</strong></span>
-              <span><ReviewDefinition label="毒性样本" /><strong>{completedTrades}</strong></span>
+              <span><ReviewDefinition label="毒性样本" /><strong>{reviewSource.mode==='mock'?completedTrades:reviewSource.payload?.order_flow?.sampleCount??0}</strong></span>
             </div>
             <div className="review-bar-frame compact">
               <ResponsiveContainer width="100%" height="100%">
@@ -3144,7 +3156,8 @@ function ReviewDashboard({
                   <Bar dataKey="count" name="成交笔数" radius={[3, 3, 0, 0]}>{review.toxicity.map((item) => <Cell key={item.kind} fill={item.color} />)}</Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </div></> : <ReviewUnavailable title="订单流毒性待接入" detail="需要后端提供完整成交序列、成交方向，以及成交后 1 分钟的价格基准。" />}
+            </div></> : <ReviewUnavailable title="订单流毒性暂无样本" detail="已接历史做市成交与公允价采样；当前没有能匹配成交后60至90秒价格的有效样本。" />}
+            {reviewSource.payload?.order_flow && <p className="review-data-coverage">{reviewSource.payload.order_flow.note} · {reviewSource.payload.order_flow.sampleCount} / {reviewSource.payload.order_flow.candidateCount} 笔已匹配</p>}
           </div>
         {reviewSource.payload?.condition_id === visibleMarket.id && <p className="review-data-coverage">{reviewSource.payload.coverage.decisionCount} 条决策 · {reviewSource.payload.coverage.fillCount} 笔做市成交 · {reviewSource.payload.coverage.notes.join("；")}</p>}
         {reviewSource.mode === "error" && <p className="review-data-coverage">{reviewSource.detail}</p>}

@@ -23,6 +23,15 @@ function sources() {
     fills: data([{ fill_key: "f1", condition_id: id, account_id: 7, settled_at: minute(14), execution_intent: "MM_QUOTE", qty: "2", side: "BUY" }, { fill_key: "f2", condition_id: id, account_id: 7, settled_at: minute(62), execution_intent: "MM_QUOTE", qty: "2", side: "SELL", order_id: "reduce" }]),
   };
 }
+test('one-minute flow uses historical MM fills, outcome and side, never current prices',()=>{
+  const s=sources();s.decisions.rows=[decision(15,'0.6'),decision(30,'0.9')];
+  const f={condition_id:id,account_id:7,settled_at:minute(14),execution_intent:'MM_QUOTE',price:'0.5',qty:'2'};
+  s.fills.rows=[{...f,fill_key:'a',position_id:'YES',side:'BUY'},{...f,fill_key:'b',position_id:'NO',side:'BUY'},{...f,fill_key:'c',position_id:'NO',side:'SELL'},{...f,fill_key:'d',settled_at:minute(20),position_id:'YES',side:'BUY'},{...f,fill_key:'tv',position_id:'YES',side:'BUY',execution_intent:'TRADE_VOLUME_ACTIVE'}];
+  const flow=buildReviewFacts(id,s,start+70*60000).order_flow;
+  assert.equal(flow.sampleCount,3);assert.equal(flow.candidateCount,4);
+  assert.ok(Math.abs(flow.averageScore-10/3)<1e-8);assert.ok(Math.abs(flow.favorableRate-200/3)<1e-8);
+  assert.deepEqual(flow.distribution.map(r=>r.count),[2,0,1]);
+});
 test("sampled review follows risk area and residual inventory definitions", () => {
   const source = sources();
   const p = buildReviewFacts(id, source, start + 70 * 60_000);
