@@ -1859,6 +1859,9 @@ h3 {
 .review-pnl-summary > div { display: grid; gap: 12px; padding: 20px 12px; }
 .review-pnl-summary strong { font-size: 25px; overflow-wrap: anywhere; }
 .review-seven-table-wrap { max-width: 100%; overflow-x: auto; }
+.review-pnl-lots { max-height: 330px; overflow: auto; scrollbar-gutter: stable; }
+.review-pnl-lots thead th { position: sticky; top: 0; z-index: 1; background: var(--panel); box-shadow: 0 1px 0 var(--line); }
+.review-pnl-lots:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .review-seven-table { width: 100%; min-width: 850px; border-collapse: collapse; font-size: 13px; text-align: right; }
 .review-seven-table caption { text-align: left; padding: 16px 0; font-weight: 600; }
 .review-seven-table th, .review-seven-table td { padding: 13px 10px; border-bottom: 1px solid var(--line); }
