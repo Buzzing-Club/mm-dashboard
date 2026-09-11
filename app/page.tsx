@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ReviewStageMetrics, ReviewPnlAnalysis } from "./review-section-seven";
+import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import {
   Activity,
   AlertTriangle,
@@ -2737,111 +2739,17 @@ export default function Home() {
 }
 
 type ReviewData = {
-  source: "api" | "mock";
-  availability: {
-    marketEngagement: boolean;
-    toxicity: boolean;
-    pnlAttribution: boolean;
-    premarketConvergence: boolean;
-    premarketClock: boolean;
-    premarketErrorRate: boolean;
-    tteObservations: boolean;
-    decisionRates: boolean;
-    settlementRisk: boolean;
-    endgameTransitions: boolean;
-    reduceOnly: boolean;
-    expiredRate: boolean;
-    audits: boolean;
-  };
+  availability: { marketEngagement: boolean; toxicity: boolean };
   funnel: Array<{ stage: string; count: number; conversion: number }>;
   toxicity: Array<{ kind: string; count: number; color: string }>;
-  pnlAttribution: Array<{ name: string; value: number; color: string }>;
   quoteAttempts: Array<{ bucket: string; count: number }>;
   averageScore: number;
   favorableRate: number;
-  premarket: {
-    convergence: Array<{ mode: string; count: number; color: string }>;
-    normalRate: number;
-    clockScale: number;
-    expectedScale: number;
-    errorRate: number;
-  };
-  intraday: {
-    tteActivity: Array<{ bucket: string; normal: number; waitingResult: number; resultTail: number }>;
-    clockScale: number;
-    rawTteSeconds: number;
-    effectiveTteSeconds: number;
-    plannedRate: number;
-    blockedRate: number;
-    settlementRisk: number;
-  };
-  endgame: {
-    transitions: Array<{ mode: string; count: number; color: string }>;
-    reduceOnlyOrders: number;
-    reduceOnlyQuantity: number;
-    expiredActivityRate: number;
-    audits: Array<{ time: string; outcome: string; price: number | null; quantity: number | null; status?: string }>;
-  };
 };
 
 type ReviewApiPayload = {
   contract_version?: string;
   condition_id?: string;
-  coverage?: {
-    decision_count?: number;
-    reduce_only_audit_count?: number;
-  };
-  premarket?: {
-    convergence_by_mode?: Record<string, number>;
-    normal_rate_pct?: number | null;
-    clock?: {
-      scale?: number | null;
-      raw_tte_s?: number | null;
-      effective_tte_s?: number | null;
-    };
-    error_rate_per_min?: number | null;
-    availability?: {
-      convergence?: boolean;
-      clock?: boolean;
-      error_rate?: boolean;
-    };
-  };
-  intraday?: {
-    tte_observations?: Array<{
-      bucket?: string;
-      normal?: number;
-      waiting_result?: number;
-      result_tail?: number;
-    }>;
-    planned_rate_per_min?: number | null;
-    blocked_rate_per_min?: number | null;
-    settlement_risk_factor?: number | null;
-    availability?: {
-      tte_observations?: boolean;
-      decision_rates?: boolean;
-      settlement_risk?: boolean;
-    };
-  };
-  endgame?: {
-    transitions_by_mode?: Record<string, number>;
-    reduce_only_orders?: number;
-    reduce_only_quantity?: number;
-    expired_waiting_result_rate_per_min?: number | null;
-    audits?: Array<{
-      action_id?: number | string;
-      time?: string | null;
-      outcome?: string;
-      price?: number | null;
-      quantity?: number | null;
-      status?: string;
-    }>;
-    availability?: {
-      transitions?: boolean;
-      reduce_only?: boolean;
-      expired_waiting_result_rate?: boolean;
-      audits?: boolean;
-    };
-  };
 };
 
 type ReviewSourceState = {
@@ -2863,51 +2771,19 @@ function buildReviewData(market: Market): ReviewData {
   const completed = Math.max(18, Math.round(submitted * (0.68 + (seed % 6) / 100)));
   const favorable = Math.round(completed * (0.46 + (seed % 5) / 100));
   const adverse = Math.round(completed * (0.27 + (seed % 6) / 100));
-  const neutral = Math.max(0, completed - favorable - adverse);
-  const spreadIncome = Number(Math.max(8, market.grossVolume * 0.0012).toFixed(1));
-  const slippageLoss = Number(-Math.max(3, market.grossVolume * 0.00034).toFixed(1));
-  const fees = Number(-Math.max(1.2, market.grossVolume * 0.00008).toFixed(1));
-  const inventoryIncome = Number((market.pnl - spreadIncome - slippageLoss - fees).toFixed(1));
-  const normalTransitions = 8 + (seed % 3);
-  const invalidTransitions = seed % 4 === 0 ? 1 : 0;
-  const waitingTransitions = seed % 7 === 0 ? 1 : 0;
-  const transitionTotal = normalTransitions + invalidTransitions + waitingTransitions;
-  const clockScale = Number((0.72 + (seed % 5) * 0.05).toFixed(2));
-
   return {
-    source: "mock",
-    availability: {
-      marketEngagement: true,
-      toxicity: true,
-      pnlAttribution: true,
-      premarketConvergence: true,
-      premarketClock: true,
-      premarketErrorRate: true,
-      tteObservations: true,
-      decisionRates: true,
-      settlementRisk: true,
-      endgameTransitions: true,
-      reduceOnly: true,
-      expiredRate: true,
-      audits: true,
-    },
+    availability: { marketEngagement: true, toxicity: true },
     funnel: [
       { stage: "进入市场", count: visits, conversion: 100 },
-      { stage: "交易互动", count: interactions, conversion: (interactions / visits) * 100 },
-      { stage: "尝试报价", count: quoteAttempts, conversion: (quoteAttempts / visits) * 100 },
-      { stage: "提交订单", count: submitted, conversion: (submitted / visits) * 100 },
-      { stage: "完成成交", count: completed, conversion: (completed / visits) * 100 },
+      { stage: "交易互动", count: interactions, conversion: interactions / visits * 100 },
+      { stage: "尝试报价", count: quoteAttempts, conversion: quoteAttempts / visits * 100 },
+      { stage: "提交订单", count: submitted, conversion: submitted / visits * 100 },
+      { stage: "完成成交", count: completed, conversion: completed / visits * 100 },
     ],
     toxicity: [
-      { kind: "有利成交", count: favorable, color: "#20d49b" },
-      { kind: "中性成交", count: neutral, color: "#7e8796" },
-      { kind: "不利成交", count: adverse, color: "#ff5c6c" },
-    ],
-    pnlAttribution: [
-      { name: "价差收入", value: spreadIncome, color: "#20d49b" },
-      { name: "库存收益", value: inventoryIncome, color: inventoryIncome >= 0 ? "#4cc9f0" : "#ff5c6c" },
-      { name: "滑点损失", value: slippageLoss, color: "#ff5c6c" },
-      { name: "费用", value: fees, color: "#ffb020" },
+      { kind: "有利", count: favorable, color: "#20d49b" },
+      { kind: "中性", count: completed - favorable - adverse, color: "#4cc9f0" },
+      { kind: "不利", count: adverse, color: "#ff536b" },
     ],
     quoteAttempts: [
       { bucket: "2-10u", count: Math.round(quoteAttempts * 0.68) },
@@ -2916,151 +2792,15 @@ function buildReviewData(market: Market): ReviewData {
     ],
     averageScore: Number(((favorable - adverse) / completed * 1.8).toFixed(2)),
     favorableRate: Number((favorable / completed * 100).toFixed(1)),
-    premarket: {
-      convergence: [
-        { mode: "正常报价", count: normalTransitions, color: "#20d49b" },
-        { mode: "无效暂停", count: invalidTransitions, color: "#ffb020" },
-        { mode: "等待结果", count: waitingTransitions, color: "#7e8796" },
-      ],
-      normalRate: Number((normalTransitions / transitionTotal * 100).toFixed(1)),
-      clockScale,
-      expectedScale: clockScale,
-      errorRate: Number(((seed % 3) * 0.01).toFixed(2)),
-    },
-    intraday: {
-      tteActivity: [
-        { bucket: ">60m", normal: 12.4, waitingResult: 0, resultTail: 0 },
-        { bucket: "60-30m", normal: 11.2, waitingResult: 0, resultTail: 0 },
-        { bucket: "30-10m", normal: 8.7, waitingResult: 0.4, resultTail: 0 },
-        { bucket: "10-5m", normal: 5.4, waitingResult: 1.5, resultTail: 0.2 },
-        { bucket: "<5m", normal: 1.8, waitingResult: 3.7, resultTail: 1.1 },
-        { bucket: "已过期", normal: 0, waitingResult: 2.6, resultTail: 1.5 },
-      ],
-      clockScale,
-      rawTteSeconds: 480 + (seed % 4) * 30,
-      effectiveTteSeconds: Math.round((480 + (seed % 4) * 30) / clockScale),
-      plannedRate: Number((8.2 + (seed % 4) * 0.3).toFixed(1)),
-      blockedRate: Number((0.3 + (seed % 3) * 0.15).toFixed(2)),
-      settlementRisk: Number((0.76 + (seed % 5) * 0.04).toFixed(2)),
-    },
-    endgame: {
-      transitions: [
-        { mode: "等待结果", count: 8 + (seed % 3), color: "#4cc9f0" },
-        { mode: "YES 尾盘", count: 4 + (seed % 2), color: "#20d49b" },
-        { mode: "NO 尾盘", count: 3 + (seed % 2), color: "#a8db4d" },
-        { mode: "争议暂停", count: 1, color: "#ffb020" },
-        { mode: "结束", count: 5 + (seed % 3), color: "#7e8796" },
-      ],
-      reduceOnlyOrders: 23 + (seed % 6),
-      reduceOnlyQuantity: Number((51.4 + (seed % 8) * 1.7).toFixed(1)),
-      expiredActivityRate: Number((2.1 + (seed % 4) * 0.25).toFixed(2)),
-      audits: [
-        { time: "18:51:24", outcome: "YES", price: 0.01, quantity: 3.2 },
-        { time: "18:52:08", outcome: "YES", price: 0.02, quantity: 2.4 },
-        { time: "18:53:17", outcome: "NO", price: 0.01, quantity: 4.1 },
-      ],
-    },
   };
-}
-
-const reviewModePresentation: Record<string, { label: string; color: string }> = {
-  normal: { label: "正常报价", color: "#20d49b" },
-  invalid_paused: { label: "无效暂停", color: "#ffb020" },
-  waiting_result: { label: "等待结果", color: "#4cc9f0" },
-  result_tail_yes: { label: "YES 尾盘", color: "#20d49b" },
-  result_tail_no: { label: "NO 尾盘", color: "#a8db4d" },
-  disputed_paused: { label: "争议暂停", color: "#ffb020" },
-  final: { label: "结束", color: "#7e8796" },
-};
-
-const reviewBucketLabels: Record<string, string> = {
-  gt_60m: ">60m",
-  "60m_30m": "60-30m",
-  "30m_10m": "30-10m",
-  "10m_5m": "10-5m",
-  lt_5m: "<5m",
-  expired: "已过期",
-};
-
-function finiteReviewNumber(value: unknown) {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function mapReviewApiPayload(payload: ReviewApiPayload): ReviewData | null {
   if (payload.contract_version !== "mm-dashboard-review.v1") return null;
-  const premarketAvailability = payload.premarket?.availability;
-  const intradayAvailability = payload.intraday?.availability;
-  const endgameAvailability = payload.endgame?.availability;
-  const convergence = Object.entries(payload.premarket?.convergence_by_mode ?? {}).map(([mode, count]) => ({
-    mode: reviewModePresentation[mode]?.label ?? mode,
-    count: finiteReviewNumber(count),
-    color: reviewModePresentation[mode]?.color ?? "#7e8796",
-  }));
-  const transitions = Object.entries(payload.endgame?.transitions_by_mode ?? {}).map(([mode, count]) => ({
-    mode: reviewModePresentation[mode]?.label ?? mode,
-    count: finiteReviewNumber(count),
-    color: reviewModePresentation[mode]?.color ?? "#7e8796",
-  }));
-  const clockScale = finiteReviewNumber(payload.premarket?.clock?.scale);
-
+  // The v1 operational counters do not measure the new Section 7 review metrics.
   return {
-    source: "api",
-    availability: {
-      marketEngagement: false,
-      toxicity: false,
-      pnlAttribution: false,
-      premarketConvergence: Boolean(premarketAvailability?.convergence),
-      premarketClock: Boolean(premarketAvailability?.clock),
-      premarketErrorRate: Boolean(premarketAvailability?.error_rate),
-      tteObservations: Boolean(intradayAvailability?.tte_observations),
-      decisionRates: Boolean(intradayAvailability?.decision_rates),
-      settlementRisk: Boolean(intradayAvailability?.settlement_risk),
-      endgameTransitions: Boolean(endgameAvailability?.transitions),
-      reduceOnly: Boolean(endgameAvailability?.reduce_only),
-      expiredRate: Boolean(endgameAvailability?.expired_waiting_result_rate),
-      audits: Boolean(endgameAvailability?.audits),
-    },
-    funnel: [],
-    toxicity: [],
-    pnlAttribution: [],
-    quoteAttempts: [],
-    averageScore: 0,
-    favorableRate: 0,
-    premarket: {
-      convergence,
-      normalRate: finiteReviewNumber(payload.premarket?.normal_rate_pct),
-      clockScale,
-      expectedScale: clockScale,
-      errorRate: finiteReviewNumber(payload.premarket?.error_rate_per_min),
-    },
-    intraday: {
-      tteActivity: (payload.intraday?.tte_observations ?? []).map((row) => ({
-        bucket: reviewBucketLabels[row.bucket ?? ""] ?? row.bucket ?? "--",
-        normal: finiteReviewNumber(row.normal),
-        waitingResult: finiteReviewNumber(row.waiting_result),
-        resultTail: finiteReviewNumber(row.result_tail),
-      })),
-      clockScale,
-      rawTteSeconds: finiteReviewNumber(payload.premarket?.clock?.raw_tte_s),
-      effectiveTteSeconds: finiteReviewNumber(payload.premarket?.clock?.effective_tte_s),
-      plannedRate: finiteReviewNumber(payload.intraday?.planned_rate_per_min),
-      blockedRate: finiteReviewNumber(payload.intraday?.blocked_rate_per_min),
-      settlementRisk: finiteReviewNumber(payload.intraday?.settlement_risk_factor),
-    },
-    endgame: {
-      transitions,
-      reduceOnlyOrders: finiteReviewNumber(payload.endgame?.reduce_only_orders),
-      reduceOnlyQuantity: finiteReviewNumber(payload.endgame?.reduce_only_quantity),
-      expiredActivityRate: finiteReviewNumber(payload.endgame?.expired_waiting_result_rate_per_min),
-      audits: (payload.endgame?.audits ?? []).map((audit) => ({
-        time: audit.time ? new Date(audit.time).toLocaleTimeString("zh-CN", { hour12: false }) : "--",
-        outcome: audit.outcome ?? "UNKNOWN",
-        price: numberValue(audit.price),
-        quantity: numberValue(audit.quantity),
-        status: audit.status,
-      })),
-    },
+    availability: { marketEngagement: false, toxicity: false },
+    funnel: [], toxicity: [], quoteAttempts: [], averageScore: 0, favorableRate: 0,
   };
 }
 
@@ -3109,8 +2849,7 @@ function ReviewDashboard({
   const quoteAttemptCount = review.funnel[2]?.count ?? 0;
   const submittedCount = review.funnel[3]?.count ?? 0;
   const cancellationRate = quoteAttemptCount > 0 ? ((quoteAttemptCount - submittedCount) / quoteAttemptCount) * 100 : 0;
-  const decisionRateTotal = review.intraday.plannedRate + review.intraday.blockedRate;
-  const plannedShare = decisionRateTotal > 0 ? review.intraday.plannedRate / decisionRateTotal * 100 : 0;
+  const sectionSeven = useMemo(() => reviewSource.mode === "mock" ? buildSectionSevenDemo(visibleMarket, markets) : null, [reviewSource.mode, visibleMarket, markets]);
   const sourceChip = reviewSource.mode === "api" ? "真实复盘" : reviewSource.mode === "loading" ? "正在加载" : "演示复盘";
   const focusReviewSection = (focus: "all" | "premarket" | "intraday" | "postmarket", targetId: string) => {
     setReviewFocus(focus);
@@ -3185,8 +2924,8 @@ function ReviewDashboard({
         </div>
         <div className="review-period" aria-label="Review 阶段快速定位">
           <button className={reviewFocus === "all" ? "active" : ""} type="button" onClick={() => focusReviewSection("all", "review-all")}>全部</button>
-          <button className={reviewFocus === "premarket" ? "active" : ""} type="button" onClick={() => focusReviewSection("premarket", "review-premarket")}>盘前收敛</button>
-          <button className={reviewFocus === "intraday" ? "active" : ""} type="button" onClick={() => focusReviewSection("intraday", "review-intraday")}>盘中推进</button>
+          <button className={reviewFocus === "premarket" ? "active" : ""} type="button" onClick={() => focusReviewSection("premarket", "review-premarket")}>开盘</button>
+          <button className={reviewFocus === "intraday" ? "active" : ""} type="button" onClick={() => focusReviewSection("intraday", "review-intraday")}>盘中</button>
           <button className={reviewFocus === "postmarket" ? "active" : ""} type="button" onClick={() => focusReviewSection("postmarket", "review-postmarket")}>尾盘 / 盘后</button>
         </div>
       </div>
@@ -3262,17 +3001,10 @@ function ReviewDashboard({
           <div>
             <p className="section-label">Review Area 02</p>
             <h2 id="review-strategy-title">策略合理性复盘</h2>
-            <small>成交质量、盈亏来源与策略生命周期运行复盘</small>
+            <small>开盘定价、盘中流动性与尾盘风险</small>
           </div>
         </div>
 
-        <div className="review-summary-grid review-summary-strategy">
-          <ReviewMetric label="有利成交占比" value={review.availability.toxicity ? `${review.favorableRate}%` : "待接入"} note={review.availability.toxicity ? "1 分钟后继成交 Score 口径" : "需要全市场成交与成交后价格"} tone={review.availability.toxicity && review.favorableRate >= 50 ? "ok" : "warn"} />
-          <ReviewMetric label="净 PnL" value={visibleMarket.backendData?.pnl === false ? "待接入" : signedCurrency(visibleMarket.pnl)} note={review.availability.pnlAttribution ? "价差 + 库存 - 滑点 - 费用" : "当前 PnL 可用，分项归因待后端提供"} tone={visibleMarket.backendData?.pnl === false ? "warn" : visibleMarket.pnl >= 0 ? "ok" : "bad"} />
-          <ReviewMetric label="正常接管率" value={review.availability.premarketConvergence ? `${review.premarket.normalRate}%` : "无样本"} note="pending_authority 转入正常报价" tone={review.availability.premarketConvergence && review.premarket.normalRate >= 90 ? "ok" : "warn"} />
-        </div>
-
-        <div className="review-grid">
           <div className="panel review-panel">
             <div className="panel-title">
               <span><Activity size={16} /> 订单流毒性</span>
@@ -3295,106 +3027,10 @@ function ReviewDashboard({
               </ResponsiveContainer>
             </div></> : <ReviewUnavailable title="订单流毒性待接入" detail="需要后端提供完整成交序列、成交方向，以及成交后 1 分钟的价格基准。" />}
           </div>
+        <ReviewStageMetrics data={sectionSeven} />
 
-          <div className="panel review-panel">
-            <div className="panel-title">
-              <span><LineChart size={16} /> 盈亏归因</span>
-              <small>PnL attribution</small>
-            </div>
-            {review.availability.pnlAttribution ? <div className="review-attribution-list">
-              {review.pnlAttribution.map((item) => (
-                <div key={item.name}><i style={{ background: item.color }} /><ReviewDefinition label={item.name} /><strong className={item.value >= 0 ? "positive" : "negative"}>{signedCurrency(item.value)}</strong></div>
-              ))}
-              <div className="total"><i /><ReviewDefinition label="净 PnL" /><strong className={visibleMarket.pnl >= 0 ? "positive" : "negative"}>{signedCurrency(visibleMarket.pnl)}</strong></div>
-            </div> : <ReviewUnavailable title="盈亏归因待接入" detail="策略端有当前市场 PnL，但价差、库存、滑点和费用的完整分项需要后端成交与估值数据。" />}
-          </div>
-        </div>
-
-        <div className="review-phases">
-          <div className="panel review-phase-card review-phase-premarket" id="review-premarket">
-            <ReviewPhaseHeader index="01" eyebrow="Premarket" title="盘前 · 接管与收敛" description="市场未开盘至策略恢复正常报价" tone={review.availability.premarketConvergence && review.premarket.normalRate >= 90 ? "ok" : "warn"} result={!review.availability.premarketConvergence ? "无样本" : review.premarket.normalRate >= 90 ? "收敛正常" : "需检查"} source={review.source === "api" ? "策略 Review API · 持久决策投影" : "演示数据 · 15m"} />
-            <div className="review-phase-body">
-              <div className="review-stage-chart">
-                <div className="review-subtitle"><ReviewDefinition label="启动收敛落点分布" /><small>任务从待接管状态转入的生命周期模式</small></div>
-                {review.availability.premarketConvergence ? <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={review.premarket.convergence} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
-                    <CartesianGrid stroke="#252a33" vertical={false} />
-                    <XAxis dataKey="mode" stroke="#7e8796" tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} stroke="#7e8796" tickLine={false} axisLine={false} />
-                    <Tooltip content={<ReviewTooltip />} />
-                    <Bar dataKey="count" name="转入次数" radius={[3, 3, 0, 0]}>{review.premarket.convergence.map((item) => <Cell key={item.mode} fill={item.color} />)}</Bar>
-                  </BarChart>
-                </ResponsiveContainer> : <ReviewUnavailable title="暂无接管收敛样本" detail="该市场还没有持久化的生命周期状态变化记录。" />}
-              </div>
-              <div className="review-evidence-grid review-evidence-stack">
-                <ReviewEvidence label="正常接管率" value={review.availability.premarketConvergence ? `${review.premarket.normalRate}%` : "--"} note="转入 NORMAL / 全部收敛" />
-                <ReviewEvidence label="时钟缩放系数" value={review.availability.premarketClock ? review.premarket.clockScale.toFixed(2) : "--"} note={review.availability.premarketClock ? `按市场时长与策略配置计算` : "缺少市场结束时间"} />
-                <ReviewEvidence label="收敛期错误率" value={review.availability.premarketErrorRate ? `${review.premarket.errorRate.toFixed(2)}/min` : "待接入"} note={review.availability.premarketErrorRate ? "uncertain + error" : "进程指标暂时无法按市场拆分"} />
-              </div>
-            </div>
-          </div>
-
-          <div className="panel review-phase-card" id="review-intraday">
-            <ReviewPhaseHeader index="02" eyebrow="Intraday" title="盘中 · 报价活动与时间推进" description="NORMAL 双边报价期间的活动、决策与时间语义" tone={review.availability.decisionRates && plannedShare >= 90 ? "ok" : "warn"} result={review.availability.decisionRates ? `${plannedShare.toFixed(1)}% 已计划` : "无样本"} source={review.source === "api" ? "策略 Review API · 持久决策投影" : "演示数据 · 15m"} />
-            <div className="review-phase-body review-phase-body-wide">
-              <div className="review-stage-chart review-stage-chart-wide">
-                <div className="review-subtitle"><ReviewDefinition label="报价活动 × 尾盘距离" /><small>按生命周期模式与 TTE 桶堆叠</small></div>
-                {review.availability.tteObservations ? <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={review.intraday.tteActivity} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
-                    <CartesianGrid stroke="#252a33" vertical={false} />
-                    <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
-                    <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
-                    <Tooltip content={<ReviewTooltip />} />
-                    <Bar dataKey="normal" name="NORMAL" stackId="mode" fill="#20d49b" />
-                    <Bar dataKey="waitingResult" name="WAITING_RESULT" stackId="mode" fill="#4cc9f0" />
-                    <Bar dataKey="resultTail" name="RESULT_TAIL" stackId="mode" fill="#ffb020" radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer> : <ReviewUnavailable title="暂无 TTE 决策样本" detail="需要该市场在运行期间产生持久化策略决策。" />}
-              </div>
-              <div className="review-evidence-grid review-evidence-stack">
-                <ReviewEvidence label="缩放系数" value={review.availability.premarketClock ? review.intraday.clockScale.toFixed(2) : "--"} note="长市场 1.0，短市场小于 1" />
-                <ReviewEvidence label="有效剩余时间" value={review.availability.premarketClock ? `${review.intraday.effectiveTteSeconds}s` : "--"} note={review.availability.premarketClock ? `原始 ${review.intraday.rawTteSeconds}s` : "缺少市场结束时间"} />
-                <ReviewEvidence label="Planned 决策" value={review.availability.decisionRates ? `${review.intraday.plannedRate.toFixed(1)}/min` : "--"} note="持续产生报价计划" />
-                <ReviewEvidence label="Blocked 决策" value={review.availability.decisionRates ? `${review.intraday.blockedRate.toFixed(2)}/min` : "--"} note="按 trigger 排查集中阻塞" />
-                <ReviewEvidence label="结算风险因子" value={review.availability.settlementRisk ? review.intraday.settlementRisk.toFixed(2) : "--"} note="价格靠近边界时下降" />
-              </div>
-            </div>
-          </div>
-
-          <div className="panel review-phase-card" id="review-postmarket">
-            <ReviewPhaseHeader index="03" eyebrow="Endgame / Postmarket" title="尾盘 / 盘后 · 退出流转与库存退出" description="从尾盘进入等待结果、结果尾盘、争议与最终结束" tone={review.availability.reduceOnly ? "ok" : "warn"} result={review.availability.reduceOnly ? "有减仓审计" : "无减仓样本"} source={review.source === "api" ? "策略 Review API · 决策 + 订单审计" : "演示数据 · 1h"} />
-            <div className="review-postmarket-grid">
-              <div className="review-stage-chart">
-                <div className="review-subtitle"><ReviewDefinition label="阶段到达分布" /><small>排除 pending_authority 的状态迁移</small></div>
-                {review.availability.endgameTransitions ? <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={review.endgame.transitions} margin={{ top: 10, right: 8, bottom: 0, left: -18 }}>
-                    <CartesianGrid stroke="#252a33" vertical={false} />
-                    <XAxis dataKey="mode" stroke="#7e8796" tickLine={false} axisLine={false} />
-                    <YAxis allowDecimals={false} stroke="#7e8796" tickLine={false} axisLine={false} />
-                    <Tooltip content={<ReviewTooltip />} />
-                    <Bar dataKey="count" name="到达次数" radius={[3, 3, 0, 0]}>{review.endgame.transitions.map((item) => <Cell key={item.mode} fill={item.color} />)}</Bar>
-                  </BarChart>
-                </ResponsiveContainer> : <ReviewUnavailable title="暂无尾盘状态样本" detail="该市场还未产生等待结果、结果尾盘、争议或结束状态变化。" />}
-              </div>
-              <div className="review-endgame-detail">
-                <div className="review-evidence-grid review-endgame-kpis">
-                  <ReviewEvidence label="保守减仓订单" value={review.availability.reduceOnly ? `${review.endgame.reduceOnlyOrders} 笔` : "0 笔"} note="waiting_result reduce-only" />
-                  <ReviewEvidence label="保守减仓数量" value={review.availability.reduceOnly ? `${review.endgame.reduceOnlyQuantity} sh` : "0 sh"} note="订单数量合计" />
-                  <ReviewEvidence label="尾盘后维护活跃度" value={review.availability.expiredRate ? `${review.endgame.expiredActivityRate}/min` : "--"} note="expired 桶持续观察" />
-                </div>
-                <div className="review-audit">
-                  <div className="review-subtitle"><ReviewDefinition label="逐单审计" /><small>waiting_result_reduce_only_sell</small></div>
-                  <div className="review-audit-head"><span>时间</span><span>结果</span><span>价格</span><span>数量</span></div>
-                  {review.endgame.audits.map((audit, index) => (
-                    <div className="review-audit-row" key={`${audit.time}-${audit.outcome}-${index}`}><time>{audit.time}</time><strong>{audit.outcome}</strong><span>{audit.price === null ? "--" : audit.price.toFixed(2)}</span><span>{audit.quantity === null ? "--" : `${audit.quantity.toFixed(1)} sh`}</span></div>
-                  ))}
-                  {!review.availability.audits ? <ReviewUnavailable title="暂无逐单审计" detail="该市场尚无 waiting_result_reduce_only_sell 订单记录。" compact /> : null}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </section>
+      <ReviewPnlAnalysis data={sectionSeven} marketCount={markets.length} />
 
     </section>
   );
@@ -3413,47 +3049,13 @@ function ReviewUnavailable({ title, detail, compact = false }: { title: string; 
   );
 }
 
-function ReviewPhaseHeader({ index, eyebrow, title, description, tone, result, source }: { index: string; eyebrow: string; title: string; description: string; tone: "ok" | "warn"; result: string; source: string }) {
-  return (
-    <div className="review-phase-header">
-      <span className="review-phase-index">{index}</span>
-      <div><small>{eyebrow}</small><h3>{title}</h3><p>{description}</p></div>
-      <div className="review-phase-meta"><small>{source}</small><span className={`state-chip ${tone}`}>{result}</span></div>
-    </div>
-  );
-}
-
-function ReviewEvidence({ label, value, note }: { label: string; value: string; note: string }) {
-  return <div className="review-evidence"><ReviewDefinition label={label} /><strong>{value}</strong><small>{note}</small></div>;
-}
-
 const reviewDefinitionDescriptions: Record<string, string> = {
   "访问到成交": "完成成交数量 ÷ 进入市场次数。首版按同一市场、同一复盘周期统计，用于观察从访问到实际成交的整体转化。",
   "取消率": "（尝试报价次数 - 提交订单次数）÷ 尝试报价次数，表示用户产生交易意向后没有最终提交订单的比例。",
   "有利成交占比": "订单流 Score > 0 的成交数 ÷ 纳入毒性判断的成交样本数。数值越高，做市成交后的价格变化越有利。",
-  "净 PnL": "价差收入 + 库存收益 - 滑点损失 - 费用，表示该市场在复盘周期内的最终做市盈亏。",
-  "正常接管率": "从 pending_authority 收敛到 NORMAL 的次数 ÷ 全部启动收敛次数。越接近 100%，表示策略接管后越稳定地进入正常双边报价。",
   "平均 Score": "每笔成交后观察 1 分钟内的下一笔成交：被动卖出取本次价减下一笔价，被动买入取下一笔价减本次价；正值有利，负值不利。",
   "有利成交": "订单流 Score 大于 0 的成交比例。Score 等于 0 的成交计入中性样本。",
   "毒性样本": "纳入订单流毒性判断的成交数量；没有后继成交的样本 Score 记为 0。",
-  "价差收入": "做市订单买卖价差带来的收益，不包含持仓价格变化和交易费用。",
-  "库存收益": "持仓期间市场价格变化带来的盈亏，与成交价差收入分开统计。",
-  "滑点损失": "实际成交相对成交时基准价产生的不利价格偏差所对应的损失。",
-  "费用": "交易、结算及其他可归属于该市场的费用合计。",
-  "启动收敛落点分布": "统计策略任务从 pending_authority 转入各生命周期模式的次数。大量进入 NORMAL 表示接管正常；反复进入 INVALID_PAUSED 需要检查市场目录投影。",
-  "时钟缩放系数": "策略生命周期时钟的 scale 值。它应与市场时长对应；长市场通常为 1.0，短市场会按配置缩放。",
-  "收敛期错误率": "启动收敛期间 result 为 uncertain 或 error 的操作速率。收敛完成前允许短暂出现，持续大于 0 需要排查。",
-  "报价活动 × 尾盘距离": "按生命周期模式 mode 和距离结束时间桶 tte_bucket 汇总的策略观察速率，用于确认报价活动是否随市场接近结束而按预期推进。",
-  "缩放系数": "生命周期时钟的 scale。长市场应接近 1.0；短市场小于 1.0，用于将真实剩余时间映射到策略有效时间。",
-  "有效剩余时间": "策略使用的 effective_tte_s。短市场经缩放后应大于原始 raw_tte_s，使生命周期阶段按预期展开。",
-  "Planned 决策": "result=planned 的策略决策速率，表示策略持续生成了可执行的报价计划。",
-  "Blocked 决策": "result=blocked 的策略决策速率。持续升高时应按 trigger 查看是风控、库存还是数据条件阻止了报价。",
-  "结算风险因子": "dynamic_inventory_factor 中的 settlement_risk。价格接近 0.5 时通常为 1.0，靠近 0 或 1 时逐步降低到约 0.2。",
-  "阶段到达分布": "统计非 pending_authority 起点的生命周期迁移，观察市场是否清晰到达 WAITING_RESULT、RESULT_TAIL、DISPUTED_PAUSED 与 FINAL。",
-  "保守减仓订单": "waiting_result 阶段产生的 reduce-only 卖单数量，仅用于退出已有库存，不增加方向风险。",
-  "保守减仓数量": "waiting_result reduce-only 订单的 shares 数量合计，用于判断库存退出是否持续发生。",
-  "尾盘后维护活跃度": "mode=waiting_result 且 tte_bucket=expired 的观察速率。市场名义结束后仍应有维护活动，直到结果或最终状态明确。",
-  "逐单审计": "从 mm_order_actions 中筛选 audit_reason=waiting_result_reduce_only_sell，核对每笔尾盘减仓的实际价格、数量与结果侧。",
 };
 
 function ReviewDefinition({ label }: { label: string }) {
