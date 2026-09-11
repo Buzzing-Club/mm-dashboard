@@ -2985,7 +2985,7 @@ function ReviewDashboard({
             </div>
             {review.availability.marketEngagement ? <div className="review-bar-frame">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={review.quoteAttempts} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                <BarChart data={review.quoteAttempts} margin={{ top: 12, right: 12, bottom: 4, left: 0 }} barCategoryGap="28%" maxBarSize={40}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
                   <XAxis dataKey="bucket" stroke="#7e8796" tickLine={false} axisLine={false} />
                   <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
@@ -3021,7 +3021,7 @@ function ReviewDashboard({
             </div>
             <div className="review-bar-frame compact">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={review.toxicity} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                <BarChart data={review.toxicity} margin={{ top: 12, right: 12, bottom: 4, left: 0 }} barCategoryGap="28%" maxBarSize={40}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
                   <XAxis dataKey="kind" stroke="#7e8796" tickLine={false} axisLine={false} />
                   <YAxis stroke="#7e8796" tickLine={false} axisLine={false} />
