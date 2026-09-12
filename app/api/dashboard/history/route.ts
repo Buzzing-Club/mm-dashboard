@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { scopeDashboardMarkets } from "../../../dashboard-test-scope";
 
 export const runtime = "nodejs";
 
@@ -47,7 +48,8 @@ export async function GET(request: Request) {
         { status: 502 },
       );
     }
-    return new Response(payload, {
+    const body = response.ok ? JSON.stringify(scopeDashboardMarkets(JSON.parse(payload), process.env.DASHBOARD_TEST_CONDITION_IDS)) : payload;
+    return new Response(body, {
       status: response.status,
       headers: { "content-type": contentType, "cache-control": "no-store" },
     });
