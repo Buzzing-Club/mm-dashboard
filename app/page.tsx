@@ -212,6 +212,7 @@ type LiquidityHistoryPoint = {
 
 type DashboardRealtimePayload = {
   contract_version: string;
+  display_scope?: string;
   generated_at?: number;
   items?: DashboardRealtimeItem[];
 };
@@ -2413,6 +2414,7 @@ function mapDashboardHistoryPayload(payload: DashboardHistoryPayload): Market[] 
 }
 
 export default function Home() {
+  const [displayScope, setDisplayScope] = useState<string | null>(null);
   const [markets, setMarkets] = useState<Market[]>(mockCurrentMarkets);
   const [historicalMarkets, setHistoricalMarkets] = useState<Market[]>([]);
   const hasLiveData=useRef(false);
@@ -2466,7 +2468,8 @@ export default function Home() {
         const nextMarkets = mapDashboardPayload(payload);
         if (cancelled) return;
         hasLiveData.current=true;
-        if(nextMarkets.length) setMarkets(nextMarkets);
+        setMarkets(nextMarkets);
+        setDisplayScope(payload.display_scope ?? null);
         setDataSource({
           mode: "api",
           label: "API",
@@ -2569,7 +2572,9 @@ export default function Home() {
       });
   }, [categoryMarkets, effectiveRiskStatusFilter, query]);
 
-  const activeMarket = scopeMarkets.find((marketItem) => marketItem.id === activeId) ?? scopeMarkets[0] ?? currentMarkets[0] ?? historicalMarkets[0];
+  const hasMarkets = markets.length > 0 || historicalMarkets.length > 0;
+  // The placeholder keeps hook inputs stable; it is never rendered for an empty API result.
+  const activeMarket = scopeMarkets.find((marketItem) => marketItem.id === activeId) ?? scopeMarkets[0] ?? currentMarkets[0] ?? historicalMarkets[0] ?? mockCurrentMarkets[0];
   const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
@@ -2583,7 +2588,7 @@ export default function Home() {
   );
 
   useEffect(() => {
-    if (!visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
+    if (!hasMarkets || !visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
     const controller = new AbortController();
 
     async function loadSingleMarketMetrics() {
@@ -2630,11 +2635,11 @@ export default function Home() {
 
     loadSingleMarketMetrics();
     return () => controller.abort();
-  }, [marketScope, refreshTick, timeframe, visibleMarketBase?.id, visibleMarketBase?.isHistorical]);
+  }, [hasMarkets, marketScope, refreshTick, timeframe, visibleMarketBase?.id, visibleMarketBase?.isHistorical]);
 
   const reviewIsDemo = buildSectionSevenDemo(visibleMarketBase, []) !== null;
   useEffect(() => {
-    if (workspaceView !== "review" || !visibleMarketBase?.id) return undefined;
+    if (!hasMarkets || workspaceView !== "review" || !visibleMarketBase?.id) return undefined;
     const controller = new AbortController();
 
     async function loadReview() {
@@ -2688,7 +2693,7 @@ export default function Home() {
 
     loadReview();
     return () => controller.abort();
-  }, [refreshTick, visibleMarketBase?.id, workspaceView, reviewIsDemo]);
+  }, [hasMarkets, refreshTick, visibleMarketBase?.id, workspaceView, reviewIsDemo]);
 
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
@@ -2707,6 +2712,7 @@ export default function Home() {
           : "历史市场最后有效快照",
       }
       : dataSource;
+  if (!hasMarkets) return <main className="terminal-shell"><section className="topbar"><h1>{displayScope ?? "市场看板"}</h1><p>暂无市场数据</p><button className="icon-button" type="button" title="刷新" onClick={() => setRefreshTick(value => value + 1)}><RefreshCw size={16} /></button></section></main>;
   return (
     <main className="terminal-shell">
       <section className="topbar">
@@ -2728,6 +2734,7 @@ export default function Home() {
         </nav>
 
         <div className="topbar-actions">
+          {displayScope && <span className="feed-pill">{displayScope}</span>}
           <div className={`feed-pill data-source-${displayedSource.mode}`} title={displayedSource.detail}>
             <Radio size={15} />
             <span>{displayedSource.label}</span>
