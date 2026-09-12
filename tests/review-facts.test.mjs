@@ -125,6 +125,7 @@ test("book structure separates complementary outcomes and counts distinct prices
   source.decisions.rows[0].active_orders_after = [order("YES", "SELL", 80, 0.7)];
   m = buildReviewFacts(id, source, start + 70 * 60_000).section_seven.metrics.bookStructure;
   assert.equal(m.value, null);
+  assert.equal(m.emptyLabel, '无 YES 买盘');
   assert.equal(m.details.find(row => row.label === "YES Bid 数量").value, 0);
 });
 
