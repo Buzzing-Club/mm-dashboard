@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { buildReviewFacts, epochMs, map, rows, selectReviewJob, type FactSource, type ReviewFacts } from "../../../review-facts";
 import { mergeReviewObservations } from "../../../review-observations";
 import { validConditionId } from "../openapi";
+import { hasReviewBounds, recoverReviewContext } from "../../../review-history-context";
 
 export const runtime = "nodejs";
 let cached: { key: string; expires: number; data: ReviewFacts } | undefined;
@@ -45,20 +46,37 @@ export async function GET(request: Request) {
       cached = { key, expires: Date.now() + 60_000, data };
       if (pending === current) pending = undefined;
     }
-    if (!cached.data.jobs.available || !cached.data.catalog.available) return NextResponse.json({ error: "Review market sources unavailable" }, { status: 502 });
-    const payload = buildReviewFacts(conditionId, cached.data, Date.now());
-    const job = selectReviewJob(conditionId,cached.data);
-    const market = cached.data.catalog.rows.find(row=>row.condition_id===conditionId);
+    const readMarketSource = async (path: string, maxBytes: number, accountId?: unknown) => {
+      const url = new URL(path, source);
+      url.searchParams.set('condition_id', conditionId);
+      if (path.endsWith('/history')) url.searchParams.set('limit', '1');
+      if (accountId != null) url.searchParams.set('account_id', String(accountId));
+      const response = await fetch(url, { headers, redirect: 'manual', cache: 'no-store', signal: AbortSignal.timeout(8_000) });
+      if (!response.ok) throw new Error('upstream unavailable');
+      const text = await response.text();
+      if (text.length > maxBytes) throw new Error('market response size limit');
+      return JSON.parse(text) as unknown;
+    };
+    let facts = cached.data;
+    let history: unknown;
+    if (!selectReviewJob(conditionId, facts) || !hasReviewBounds(facts.catalog.rows.find(row => row.condition_id === conditionId))) {
+      try { history = await readMarketSource('/api/dashboard/history', 1_000_000); } catch { /* Durable observations may still recover the market. */ }
+      facts = recoverReviewContext(conditionId, facts, history, undefined);
+    }
+    let observations: unknown;
+    try {
+      observations = await readMarketSource('/api/dashboard/review-observations', 256_000, selectReviewJob(conditionId, facts)?.account_id);
+      facts = recoverReviewContext(conditionId, facts, history, observations);
+    } catch { /* Keep historical facts when the optional observation source is unavailable. */ }
+    if (!facts.jobs.available || !facts.catalog.available) return NextResponse.json({ error: "Review market sources unavailable" }, { status: 502 });
+    const payload = buildReviewFacts(conditionId, facts, Date.now());
+    if (facts !== cached.data) payload.coverage.notes.push('市场身份与阶段边界已从结束归档或持久化观测恢复。');
+    const job = selectReviewJob(conditionId,facts);
+    const market = facts.catalog.rows.find(row=>row.condition_id===conditionId);
     if(job && market) {
       try {
-        const url=new URL('/api/dashboard/review-observations',source);
-        url.searchParams.set('condition_id',conditionId);
-        url.searchParams.set('account_id',String(job.account_id));
-        const response=await fetch(url,{headers,redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(8_000)});
-        if(!response.ok) throw new Error('upstream unavailable');
-        const text=await response.text();
-        if(text.length>256_000) throw new Error('observation size limit');
-        mergeReviewObservations(payload,JSON.parse(text),job,{start:epochMs(market.start_time)??epochMs(market.create_time),end:epochMs(market.end_time)});
+        if (!observations) throw new Error('upstream unavailable');
+        mergeReviewObservations(payload,observations,job,{start:epochMs(market.start_time)??epochMs(market.create_time),end:epochMs(market.end_time)});
       } catch {payload.coverage.notes.push('策略增量观测暂不可用，保留已有历史采样。');}
     }
     return NextResponse.json(payload, { headers: { "cache-control": "no-store" } });

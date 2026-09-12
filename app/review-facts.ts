@@ -160,7 +160,7 @@ export function buildReviewFacts(conditionId: string, source: ReviewFacts, now: 
       if (levelTotal) observations.push({ label: `${outcome} Ask档`, value: askLevels! / levelTotal * 100 }, { label: `${outcome} Bid档`, value: bidLevels! / levelTotal * 100 });
     }
     if (details.length && orders.every(row => row.position_id && finite(row.qty) !== null && finite(row.filled_qty) !== null)) {
-      metrics.bookStructure = { ...metric(0, observations, "尾盘最近确认订单，YES/NO 分开统计剩余数量与不同价格档位；零侧是单边/空盘，不据此判定风控成功。", "% 同 outcome 占比"), value: yesRatio, details };
+      metrics.bookStructure = { ...metric(0, observations, "尾盘最近确认订单，YES/NO 分开统计剩余数量与不同价格档位；零侧是单边/空盘，不据此判定风控成功。", "% 同 outcome 占比"), value: yesRatio, details, emptyLabel: yesRatio === null ? (observations.length ? "无 YES 买盘" : "空盘") : undefined };
     } else unavailable.bookStructure = "订单采样缺少 outcome 或剩余数量，不能混合 YES/NO 计算盘口比例。";
   }
   const waiting = decisions.filter(row => row.ts! >= end! && upper(map(map(row.row.risk_state).strategy_status).lifecycle_mode) === "WAITING_RESULT").at(-1);

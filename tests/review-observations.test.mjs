@@ -52,3 +52,17 @@ test('durable captures show merged coverage and do not mix other jobs',()=>{
   assert.equal(m.unavailable.toxicity,undefined);
   assert.deepEqual(mergeReviewObservations(payload(),c,{...job,job_id:8},bounds).section_seven.metrics,{});
 });
+
+test('available observations distinguish missing counters from absent events',()=>{
+  const c=capture(),o=c.items[0].observations;
+  Object.assign(o.phases.intraday,{planned_orders:0,supply_conversion_pct:null,recross_pct:null});
+  Object.assign(o.coverage,{incomplete_recross_windows:2,unconfirmed_quote_changes:3});
+  o.phases.tail={observed_seconds:10,reversals_up:0,reversals_down:0};
+  const m=mergeReviewObservations(payload(),c,job,bounds).section_seven.metrics;
+  assert.equal(m.supplyConversion.emptyLabel,'计划计数缺失');
+  assert.equal(m.recross.emptyLabel,'观察窗不完整');
+  assert.equal(m.firstImbalance.value,null);
+  assert.equal(m.firstImbalance.emptyLabel,'未观测到触发');
+  assert.equal(m.reversalExposure.emptyLabel,'暂无反转样本');
+  assert.equal(m.reduction.emptyLabel,'暂无待结算样本');
+});
