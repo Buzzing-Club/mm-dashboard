@@ -52,7 +52,8 @@ test("section 7 replaces phase metrics and makes PnL a peer review area", async 
   assert.match(component, /市场贡献/);
   assert.match(component, /敞口来源/);
   assert.match(component, /data\?\.metrics/);
-  assert.match(component, /缺少阶段统计/);
+  assert.match(component, /数据缺失/);
+  assert.match(component, /emptyLabel/);
 });
 
 async function request(path, options = {}) {

@@ -13,6 +13,7 @@ export type SectionSevenMetric = {
   observations: ReviewObservation[];
   details?: Array<{ label: string; value: number | null; unit: string }>;
   exposureSeries?: Array<{ at: number; value: number | null }>;
+  emptyLabel?: string;
 };
 export type PnlContribution = {
   marketId: string;

@@ -38,6 +38,16 @@ export function mergeReviewObservations(payload: ReviewFactsPayload, raw: unknow
   const observed=data.reduce((sum,row)=>sum+(finite(row.observed_seconds)??0),0);
   const healthy=data.reduce((sum,row)=>sum+(finite(row.book_healthy_seconds)??0),0);
   add('healthyBook',observed>0?100*healthy/observed:null,series('healthy_book_pct'),'NORMAL 双边健全秒数 / 已观察秒数；不是完整生命周期覆盖率。','观察区间健全率 (%)',data.map((row,i)=>({label:`${names[i]} 覆盖时长`,value:finite(row.observed_seconds),unit:'秒'})));
+  const areas = data.map(row => finite(row.risk_share_minutes));
+  const totalArea = areas.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  if (durable && areas.some(value => value !== null) && observed > 0) {
+    const exposureSeries = payload.section_seven.metrics.exposureTime?.exposureSeries;
+    add('exposureTime', totalArea > 0 && areas[0] !== null ? areas[0] / totalArea * 100 : null,
+      areas.flatMap((value, i) => value !== null && totalArea > 0 ? [{label:names[i], value:value / totalArea * 100}] : []),
+      '持久化的 |净库存| × 观察分钟累计，按阶段求占比；空档不外推。折线仅展示仍可读取的决策采样，与累计覆盖范围可能不同。', '% 风险面积',
+      areas.map((value, i) => ({label:`${names[i]}风险面积`, value, unit:'sh·min'})));
+    payload.section_seven.metrics.exposureTime!.exposureSeries = exposureSeries;
+  }
   add('supplyConversion',finite(data[1].supply_conversion_pct),series('supply_conversion_pct'),'捕获区间 MM_QUOTE maker 成交数 / 语义变化时记录的计划挂单数；不冒充完整历史。','供给转化 (%)',data.flatMap((row,i)=>[{label:`${names[i]} 计划数`,value:finite(row.planned_orders),unit:'笔'},{label:`${names[i]} 成交数`,value:finite(row.fills),unit:'笔'}]));
   for(const [id,kind,index] of [['requoteLatency','requote',0],['followLatency','follow',1]] as const) {
     const stats=data.map(row=>map(row[kind]));
@@ -49,9 +59,25 @@ export function mergeReviewObservations(payload: ReviewFactsPayload, raw: unknow
   if(first!==null && (oldFirst==null || first<oldFirst)) add('firstImbalance',first,[{label:'首次观测',value:first}],'捕获区间首次库存越界，取已有历史与运行观测中较早者。','% 生命周期');
   const events=rows(capture.reversals).filter(row=>epochMs(row.at)!==null&&finite(row.inventory)!==null);
   const up=finite(data[2].reversals_up), down=finite(data[2].reversals_down);
-  if(!payload.section_seven.metrics.reversals && (up!==null||down!==null)) add('reversals',(up??0)+(down??0),[{label:'向上',value:up??0},{label:'向下',value:down??0}],'尾盘累计反转次数，明细仅保留最近32次。','次');
+  if(!payload.section_seven.metrics.reversals && ((finite(data[2].observed_seconds) ?? 0) > 0 || events.length > 0) && (up!==null||down!==null)) add('reversals',(up??0)+(down??0),[{label:'向上',value:up??0},{label:'向下',value:down??0}],'尾盘累计反转次数，明细仅保留最近32次。','次');
   if(!payload.section_seven.metrics.reversalExposure && events.length) add('reversalExposure',finite(events.at(-1)!.inventory),events.map(row=>({label:new Date(epochMs(row.at)!).toISOString(),value:finite(row.inventory)!})),'反转时净库存及后续30/120秒观察。','shares',events.flatMap(row=>[30,120].map(seconds=>({label:`${new Date(epochMs(row.at)!).toISOString()} +${seconds}s`,value:finite(row[`after_${seconds}s`]),unit:'shares'}))));
   const residual=finite(capture.residual_inventory_pct), waiting=finite(capture.waiting_result_inventory);
   if(residual!==null&&waiting!==null) add('reduction',residual,[{label:'剩余净库存',value:Math.abs(waiting)},{label:'同方向峰值',value:finite(waiting<0?capture.peak_no:waiting>0?capture.peak_yes:Math.max(Number(capture.peak_yes??0),Number(capture.peak_no??0)))??0}],'waiting_result 库存相对交易期捕获峰值；不是已挂减仓单数量。','shares');
+  const empty = (id:MetricId, label:string, reason:string) => {
+    if (!payload.section_seven.metrics[id]) add(id,null,[],reason,'');
+    const metric = payload.section_seven.metrics[id]!;
+    if (metric.value === null) {
+      metric.emptyLabel = label;
+      payload.section_seven.unavailable = {...payload.section_seven.unavailable, [id]:reason};
+    }
+  };
+  if (first === null && observed > 0) empty('firstImbalance','未观测到触发','已读取库存观测，捕获区间未发现同时满足 |净仓| > 15 shares 且单边占比 > 90% 的样本；不代表未覆盖时段没有触发。');
+  if (!events.length && (finite(data[2].observed_seconds) ?? 0) > 0) empty('reversalExposure','暂无反转样本','尾盘已观测，当前没有带库存的反转事件；没有事件时不补 0。');
+  if (residual === null) empty('reduction','暂无待结算样本','已接持久化库存，缺少 waiting_result 库存或同方向峰值，不能用计划到期后的最新持仓代替。');
+  if ((finite(coverage.incomplete_recross_windows) ?? 0) > 0) empty('recross','观察窗不完整',`已有 ${finite(coverage.incomplete_recross_windows)} 个成交观察窗因采样空档等原因未完成；仅完整 60 秒窗口进入分母。`);
+  if ((finite(data[1].fills) ?? 0) > 0 && finite(data[1].planned_orders) === 0) empty('supplyConversion','计划计数缺失','已经有确认做市成交，但计划挂单累计为 0；策略计划计数需修复，不能以成交数或当前挂单数代替分母。');
+  for (const id of ['requoteLatency','followLatency'] as const) {
+    if ((finite(coverage.unconfirmed_quote_changes) ?? 0) > 0) empty(id,'暂无确认样本','已读取策略观测，但触发与新报价确认尚未形成有效配对，不能用接口延迟代替。');
+  }
   return payload;
 }

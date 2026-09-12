@@ -2542,7 +2542,8 @@ export default function Home() {
     () => markets.filter((marketItem) => !historicalIds.has(marketItem.id)),
     [historicalIds, markets],
   );
-  const scopeMarkets = marketScope === "history" ? historicalMarkets : currentMarkets;
+  const reviewMarkets = useMemo(() => [...new Map([...historicalMarkets, ...currentMarkets].map(market => [market.id, market])).values()], [historicalMarkets, currentMarkets]);
+  const scopeMarkets = workspaceView === "review" ? reviewMarkets : marketScope === "history" ? historicalMarkets : currentMarkets;
 
   const categoryMarkets = useMemo(() => {
     const selectedFilter = filterOptions.find((option) => option.id === filter);
@@ -2575,7 +2576,7 @@ export default function Home() {
   const hasMarkets = markets.length > 0 || historicalMarkets.length > 0;
   // The placeholder keeps hook inputs stable; it is never rendered for an empty API result.
   const activeMarket = scopeMarkets.find((marketItem) => marketItem.id === activeId) ?? scopeMarkets[0] ?? currentMarkets[0] ?? historicalMarkets[0] ?? mockCurrentMarkets[0];
-  const visibleMarketBase = filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
+  const visibleMarketBase = workspaceView === "review" || filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
   const visibleMarketWithRealtime = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketMetrics(
@@ -2651,7 +2652,7 @@ export default function Home() {
       try {
         const params = new URLSearchParams({ condition_id: visibleMarketBase.id });
         const [facts, backend] = await Promise.allSettled([
-          fetch(`/api/dashboard/review-facts?${params.toString()}`, {cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(25_000)])}).then(async response => {
+          fetch(`/api/dashboard/review-facts?${params.toString()}`, {cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(40_000)])}).then(async response => {
             if (!response.ok) throw new Error(`Review API ${response.status}`);
             return await response.json() as ReviewApiPayload;
           }),
@@ -2670,7 +2671,12 @@ export default function Home() {
         if (backend.status === 'fulfilled') {
           payload.section_seven.backend = backend.value;
           if (backend.value.levelsMetric) payload.section_seven.metrics.levelsConsumed = backend.value.levelsMetric;
-          else payload.section_seven.unavailable = {...payload.section_seven.unavailable,levelsConsumed:'用户吃单接口已接入；当前盘中阶段没有完整、可分类的真实用户订单样本。'};
+          else {
+            const complete = backend.value.complete && backend.value.classificationVersions.length === 1;
+            const reason = complete ? '用户吃单接口已接入；当前盘中阶段没有完整、可分类的真实用户订单样本。内部测试成交不冒充自然用户。' : '成交历史或分类版本未完整读取；不能判定为没有真实用户成交。';
+            payload.section_seven.metrics.levelsConsumed = {value:null, observations:[], emptyLabel:complete ? '暂无用户样本' : '成交数据不完整', note:reason};
+            payload.section_seven.unavailable = {...payload.section_seven.unavailable,levelsConsumed:reason};
+          }
         } else payload.coverage.notes.push('后端 Review 接口暂不可用，账户账本及成交归因未加载。');
         if (!mapReviewApiPayload(payload)) throw new Error("Review API contract mismatch");
         if (payload.condition_id !== visibleMarketBase.id) throw new Error("Review market mismatch");
@@ -3194,9 +3200,9 @@ const reviewDefinitionDescriptions: Record<string, string> = {
   "访问到成交": "完成成交数量 ÷ 进入市场次数。首版按同一市场、同一复盘周期统计，用于观察从访问到实际成交的整体转化。",
   "取消率": "（尝试报价次数 - 提交订单次数）÷ 尝试报价次数，表示用户产生交易意向后没有最终提交订单的比例。",
   "有利成交占比": "订单流 Score > 0 的成交数 ÷ 纳入毒性判断的成交样本数。数值越高，做市成交后的价格变化越有利。",
-  "平均 Score": "每笔成交后观察 1 分钟内的下一笔成交：被动卖出取本次价减下一笔价，被动买入取下一笔价减本次价；正值有利，负值不利。",
+  "平均 Score": "历史成交后 60–90 秒内首个公允价采样：被动卖出取成交价减参考价，被动买入取参考价减成交价，YES/NO 分别换算。正值有利，负值不利；缺少参考样本不记为 0。",
   "有利成交": "订单流 Score 大于 0 的成交比例。Score 等于 0 的成交计入中性样本。",
-  "毒性样本": "纳入订单流毒性判断的成交数量；没有后继成交的样本 Score 记为 0。",
+  "毒性样本": "已经匹配成交后 60–90 秒公允价的做市成交笔数；缺少有效参考价的成交不计入分母，不记为中性 0。与 30 秒毒性率不同。",
 };
 
 function ReviewDefinition({ label }: { label: string }) {

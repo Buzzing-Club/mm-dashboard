@@ -50,7 +50,7 @@ export function ReviewStageMetrics({ data, startAt, endAt }: { data: SectionSeve
           return <article className="review-seven-metric" key={metric.id}>
             <div className="review-metric-heading">
             <h4><Definition text={`${metric.definition}${metric.example ? `\n举例：${metric.example}` : ""}\n数据来源：${metric.source}`}>{metric.name}</Definition></h4>
-            <div className="review-seven-value"><strong>{sample?.value != null ? Number(sample.value.toFixed(2)) : sample ? (sample.observations.length ? "不可计算" : "暂无样本") : "待接入"}</strong><small>{sample ? metric.unit : "缺少阶段统计"}</small></div>
+            <div className="review-seven-value"><strong>{sample?.value != null ? Number(sample.value.toFixed(2)) : sample?.emptyLabel ?? (sample ? (sample.observations.length ? "无本阶段样本" : "暂无样本") : data ? "数据缺失" : "加载中")}</strong><small>{sample?.value != null ? metric.unit : ""}</small></div>
             {sample?.note && <p className="review-data-coverage" title={sample.note}>{sample.precision === "sampled" ? "采样估算 · " : ""}{sample.note}</p>}
             </div>
             <div className={`review-metric-plots${sample?.exposureSeries?.length ? " paired" : ""}`}>
