@@ -1,5 +1,5 @@
 import { finite, map, type Fact } from './review-facts.ts';
-import { orderedFacts, type BackendSource } from './review-backend.ts';
+import { orderedFacts, raw6, type BackendSource } from './review-backend.ts';
 
 const accepted = new Set(['init', 'pending', 'success']);
 const known = new Set([...accepted, 'failed', 'settlement_abandoned']);
@@ -14,7 +14,7 @@ function priceUnits(value: unknown): bigint | null {
 
 export function historicalSlippage(source: BackendSource, end: number) {
   const empty = (note: string) => ({ reference: 'taker_first_fill_l1', avg_trade_slippage: null,
-    sample_count: 0, distribution: null, note });
+    sample_count: 0, distribution: null, distribution_by_notional: null, note });
   if (!source.available || !source.complete || source.versions.length !== 1 || source.versions[0] === 'missing') {
     return empty('滑点成交历史或分类未完整读取，不补零');
   }
@@ -35,6 +35,8 @@ export function historicalSlippage(source: BackendSource, end: number) {
     groups.set(taker.order_ref, group);
   }
   const samples: bigint[] = [];
+  const orders: { volume: number; weightedSlip: number; fills: number }[] = [];
+  let notionalsComplete = true;
   for (const group of groups.values()) {
     const net = group.filter(fill => accepted.has(String(fill.status)) && !fill.exclude_from_net_volume);
     if (!net.length) continue;
@@ -53,14 +55,27 @@ export function historicalSlippage(source: BackendSource, end: number) {
       || prices.some(price => price === null)) return empty('滑点价格或买卖方向缺失');
     // Match trade-service: BUY min / SELL max over all accepted fills, then mean net-fill absolute price gaps.
     const reference = (prices as bigint[]).reduce((best, price) => side === 'sell' ? (price > best ? price : best) : (price < best ? price : best));
+    let volume = 0, weightedSlip = 0;
     for (const fill of net) {
       const price = priceUnits(map(fill.taker).price)!;
-      samples.push(side === 'sell' ? reference - price : price - reference);
+      const slip = side === 'sell' ? reference - price : price - reference;
+      samples.push(slip);
+      const notional = raw6(map(fill.taker).quote_amount);
+      if (notional === null || notional <= 0) notionalsComplete = false;
+      else { volume += notional; weightedSlip += Number(slip) / Number(SCALE) * notional; }
     }
+    orders.push({ volume, weightedSlip, fills: net.length });
   }
   if (!samples.length) return empty('无有效净成交滑点样本；内部流量不计入，不补零');
   const distribution = ['0-1c', '1-3c', '3-5c', '>5c'].map(bucket => ({ bucket, trade_count: 0 }));
+  const byNotional = ['0-10', '10-50', '50-100', '100+'].map(bucket => ({ bucket, trade_count: 0, fill_count: 0, volume: 0, weighted: 0 }));
+  for (const order of orders) {
+    const bucket = byNotional[order.volume < 10 ? 0 : order.volume < 50 ? 1 : order.volume < 100 ? 2 : 3];
+    bucket.trade_count++; bucket.fill_count += order.fills; bucket.volume += order.volume; bucket.weighted += order.weightedSlip;
+  }
   for (const value of samples) distribution[value < SCALE / BigInt(100) ? 0 : value < BigInt(3) * SCALE / BigInt(100) ? 1 : value < BigInt(5) * SCALE / BigInt(100) ? 2 : 3].trade_count++;
   return { reference: 'taker_first_fill_l1', avg_trade_slippage: Number(samples.reduce((sum, value) => sum + value, BigInt(0))) / Number(SCALE) / samples.length,
-    sample_count: samples.length, distribution, note: `滑点：截至历史截止时刻的 ${samples.length} 笔净成交，按笔平均第一档成交参考价的不利绝对价差（非相对 mid）` };
+    sample_count: samples.length, distribution,
+    distribution_by_notional: notionalsComplete ? byNotional.map(({ weighted, volume, ...bucket }) => ({ ...bucket, volume: String(volume * 1e6), avg_trade_slippage: volume > 0 ? weighted / volume : null })) : null,
+    note: `滑点：截至历史截止时刻的 ${samples.length} 笔净成交，按笔平均第一档成交参考价的不利绝对价差（非相对 mid）` };
 }

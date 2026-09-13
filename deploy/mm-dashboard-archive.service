@@ -1,0 +1,9 @@
+[Unit]
+Description=Persist Preview dashboard last-valid and ended-market snapshots
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec -e NODE_OPTIONS=--max-old-space-size=128 mm-dashboard-preview node --experimental-strip-types /app/scripts/archive-market-snapshots.ts
+TimeoutStartSec=1200
