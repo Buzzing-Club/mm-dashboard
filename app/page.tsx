@@ -5,7 +5,7 @@ import { ReviewStageMetrics, ReviewPnlAnalysis } from "./review-section-seven";
 import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
 import type { BackendReview } from "./review-backend";
-import { currentReviewWeek, filterReviewMarkets, type ReviewDateFilter } from "./review-market-scope";
+import { recentReviewDates, filterReviewMarkets, type ReviewDateFilter } from "./review-market-scope";
 import { ReviewDateSelector } from "./review-date-filter";
 import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
 import { DEFAULT_L1_DISTANCE_THRESHOLD, L1_DISTANCE_DESCRIPTION, l1DistanceLabel } from "./l1-distance-label";
@@ -2462,7 +2462,7 @@ export default function Home() {
   const [liveClock, setLiveClock] = useState("--:--:--");
   const [activeBoard, setActiveBoard] = useState<BoardId>("macro");
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("realtime");
-  const [reviewDates, setReviewDates] = useState<ReviewDateFilter>(() => ({ mode: 'week', ...currentReviewWeek(Date.now()) }));
+  const [reviewDates, setReviewDates] = useState<ReviewDateFilter>(() => ({ mode: 'week', ...recentReviewDates(Date.now()) }));
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
   const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
   const [archiveBusiness, setArchiveBusiness] = useState<Record<string, ArchiveBusinessSupplement>>({});
