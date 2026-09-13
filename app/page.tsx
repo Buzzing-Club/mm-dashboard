@@ -9,6 +9,7 @@ import { recentReviewDates, filterReviewMarkets, type ReviewDateFilter } from ".
 import { historicalMissingLabel, type HistoricalLoadState } from "./historical-list-loader";
 import { ReviewDateSelector } from "./review-date-filter";
 import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
+import { chartWindow, sampledSlippage } from './chart-window';
 import { DEFAULT_L1_DISTANCE_THRESHOLD, L1_DISTANCE_DESCRIPTION, l1DistanceLabel } from "./l1-distance-label";
 import {
   Activity,
@@ -418,6 +419,7 @@ type SingleMarketRealtimePayload = {
       current_pnl?: string | number | null;
     };
     slippage?: {
+      sample_count?: string | number | null;
       avg_trade_slippage?: string | number | null;
       distribution?: Array<{
         bucket?: string | null;
@@ -1426,6 +1428,7 @@ function buildLiquidityHistory(market: Market): LiquidityHistoryPoint[] {
   if (market.liquidityHistory?.length) {
     return market.liquidityHistory;
   }
+  if (market.backendData) return [];
 
   const baselineRatio: Partial<Record<RiskStatus, number>> = {
     normal_quote: 0.96,
@@ -1962,9 +1965,7 @@ function mapSingleMarketMetrics(payload: SingleMarketRealtimePayload): SingleMar
     traderCount: numberValue(business?.trader_count) ?? 0,
     pnl: raw6ToUsdb(payload.data.pnl?.current_pnl),
     washRatio: numberValue(business?.wash_ratio),
-    avgSlippage: slippage?.avg_trade_slippage === null || slippage?.avg_trade_slippage === undefined
-      ? null
-      : (numberValue(slippage.avg_trade_slippage) ?? 0) * 100,
+    avgSlippage: sampledSlippage(slippage?.avg_trade_slippage, slippage?.sample_count),
     slippageBuckets: singleMarketSlippageBuckets(slippage?.distribution),
     slippageNotionalBuckets: apiSlippageNotionalBuckets(slippage?.distribution_by_notional),
     backendData: {
@@ -2486,6 +2487,7 @@ export default function Home() {
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("realtime");
   const [reviewDates, setReviewDates] = useState<ReviewDateFilter>(() => ({ mode: 'week', ...recentReviewDates(Date.now()) }));
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
+  const [singleMarketDetails, setSingleMarketDetails] = useState<Record<string, SingleMarketMetrics>>({});
   const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
   const [reviewSource, setReviewSource] = useState<ReviewSourceState>({
     mode: "loading",
@@ -2653,7 +2655,7 @@ export default function Home() {
     : filteredMarkets[0] ?? activeMarket;
   const visibleMarketWithRealtime = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketMetrics(
     visibleMarketBase,
-    singleMarketMetrics[visibleMarketBase.id],
+    singleMarketDetails[`${visibleMarketBase.id}:${timeframe}`] ?? singleMarketMetrics[visibleMarketBase.id],
   );
   const visibleMarket = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketHistory(
     visibleMarketWithRealtime,
@@ -2663,9 +2665,13 @@ export default function Home() {
   useEffect(() => {
     if (!hasVisibleMarkets || !visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
     const controller = new AbortController();
+    let inFlight = false;
 
     async function loadSingleMarketMetrics() {
+      if (inFlight || controller.signal.aborted) return;
+      inFlight = true;
       try {
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]);
         const params = new URLSearchParams({
           condition_id: visibleMarketBase.id,
           window: timeframe,
@@ -2673,11 +2679,11 @@ export default function Home() {
         const [realtimeResult, historyResult] = await Promise.allSettled([
           fetch(`/api/dashboard/market-realtime?${params.toString()}`, {
             cache: "no-store",
-            signal: controller.signal,
+            signal,
           }),
           fetch(`/api/dashboard/market-history?${params.toString()}`, {
             cache: "no-store",
-            signal: controller.signal,
+            signal,
           }),
         ]);
         if (controller.signal.aborted) return;
@@ -2685,9 +2691,9 @@ export default function Home() {
         if (realtimeResult.status === "fulfilled" && realtimeResult.value.ok) {
           const metrics = mapSingleMarketMetrics(await realtimeResult.value.json() as SingleMarketRealtimePayload);
           if (metrics && !controller.signal.aborted) {
-            setSingleMarketMetrics((current) => ({
+            setSingleMarketDetails((current) => ({
               ...current,
-              [visibleMarketBase.id]: metrics,
+              [`${visibleMarketBase.id}:${timeframe}`]: metrics,
             }));
           }
         }
@@ -2703,11 +2709,12 @@ export default function Home() {
       } catch (error) {
         if (controller.signal.aborted) return;
         console.warn("single market metrics unavailable", error);
-      }
+      } finally { inFlight = false; }
     }
 
     loadSingleMarketMetrics();
-    return () => controller.abort();
+    const timer = setInterval(loadSingleMarketMetrics, 20_000);
+    return () => { clearInterval(timer); controller.abort(); };
   }, [hasVisibleMarkets, marketScope, refreshTick, timeframe, visibleMarketBase?.id, visibleMarketBase?.isHistorical]);
 
   const reviewIsDemo = buildSectionSevenDemo(visibleMarketBase, []) !== null;
@@ -3770,7 +3777,10 @@ function ExperienceBoard({
     bookOutcome === "yes" ? visibleMarket.askLevels : visibleMarket.noAskLevels?.length ? visibleMarket.noAskLevels : complementaryLevels(visibleMarket.bidLevels, "ask");
   const bidMax = maxQuantity(displayedBidLevels);
   const askMax = maxQuantity(displayedAskLevels);
-  const liquidityHistory = buildLiquidityHistory(visibleMarket);
+  const liquidityWindow = chartWindow(buildLiquidityHistory(visibleMarket), timeframe, timestamp(visibleMarket.startAt), timestamp(visibleMarket.endAt));
+  const liquidityHistory = liquidityWindow.points;
+  const liquidityStart = new Date(liquidityWindow.from).toISOString();
+  const liquidityEnd = new Date(liquidityWindow.through).toISOString();
   const liquidityEvents = liquidityHistory.filter((point) => point.liquidityReason);
   const tier1FlashFreq = visibleMarket.flash?.tier1PairsPerHour ?? visibleMarket.flash?.actualPairsPerHour;
   const midFlashFreq = visibleMarket.flash?.midPairsPerHour;
@@ -3834,7 +3844,7 @@ function ExperienceBoard({
             <small>true trades</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Avg Slippage" value={visibleMarket.avgSlippage === null ? visibleMarket.isHistorical ? historicalMissingLabel('', visibleMarket.historicalBusinessState) : "no_trade" : `${formatReviewNumber(visibleMarket.avgSlippage)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
+            <TinyStat label="Avg Slippage" value={visibleMarket.avgSlippage === null ? visibleMarket.isHistorical ? historicalMissingLabel('', visibleMarket.historicalBusinessState) : "无有效样本" : `${formatReviewNumber(visibleMarket.avgSlippage)}%`} tone={visibleMarket.avgSlippage === null ? 'warn' : visibleMarket.avgSlippage < 4 ? "ok" : "bad"} />
             <TinyStat label={visibleMarket.isHistorical ? 'Snapshot Spread' : 'Spread Now'} value={visibleMarket.spread !== null ? `${formatReviewNumber(visibleMarket.spread * 100)}c` : visibleMarket.isHistorical ? '未留存' : "missing"} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
             <TinyStat label="Ask K" value={visibleMarket.askSlope?.toFixed(1) ?? (visibleMarket.isHistorical ? '未留存有效值' : "insufficient")} tone={visibleMarket.askSlope ? "ok" : "bad"} />
             <TinyStat label="Bid K" value={visibleMarket.bidSlope?.toFixed(1) ?? (visibleMarket.isHistorical ? '未留存有效值' : "insufficient")} tone={visibleMarket.bidSlope ? "ok" : "bad"} />
@@ -3847,7 +3857,7 @@ function ExperienceBoard({
             <small>filled orders</small>
           </div>
           <div className="chart-frame mini-chart">
-            {visibleMarket.slippageBuckets.length ? <ResponsiveContainer width="100%" height="100%">
+            {visibleMarket.slippageBuckets.some(point => point.count > 0) ? <ResponsiveContainer width="100%" height="100%">
               <BarChart data={visibleMarket.slippageBuckets}>
                 <CartesianGrid stroke="#242833" vertical={false} />
                 <XAxis dataKey="bucket" tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
@@ -3862,7 +3872,7 @@ function ExperienceBoard({
                   ))}
                 </Bar>
               </BarChart>
-            </ResponsiveContainer> : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存滑点分布或无有效净成交样本' : '等待后端提供真实成交滑点分布'}</div>}
+            </ResponsiveContainer> : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存滑点分布或无有效净成交样本' : visibleMarket.backendData?.slippageDistribution ? '当前区间无有效净成交样本' : '滑点分布暂不可用'}</div>}
           </div>
         </div>
       </div>
@@ -3873,10 +3883,10 @@ function ExperienceBoard({
         <div className="panel chart-panel">
           <div className="panel-title">
             <span><LineChart size={16} /> 滑点与交易冲击变化</span>
-            <small>{visibleMarket.experienceQuality?.history.length ? timeframe : visibleMarket.isHistorical ? '归档无有效时序' : "等待时序数据"}</small>
+            <small>{timeframe}</small>
           </div>
           <div className="chart-frame compact-chart">
-            {visibleMarket.experienceQuality?.history.length ? (
+            {visibleMarket.experienceQuality?.history.some(point => point.slippagePct !== null || point.impactPct !== null) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={visibleMarket.experienceQuality.history}>
                   <CartesianGrid stroke="#242833" vertical={false} />
@@ -3899,7 +3909,7 @@ function ExperienceBoard({
                   <Line type="monotone" dataKey="impactPct" name="交易冲击" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls={false} />
                 </ComposedChart>
               </ResponsiveContainer>
-            ) : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存时序或所选区间无有效样本' : '等待后端提供成交时刻基准价与滑点时序'}</div>}
+            ) : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存时序或所选区间无有效样本' : visibleMarket.historyData ? '当前区间无有效滑点或交易冲击样本' : '滑点与交易冲击时序暂不可用'}</div>}
           </div>
           {visibleMarket.historyData ? (
             <div className="chart-source-note">
@@ -3911,10 +3921,10 @@ function ExperienceBoard({
         <div className="panel chart-panel">
           <div className="panel-title">
             <span><TimerReset size={16} /> 按单笔金额分层滑点</span>
-            <small>{visibleMarket.slippageNotionalBuckets?.length ? "notional buckets" : visibleMarket.isHistorical ? '归档无有效分层样本' : "等待后端数据"}</small>
+            <small>notional buckets</small>
           </div>
           <div className="chart-frame compact-chart">
-            {visibleMarket.slippageNotionalBuckets?.length ? (
+            {visibleMarket.slippageNotionalBuckets?.some(point => point.tradeCount > 0 && point.avgSlippagePct !== null) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={visibleMarket.slippageNotionalBuckets}>
                   <CartesianGrid stroke="#242833" vertical={false} />
@@ -3928,7 +3938,7 @@ function ExperienceBoard({
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            ) : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存金额分层或无有效净成交样本' : '等待后端按成交金额区间返回滑点分布'}</div>}
+            ) : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存金额分层或无有效净成交样本' : visibleMarket.slippageNotionalBuckets?.length ? '当前区间无有效金额分层样本' : '金额分层滑点暂不可用'}</div>}
           </div>
         </div>
       </div>
@@ -3942,15 +3952,17 @@ function ExperienceBoard({
             <small>{timeframe}</small>
           </div>
           <div className="chart-frame">
-            <ResponsiveContainer width="100%" height="100%">
+            {liquidityHistory.length ? <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={liquidityHistory}>
                 <CartesianGrid stroke="#242833" vertical={false} />
                 <XAxis
                   dataKey="ts"
                   type="number"
-                  domain={[timestamp(visibleMarket.startAt), timestamp(visibleMarket.endAt)]}
-                  ticks={axisTicks(visibleMarket.startAt, visibleMarket.endAt)}
-                  tickFormatter={(value) => formatAxisTime(Number(value), visibleMarket.startAt, visibleMarket.endAt)}
+                  domain={[liquidityWindow.from, liquidityWindow.through]}
+                  ticks={axisTicks(liquidityStart, liquidityEnd)}
+                  minTickGap={36}
+                  allowDataOverflow
+                  tickFormatter={(value) => formatAxisTime(Number(value), liquidityStart, liquidityEnd)}
                   tickLine={false}
                   axisLine={false}
                   stroke="#798191"
@@ -3958,13 +3970,13 @@ function ExperienceBoard({
                 />
                 <YAxis tickLine={false} axisLine={false} stroke="#798191" fontSize={11} />
                 <Tooltip content={<ChartTooltip />} />
-                {(visibleMarket.experienceQuality?.incidents ?? []).map((incident) => (
+                {(visibleMarket.experienceQuality?.incidents ?? []).filter(incident => incident.ts >= liquidityWindow.from && incident.ts <= liquidityWindow.through).map((incident) => (
                   <ReferenceLine key={`${incident.kind}-${incident.ts}`} x={incident.ts} stroke={incident.kind === "l1_distance_exceeded" ? "#ff5c6c" : "#ffb020"} strokeDasharray="3 3" />
                 ))}
-                <Area type="monotone" dataKey="availableLiquidity" name="Liquidity" fill="#20d49b33" stroke="#20d49b" strokeWidth={2} dot={<LiquidityEventDot />} />
+                <Area type="linear" dataKey="availableLiquidity" name="Liquidity" fill="#20d49b33" stroke="#20d49b" strokeWidth={2} dot={liquidityHistory.length <= 30 ? <LiquidityEventDot /> : false} />
                 <Line type="monotone" dataKey="initialBaseline" name="Initial Baseline" stroke="#4cc9f0" strokeDasharray="4 4" strokeWidth={2} dot={false} />
               </ComposedChart>
-            </ResponsiveContainer>
+            </ResponsiveContainer> : <div className="chart-empty">所选区间无流动性观测</div>}
           </div>
           <div className="liquidity-event-strip" aria-label="流动性变化原因">
             {liquidityEvents.slice(-4).map((point) => (
