@@ -10,11 +10,11 @@ const DAY_MS = 86_400_000;
 const OFFSET_MS = 8 * 3_600_000;
 
 // Review dates use the business timezone, independently of the viewer's device.
-export function currentReviewWeek(now: number): { from: string; to: string } {
-  const local = new Date(now + OFFSET_MS);
-  const today = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
-  const monday = today - ((local.getUTCDay() + 6) % 7) * DAY_MS;
-  return { from: new Date(monday).toISOString().slice(0, 10), to: new Date(monday + 6 * DAY_MS).toISOString().slice(0, 10) };
+export function recentReviewDates(now: number): { from: string; to: string } {
+  return {
+    from: new Date(now - 7 * DAY_MS + OFFSET_MS).toISOString().slice(0, 10),
+    to: new Date(now + OFFSET_MS).toISOString().slice(0, 10),
+  };
 }
 
 function dateBoundary(value: string): number | null {
@@ -25,8 +25,8 @@ function dateBoundary(value: string): number | null {
 
 export function reviewDateBounds(filter: ReviewDateFilter, now: number): { from: number; through: number } | null {
   if (filter.mode === 'all') return { from: -Infinity, through: Infinity };
-  const dates = filter.mode === 'week' ? currentReviewWeek(now) : filter;
-  const from = dateBoundary(dates.from), end = dateBoundary(dates.to);
+  if (filter.mode === 'week') return { from: now - 7 * DAY_MS, through: now };
+  const from = dateBoundary(filter.from), end = dateBoundary(filter.to);
   return from === null || end === null || end < from ? null : { from, through: end + DAY_MS };
 }
 
@@ -36,7 +36,8 @@ export function filterReviewMarkets<T extends ReviewLifecycleMarket>(markets: T[
   return endedReviewMarkets(markets, now).filter(market => {
     if (filter.mode === 'all') return true;
     const end = Date.parse(market.reviewEndAt === undefined ? market.endAt : market.reviewEndAt ?? '');
-    return Number.isFinite(end) && end > 0 && end >= bounds.from && end < bounds.through;
+    return Number.isFinite(end) && end > 0 && end >= bounds.from
+      && (filter.mode === 'week' ? end <= bounds.through : end < bounds.through);
   });
 }
 

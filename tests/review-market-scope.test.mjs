@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { currentReviewWeek, filterReviewMarkets, reviewDateBounds, endedReviewMarkets, isEndedReviewMarket } from '../app/review-market-scope.ts';
+import { recentReviewDates, filterReviewMarkets, reviewDateBounds, endedReviewMarkets, isEndedReviewMarket } from '../app/review-market-scope.ts';
 
 const now = Date.parse('2026-09-13T01:00:00Z');
 const market = { id: 'test', endAt: '2026-09-13T02:00:00Z', lifecycle: { closed: false, settlementPhase: 'none' } };
@@ -37,10 +37,22 @@ test('review selector and portfolio share a deduplicated ended-only scope', () =
   assert.deepEqual(endedReviewMarkets([market],now),[]);
 });
 
-test('business week starts Monday midnight UTC+8, including year rollover', () => {
-  assert.deepEqual(currentReviewWeek(Date.parse('2026-09-13T15:59:59Z')), {from:'2026-09-07',to:'2026-09-13'});
-  assert.deepEqual(currentReviewWeek(Date.parse('2026-09-13T16:00:00Z')), {from:'2026-09-14',to:'2026-09-20'});
-  assert.deepEqual(currentReviewWeek(Date.parse('2027-01-01T00:00:00Z')), {from:'2026-12-28',to:'2027-01-03'});
+test('recent seven days look backwards across Monday and year boundaries in UTC+8', () => {
+  assert.deepEqual(recentReviewDates(Date.parse('2026-09-13T15:59:59Z')), {from:'2026-09-06',to:'2026-09-13'});
+  assert.deepEqual(recentReviewDates(Date.parse('2026-09-13T16:00:00Z')), {from:'2026-09-07',to:'2026-09-14'});
+  assert.deepEqual(recentReviewDates(Date.parse('2027-01-01T00:00:00Z')), {from:'2026-12-25',to:'2027-01-01'});
+});
+
+test('rolling window covers exactly 168 hours through now, including both boundaries', () => {
+  const current = Date.parse('2026-09-14T06:23:45Z');
+  const start = current - 7 * 86_400_000;
+  const filter = {mode:'week',from:'2000-01-01',to:'2099-01-01'};
+  assert.deepEqual(reviewDateBounds(filter,current),{from:start,through:current});
+  const rows = [start-1,start,current-1,current,current+1].map((at,i)=>({
+    ...market,id:String(i),endAt:new Date(at).toISOString(),lifecycle:{closed:true,settlementPhase:'none'},
+  }));
+  assert.deepEqual(filterReviewMarkets(rows,filter,current),rows.slice(1,4));
+  assert.deepEqual(reviewDateBounds(filter,current+1000),{from:start+1000,through:current+1000});
 });
 
 test('range admits by source end, retaining full long-running market data', () => {
