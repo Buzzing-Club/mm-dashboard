@@ -7,6 +7,7 @@ import { aggregateLifecyclePnl, aggregatePnl, marketReviewWindows, phaseDefiniti
 import { ReviewAccountPnl } from "./review-account-pnl";
 import { ReviewBackendPanel } from "./review-backend-panel";
 import { ReviewPhasePortfolio } from "./review-phase-portfolio";
+import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
 
 type MetricDefinition = { id: MetricId; name: string; unit: string; definition: string; source: string; example?: string };
 export const stageMetrics: Array<{ id: string; phase: string; range: string; goal: string; metrics: MetricDefinition[] }> = [
@@ -50,24 +51,24 @@ export function ReviewStageMetrics({ data, startAt, endAt }: { data: SectionSeve
           return <article className="review-seven-metric" key={metric.id}>
             <div className="review-metric-heading">
             <h4><Definition text={`${metric.definition}${metric.example ? `\n举例：${metric.example}` : ""}\n数据来源：${metric.source}`}>{metric.name}</Definition></h4>
-            <div className="review-seven-value"><strong>{sample?.value != null ? Number(sample.value.toFixed(2)) : sample?.emptyLabel ?? (sample ? (sample.observations.length ? "无本阶段样本" : "暂无样本") : data ? "数据缺失" : "加载中")}</strong><small>{sample?.value != null ? metric.unit : ""}</small></div>
+            <div className="review-seven-value"><strong>{sample?.value != null ? formatReviewNumber(sample.value) : sample?.emptyLabel ?? (sample ? (sample.observations.length ? "无本阶段样本" : "暂无样本") : data ? "数据缺失" : "加载中")}</strong><small>{sample?.value != null ? metric.unit : ""}</small></div>
             {sample?.note && <p className="review-data-coverage" title={sample.note}>{sample.precision === "sampled" ? "采样估算 · " : ""}{sample.note}</p>}
             </div>
             <div className={`review-metric-plots${sample?.exposureSeries?.length ? " paired" : ""}`}>
-            {sample?.exposureSeries?.length ? <><small className="review-chart-unit">|净敞口| (shares) · 空缺区间不连线</small><div className="review-seven-chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={sample.exposureSeries} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}><CartesianGrid stroke="#252a33" vertical={false} /><XAxis dataKey="at" type="number" domain={windows ? [windows[0].start, windows[2].end] : ["dataMin", "dataMax"]} tickFormatter={value => new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Shanghai" })} stroke="#939daa" tickLine={false} minTickGap={20} tick={{ fontSize: 11 }} /><YAxis width={42} stroke="#939daa" axisLine={false} tickLine={false} tickCount={4} tick={{ fontSize: 11 }} /><Tooltip labelFormatter={value => formatTime(Number(value))} contentStyle={{ background: "#11151a", border: "1px solid #39414d" }} /><Area type="stepAfter" dataKey="value" name="净敞口绝对值" stroke="#ffb020" fill="#ffb020" fillOpacity={0.16} connectNulls={false} isAnimationActive={false} /></AreaChart></ResponsiveContainer></div></> : null}
+            {sample?.exposureSeries?.length ? <><small className="review-chart-unit">|净敞口| (shares) · 空缺区间不连线</small><div className="review-seven-chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={sample.exposureSeries} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}><CartesianGrid stroke="#252a33" vertical={false} /><XAxis dataKey="at" type="number" domain={windows ? [windows[0].start, windows[2].end] : ["dataMin", "dataMax"]} tickFormatter={value => new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Shanghai" })} stroke="#939daa" tickLine={false} minTickGap={20} tick={{ fontSize: 11 }} /><YAxis tickFormatter={formatReviewNumber} width={56} stroke="#939daa" axisLine={false} tickLine={false} tickCount={4} tick={{ fontSize: 11 }} /><Tooltip formatter={formatReviewTooltip} labelFormatter={value => formatTime(Number(value))} contentStyle={{ background: "#11151a", border: "1px solid #39414d" }} /><Area type="stepAfter" dataKey="value" name="净敞口绝对值" stroke="#ffb020" fill="#ffb020" fillOpacity={0.16} connectNulls={false} isAnimationActive={false} /></AreaChart></ResponsiveContainer></div></> : null}
             {sample?.observations.length ? <><small className="review-chart-unit">{sample.observationUnit}</small><div className="review-seven-chart">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={sample.observations} margin={{ top: 12, right: 12, left: 0, bottom: 4 }} barCategoryGap="28%" maxBarSize={40}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
                   <XAxis dataKey="label" stroke="#939daa" tickLine={false} interval="preserveStartEnd" minTickGap={12} tick={{ fontSize: 11 }} />
-                  <YAxis width={42} stroke="#939daa" axisLine={false} tickLine={false} tickCount={4} tick={{ fontSize: 11 }} />
-                  <Tooltip cursor={{ fill: "#ffffff", fillOpacity: 0.04 }} contentStyle={{ background: "#11151a", border: "1px solid #39414d", color: "#e4e9ef" }} />
+                  <YAxis tickFormatter={formatReviewNumber} width={56} stroke="#939daa" axisLine={false} tickLine={false} tickCount={4} tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={formatReviewTooltip} cursor={{ fill: "#ffffff", fillOpacity: 0.04 }} contentStyle={{ background: "#11151a", border: "1px solid #39414d", color: "#e4e9ef" }} />
                   <Bar dataKey="value" name={metric.name} fill={index === 0 ? "#ffb020" : index === 1 ? "#4cc9f0" : "#20d49b"} radius={[3, 3, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div></> : <p className="review-seven-empty">{data?.unavailable?.[metric.id] ?? metric.source}</p>}
             </div>
-            {sample?.details?.length ? <dl className="review-metric-details">{sample.details.map((item, index) => <div key={`${item.label}-${index}`}><dt>{item.label}</dt><dd>{item.value === null ? "无样本" : `${Number(item.value.toFixed(2))} ${item.unit}`}</dd></div>)}</dl> : null}
+            {sample?.details?.length ? <dl className="review-metric-details">{sample.details.map((item, index) => <div key={`${item.label}-${index}`}><dt>{item.label}</dt><dd>{item.value === null ? "无样本" : `${formatReviewNumber(item.value)} ${item.unit}`}</dd></div>)}</dl> : null}
           </article>;
         })}
       </div>
@@ -75,8 +76,8 @@ export function ReviewStageMetrics({ data, startAt, endAt }: { data: SectionSeve
   </div>;
 }
 
-const money = (value: number | null) => value === null ? "待接入" : `${value < 0 ? "-" : ""}$${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const quantity = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+const money = (value: number | null) => value === null ? "待接入" : `${value < 0 ? "-" : ""}$${formatReviewNumber(Math.abs(value))}`;
+const quantity = (value: number) => formatReviewNumber(value);
 type PnlMeasure = "spreadPnl" | "exposurePnl" | "totalPnl";
 const pnlLabels: Record<PnlMeasure, string> = { spreadPnl: "点差 PnL", exposurePnl: "敞口 PnL", totalPnl: "总 PnL" };
 const pnlDefinitions = {
@@ -125,7 +126,7 @@ export function ReviewPnlAnalysis({ data, marketCount, accountMarkets, refreshKe
     <h3 className="review-pnl-detail-title">{selected.phase} · {pnlLabels[selected.measure]} · 市场贡献</h3>
     {rows.length ? <>
       <div className="review-pnl-contributions">{contributions.map((row) => <div key={row.id}><span title={row.market}>{row.market}</span><div className="review-pnl-bar" title={`零轴居中；左右共用刻度 ±${money(maxAbsolute)}，按当前列表最大绝对值缩放`}><i style={{ width: `${maxAbsolute ? Math.abs(row[selected.measure] ?? 0) / maxAbsolute * 50 : 0}%`, left: (row[selected.measure] ?? 0) < 0 ? undefined : "50%", right: (row[selected.measure] ?? 0) < 0 ? "50%" : undefined, background: (row[selected.measure] ?? 0) < 0 ? "#ff536b" : "#20d49b" }} /></div><strong className={(row[selected.measure] ?? 0) < 0 ? "negative" : "positive"}>{money(row[selected.measure])}</strong></div>)}</div>
-      <div className="review-seven-table-wrap review-pnl-lots" role="region" aria-label={`敞口来源 · ${selected.phase}`} tabIndex={0}><table className="review-seven-table"><caption>敞口来源 · {selected.phase}</caption><thead><tr>{["市场", "建仓阶段", "Outcome", "方向", "数量 (sh)", "建仓均价", "平仓均价 / 结算价", "敞口 PnL"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>{filtered.flatMap((row) => row.lots.map((lot, index) => <tr key={`${row.marketId}-${row.phase}-${index}`}><th>{row.market}</th><td>{row.phase}</td><td>{lot.outcome}</td><td>{lot.side}</td><td>{quantity(lot.quantity)}</td><td>{lot.entryPrice.toFixed(4)}</td><td>{lot.exitPrice.toFixed(4)}</td><td className={lot.exposurePnl < 0 ? "negative" : "positive"}>{money(lot.exposurePnl)}</td></tr>))}</tbody></table></div>
+      <div className="review-seven-table-wrap review-pnl-lots" role="region" aria-label={`敞口来源 · ${selected.phase}`} tabIndex={0}><table className="review-seven-table"><caption>敞口来源 · {selected.phase}</caption><thead><tr>{["市场", "建仓阶段", "Outcome", "方向", "数量 (sh)", "建仓均价", "平仓均价 / 结算价", "敞口 PnL"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>{filtered.flatMap((row) => row.lots.map((lot, index) => <tr key={`${row.marketId}-${row.phase}-${index}`}><th>{row.market}</th><td>{row.phase}</td><td>{lot.outcome}</td><td>{lot.side}</td><td>{quantity(lot.quantity)}</td><td>{formatReviewNumber(lot.entryPrice)}</td><td>{formatReviewNumber(lot.exitPrice)}</td><td className={lot.exposurePnl < 0 ? "negative" : "positive"}>{money(lot.exposurePnl)}</td></tr>))}</tbody></table></div>
     </> : <p className="review-seven-empty">待接入全部市场成交历史、阶段归因和敞口批次。当前市场 PnL 不能替代历史阶段拆分。</p>}
   </section>;
 }

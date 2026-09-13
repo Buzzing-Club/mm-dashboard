@@ -6,6 +6,7 @@ import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
 import type { BackendReview } from "./review-backend";
 import { endedReviewMarkets } from "./review-market-scope";
+import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
 import {
   Activity,
   AlertTriangle,
@@ -3162,8 +3163,8 @@ function ReviewDashboard({
         </div>
 
         <div className="review-summary-grid review-summary-activity">
-          <ReviewMetric label="访问到成交" value={review.availability.marketEngagement ? `${review.funnel.at(-1)?.conversion.toFixed(1)}%` : "待接入"} note={review.availability.marketEngagement ? `${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交` : "需要前端行为事件与后端成交"} tone={review.availability.marketEngagement ? "ok" : "warn"} />
-          <ReviewMetric label="取消率" value={review.availability.marketEngagement ? `${cancellationRate.toFixed(1)}%` : "待接入"} note={review.availability.marketEngagement ? "尝试报价后未提交订单" : "需要尝试报价与提交订单事件"} tone={review.availability.marketEngagement && cancellationRate <= 35 ? "ok" : "warn"} />
+          <ReviewMetric label="访问到成交" value={review.availability.marketEngagement ? `${formatReviewNumber(review.funnel.at(-1)?.conversion ?? NaN)}%` : "待接入"} note={review.availability.marketEngagement ? `${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交` : "需要前端行为事件与后端成交"} tone={review.availability.marketEngagement ? "ok" : "warn"} />
+          <ReviewMetric label="取消率" value={review.availability.marketEngagement ? `${formatReviewNumber(cancellationRate)}%` : "待接入"} note={review.availability.marketEngagement ? "尝试报价后未提交订单" : "需要尝试报价与提交订单事件"} tone={review.availability.marketEngagement && cancellationRate <= 35 ? "ok" : "warn"} />
         </div>
 
         <div className="review-grid review-grid-activity">
@@ -3178,7 +3179,7 @@ function ReviewDashboard({
                   <span>{item.stage}</span>
                   <div><i style={{ width: `${item.conversion}%` }} /></div>
                   <strong>{item.count}</strong>
-                  <em>{item.conversion.toFixed(1)}%</em>
+                  <em>{formatReviewNumber(item.conversion)}%</em>
                 </div>
               ))}
             </div> : <ReviewUnavailable title="市场漏斗待接入" detail="策略端没有用户访问、交易互动与提交订单的完整行为链路。" />}
@@ -3221,8 +3222,8 @@ function ReviewDashboard({
               <small>成交后 1 分钟观察窗</small>
             </div>
             {review.availability.toxicity ? <><div className="review-kpi-row">
-              <span><ReviewDefinition label="平均 Score" /><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{review.averageScore}c</strong></span>
-              <span><ReviewDefinition label="有利成交" /><strong>{review.favorableRate}%</strong></span>
+              <span><ReviewDefinition label="平均 Score" /><strong className={review.averageScore >= 0 ? "positive" : "negative"}>{review.averageScore > 0 ? "+" : ""}{formatReviewNumber(review.averageScore)}c</strong></span>
+              <span><ReviewDefinition label="有利成交" /><strong>{formatReviewNumber(review.favorableRate)}%</strong></span>
               <span><ReviewDefinition label="毒性样本" /><strong>{reviewSource.mode==='mock'?completedTrades:reviewSource.payload?.order_flow?.sampleCount??0}</strong></span>
             </div>
             <div className="review-bar-frame compact">
@@ -3287,7 +3288,7 @@ function ReviewDefinition({ label }: { label: string }) {
 
 function ReviewTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number | string; color?: string }>; label?: string | number }) {
   if (!active || !payload?.length) return null;
-  return <div className="chart-tooltip"><strong>{label}</strong>{payload.map((item, index) => <span key={`${item.name}-${index}`}><i style={{ background: item.color ?? "#4cc9f0" }} />{item.name}: {item.value}</span>)}</div>;
+  return <div className="chart-tooltip"><strong>{label}</strong>{payload.map((item, index) => <span key={`${item.name}-${index}`}><i style={{ background: item.color ?? "#4cc9f0" }} />{item.name}: {formatReviewTooltip(item.value)}</span>)}</div>;
 }
 
 function MarketOverview({
