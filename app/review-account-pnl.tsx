@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { accountPnlSnapshot, accountPnlTotals, type AccountPnlSnapshot } from "./review-account-pnl-data";
 
-const money = (value: number) => `${value < 0 ? "-" : ""}${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+import { formatReviewNumber } from "./review-number-format";
+const money = (value: number) => `${value < 0 ? "-" : ""}${formatReviewNumber(Math.abs(value))}`;
 
 export function ReviewAccountPnl({ markets, refreshKey, enabled }: { markets: Array<{ id: string; event: string }>; refreshKey: number; enabled: boolean }) {
   const idsKey = JSON.stringify([...new Set(markets.map(row => row.id.toLowerCase()).filter(id => /^0x[a-f0-9]{64}$/.test(id)))].sort());

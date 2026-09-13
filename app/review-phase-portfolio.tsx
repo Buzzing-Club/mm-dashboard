@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
 import { Play, Square, RotateCcw } from 'lucide-react';
+import { formatReviewNumber } from "./review-number-format";
 import type { BackendReview } from './review-backend';
 import { phasePortfolioTotals, type PortfolioMarket } from './review-phase-portfolio-data';
-const money=(n:number|null)=>n===null?'无数据':`${n<0?'-':''}$${Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const money=(n:number|null)=>n===null?'无数据':`${n<0?'-':''}$${formatReviewNumber(Math.abs(n))}`;
 export function ReviewPhasePortfolio({markets}:{markets:Array<{id:string;event:string}>}) {
   const idsKey=JSON.stringify([...new Map(markets.filter(row=>/^0x[a-f0-9]{64}$/i.test(row.id)).map(row=>[row.id.toLowerCase(),{id:row.id.toLowerCase(),event:row.event}])).values()].sort((a,b)=>a.id.localeCompare(b.id)));
   const [result,setResult]=useState<{key:string;at:number;markets:Array<{id:string;event:string}>;rows:PortfolioMarket[]}|null>(null);
