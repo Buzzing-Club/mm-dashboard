@@ -135,6 +135,7 @@ type Market = {
   lifecycle?: MarketLifecycleInfo;
   isHistorical?: boolean;
   snapshotAt?: string | null;
+  historicalBusinessNote?: string;
   series: Array<{
     ts?: number;
     time: string;
@@ -2435,6 +2436,9 @@ export default function Home() {
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("realtime");
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
   const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
+  const [archiveBusiness, setArchiveBusiness] = useState<Record<string, {
+    metrics?: SingleMarketMetrics; history?: SingleMarketHistoryMetrics; note: string;
+  }>>({});
   const [reviewSource, setReviewSource] = useState<ReviewSourceState>({
     mode: "loading",
     payload: null,
@@ -2579,14 +2583,68 @@ export default function Home() {
   const visibleMarketBase = workspaceView === "review" || filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
-  const visibleMarketWithRealtime = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketMetrics(
+  const archiveKey = `${visibleMarketBase.id}:${visibleMarketBase.snapshotAt}:${timeframe}`;
+  const archiveSupplement = archiveBusiness[archiveKey];
+  let historicalMarket = visibleMarketBase;
+  if (visibleMarketBase.isHistorical && archiveSupplement) {
+    historicalMarket = { ...visibleMarketBase, historicalBusinessNote: archiveSupplement.note };
+    if (archiveSupplement.metrics) {
+      const metrics = archiveSupplement.metrics;
+      const fields = ['grossVolume', 'netVolume', 'traderCount', 'pnl', 'washRatio'] as const;
+      historicalMarket.backendData = { ...visibleMarketBase.backendData! };
+      for (const field of fields) {
+        if (visibleMarketBase.backendData?.[field] === false && metrics.backendData[field]) {
+          Object.assign(historicalMarket, { [field]: metrics[field] });
+          historicalMarket.backendData[field] = true;
+        }
+      }
+    }
+    if (archiveSupplement.history) {
+      historicalMarket = {
+        ...historicalMarket, series: archiveSupplement.history.series,
+        historyData: archiveSupplement.history.historyData,
+        backendData: { ...historicalMarket.backendData!, businessTrend: true },
+      };
+    }
+  }
+  const visibleMarketWithRealtime = visibleMarketBase.isHistorical ? historicalMarket : applySingleMarketMetrics(
     visibleMarketBase,
     singleMarketMetrics[visibleMarketBase.id],
   );
-  const visibleMarket = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketHistory(
+  const visibleMarket = visibleMarketBase.isHistorical ? historicalMarket : applySingleMarketHistory(
     visibleMarketWithRealtime,
     singleMarketHistory[visibleMarketBase.id],
   );
+
+  useEffect(() => {
+    if (!hasMarkets || !visibleMarketBase.isHistorical || dataSource.mode !== 'api' || workspaceView !== 'realtime') return;
+    const controller = new AbortController();
+    const snapshot = visibleMarketBase.snapshotAt ? Date.parse(visibleMarketBase.snapshotAt) : NaN;
+    if (!Number.isFinite(snapshot)) {
+      setArchiveBusiness(current => ({ ...current, [archiveKey]: { note: '快照时间缺失，无法补充同一时刻的业务数据' } }));
+      return;
+    }
+    async function loadHistoricalBusiness() {
+      setArchiveBusiness(current => ({ ...current, [archiveKey]: { note: '正在读取结束时的历史业务数据' } }));
+      try {
+        const params = new URLSearchParams({ condition_id: visibleMarketBase.id, as_of: String(Math.floor(snapshot / 1000)), window: timeframe });
+        const response = await fetch(`/api/dashboard/historical-business?${params}`, {
+          cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(40_000)]),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json() as SingleMarketRealtimePayload & { as_of: number; notes: string[]; history: SingleMarketHistoryPayload | null };
+        if (payload.data?.condition_id !== visibleMarketBase.id) throw new Error('Market identity mismatch');
+        const metrics = mapSingleMarketMetrics(payload) ?? undefined;
+        const history = payload.history ? mapSingleMarketHistory(payload.history) ?? undefined : undefined;
+        const note = `历史补充截至 ${new Date(payload.as_of * 1000).toLocaleString('zh-CN', { hour12: false })}（完整分钟）；成交额及人数为累计值，PnL 为 API 账户按历史成交价估值。${payload.notes.join('；')}`;
+        if (!controller.signal.aborted) setArchiveBusiness(current => ({ ...current, [archiveKey]: { metrics, history, note } }));
+      } catch {
+        if (!controller.signal.aborted) setArchiveBusiness(current => ({ ...current, [archiveKey]: { note: '历史业务数据读取失败；保留策略快照，可点击刷新重试' } }));
+      }
+    }
+    void loadHistoricalBusiness();
+    return () => controller.abort();
+  }, [hasMarkets, dataSource.mode, workspaceView, archiveKey, visibleMarketBase.id, visibleMarketBase.isHistorical, visibleMarketBase.snapshotAt, timeframe, refreshTick]);
 
   useEffect(() => {
     if (!hasMarkets || !visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
@@ -3529,6 +3587,7 @@ const settlementPhaseMeta: Record<SettlementPhase, { label: string; tone: string
 
 function lifecycleStatusText(market: Market) {
   const lifecycle = market.lifecycle;
+  if (market.isHistorical && (!lifecycle || lifecycle.settlementPhase === 'none') && timestamp(market.snapshotAt ?? market.endAt) >= timestamp(market.endAt)) return '已到计划结束 · 结算未确认';
   if (!lifecycle) return "交易中";
   const base = settlementPhaseMeta[lifecycle.settlementPhase].label;
   if (lifecycle.settlementPhase === "dispute1" || lifecycle.settlementPhase === "dispute2") {
@@ -3550,7 +3609,7 @@ function MarketLifecycle({ market }: { market: Market }) {
     <div className="market-lifecycle" aria-label="市场生命周期">
       <span><small>开盘时间</small><strong>{formatAxisTime(timestamp(market.startAt), market.startAt, market.endAt)}</strong></span>
       <span><small>计划结束</small><strong>{formatAxisTime(timestamp(market.endAt), market.startAt, market.endAt)}</strong></span>
-      <span><small>当前阶段</small><strong className={`lifecycle-${phaseMeta.tone}`}>{lifecycleStatusText(market)}</strong></span>
+      <span><small>{market.isHistorical ? '快照阶段' : '当前阶段'}</small><strong className={`lifecycle-${phaseMeta.tone}`}>{lifecycleStatusText(market)}</strong></span>
       <span>
         <small>{market.lifecycle?.settledAt ? "结算完成时间" : market.lifecycle?.phaseEndAt ? "当前阶段截止" : remainingSeconds ? "已运行 / 距离结束" : "运行时长"}</small>
         <strong>{milestoneAt ? formatAxisTime(timestamp(milestoneAt), market.startAt, milestoneAt) : remainingSeconds ? `${durationLabel(elapsedSeconds)} / ${durationLabel(remainingSeconds)}` : durationLabel(elapsedSeconds)}</strong>
@@ -3626,11 +3685,12 @@ function MacroBoard({
             <small>selected market</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Gross Volume" value={visibleMarket.backendData?.grossVolume === false ? "unknown" : currency(visibleMarket.grossVolume)} tone={visibleMarket.backendData?.grossVolume === false ? "warn" : "ok"} />
-            <TinyStat label="Net Volume" value={visibleMarket.netVolume === null ? "unknown" : currency(visibleMarket.netVolume)} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
-            <TinyStat label="Trader Count" value={visibleMarket.backendData?.traderCount === false ? "unknown" : visibleMarket.traderCount.toLocaleString()} tone={visibleMarket.backendData?.traderCount === false ? "warn" : "ok"} />
-            <TinyStat label="Current PnL" value={visibleMarket.backendData?.pnl === false ? "unknown" : signedCurrency(visibleMarket.pnl)} tone={visibleMarket.backendData?.pnl === false ? "warn" : visibleMarket.pnl >= 0 ? "ok" : "bad"} />
+            <TinyStat label="Gross Volume" value={visibleMarket.backendData?.grossVolume === false ? "未读取到" : currency(visibleMarket.grossVolume)} tone={visibleMarket.backendData?.grossVolume === false ? "warn" : "ok"} />
+            <TinyStat label="Net Volume" value={visibleMarket.netVolume === null ? "未读取到" : currency(visibleMarket.netVolume)} tone={visibleMarket.netVolume === null ? "warn" : "ok"} />
+            <TinyStat label="Trader Count" value={visibleMarket.backendData?.traderCount === false ? "未读取到" : visibleMarket.traderCount.toLocaleString()} tone={visibleMarket.backendData?.traderCount === false ? "warn" : "ok"} />
+            <TinyStat label={visibleMarket.isHistorical ? '历史 PnL' : 'Current PnL'} value={visibleMarket.backendData?.pnl === false ? "未读取到" : signedCurrency(visibleMarket.pnl)} tone={visibleMarket.backendData?.pnl === false ? "warn" : visibleMarket.pnl >= 0 ? "ok" : "bad"} />
           </div>
+          {visibleMarket.isHistorical ? <div className="chart-source-note">{visibleMarket.historicalBusinessNote ?? '业务数据以结束时刻为准；未留存字段不补零'}</div> : null}
         </div>
 
         <div className="panel chart-panel">
@@ -3640,7 +3700,7 @@ function MacroBoard({
           </div>
           <div className="chart-frame macro-chart-frame">
             {visibleMarket.backendData?.businessTrend === false ? (
-              <div className="chart-empty">等待后端提供单市场成交额与 PnL 历史序列</div>
+              <div className="chart-empty">{visibleMarket.isHistorical ? visibleMarket.historicalBusinessNote ?? '正在读取历史序列' : '暂未读取到单市场成交额与 PnL 历史序列'}</div>
             ) : <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={visibleMarket.series}>
                 <CartesianGrid stroke="#242833" vertical={false} />
