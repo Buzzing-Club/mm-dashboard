@@ -10,6 +10,7 @@ import { historicalMissingLabel, type HistoricalLoadState } from "./historical-l
 import { ReviewDateSelector } from "./review-date-filter";
 import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
 import { chartWindow, sampledSlippage } from './chart-window';
+import { abnormalRiskEvents } from './risk-events';
 import { DEFAULT_L1_DISTANCE_THRESHOLD, L1_DISTANCE_DESCRIPTION, l1DistanceLabel } from "./l1-distance-label";
 import {
   Activity,
@@ -4030,7 +4031,7 @@ function RiskBoard({
   inventoryUsed: number;
   lossUsed: number;
 }) {
-  const timelineEvents = getRiskTimelineEvents(visibleMarket);
+  const timelineEvents = abnormalRiskEvents(getRiskTimelineEvents(visibleMarket));
 
   return (
     <>
@@ -4098,7 +4099,7 @@ function RiskBoard({
             <small>{visibleMarket.endInMinutes}m to end</small>
           </div>
           <div className="event-list">
-            {visibleMarket.events.map((eventItem) => (
+            {abnormalRiskEvents(visibleMarket.events).map((eventItem) => (
               <div key={`${eventItem.time}-${eventItem.type}`} className="event-row">
                 <span className={`event-dot ${eventItem.severity}`} />
                 <time>{eventItem.time}</time>
