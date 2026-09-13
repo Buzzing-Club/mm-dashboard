@@ -1,14 +1,16 @@
 import { finite, map, rows, type Fact } from './review-facts.ts';
 import { orderedFacts, raw6, type BackendSource } from './review-backend.ts';
 
-export function historicalQuery(asOf: string | null, window: string | null, now = Date.now()) {
+export function historicalQuery(asOf: string | null, window: string | null, now = Date.now(), marketStart: string | null = null) {
   if (!asOf || !/^\d+$/.test(asOf)) throw new Error('as_of Unix seconds is required');
   const requested = Number(asOf);
   if (!Number.isSafeInteger(requested) || requested < 60 || requested > Math.floor(now / 1000)) throw new Error('invalid historical cutoff');
   // The upstream rounds OUTWARD. End on a completed minute to avoid future data.
   const end = Math.floor(requested / 60) * 60;
   const seconds = window === '15m' ? 900 : window === '4h' ? 14400 : 3600;
-  return { requested, end, start: Math.max(1, end - seconds), interval: '1m' };
+  const start = marketStart && /^\d+$/.test(marketStart) ? Number(marketStart) : null;
+  if (marketStart !== null && (start === null || !Number.isSafeInteger(start) || start <= 0 || start >= end)) throw new Error('invalid market start');
+  return { requested, end, start: Math.max(1, end - seconds, start ?? 1), interval: '1m' };
 }
 
 export function historicalTraderCount(source: BackendSource, end: number): number | null {

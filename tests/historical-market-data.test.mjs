@@ -13,6 +13,8 @@ const history = () => ({ condition_id: 'c', amount_unit: 'usdb_raw6', covered_fr
 test('historical requests never round forward or use the current clock as cutoff', () => {
   const q = historicalQuery(String(end + 12), '4h', (end + 86400) * 1000);
   assert.equal(q.end, end); assert.equal(q.start, end - 14400); assert.equal(q.interval, '1m');
+  assert.equal(historicalQuery(String(end + 12), '4h', (end + 1000) * 1000, String(end - 2346)).start, end - 2346);
+  assert.throws(() => historicalQuery(String(end), '1h', (end + 1000) * 1000, String(end + 10)));
   for (const value of [null, '', 'NaN', '-1', '0', String(end + 100000)]) assert.throws(() => historicalQuery(value, '1h', end * 1000));
 });
 test('net traders include both sides, deduplicate users, exclude internal and future rows', () => {
