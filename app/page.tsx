@@ -6,6 +6,7 @@ import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
 import type { BackendReview } from "./review-backend";
 import { recentReviewDates, filterReviewMarkets, type ReviewDateFilter } from "./review-market-scope";
+import { historicalListKey, historicalMissingLabel, loadHistoricalList, type HistoricalListTarget, type HistoricalLoadState } from "./historical-list-loader";
 import { ReviewDateSelector } from "./review-date-filter";
 import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
 import { DEFAULT_L1_DISTANCE_THRESHOLD, L1_DISTANCE_DESCRIPTION, l1DistanceLabel } from "./l1-distance-label";
@@ -141,6 +142,7 @@ type Market = {
   isHistorical?: boolean;
   snapshotAt?: string | null;
   historicalBusinessNote?: string;
+  historicalBusinessState?: HistoricalLoadState;
   series: Array<{
     ts?: number;
     time: string;
@@ -2420,11 +2422,11 @@ function mapDashboardHistoryPayload(payload: DashboardHistoryPayload): Market[] 
     .filter((marketItem): marketItem is Market => Boolean(marketItem));
 }
 
-type ArchiveBusinessSupplement = { metrics?: SingleMarketMetrics; history?: SingleMarketHistoryMetrics; note: string };
+type ArchiveBusinessSupplement = { metrics?: SingleMarketMetrics; history?: SingleMarketHistoryMetrics; note: string; state: HistoricalLoadState };
 
 function withHistoricalBusiness(market: Market, supplement?: ArchiveBusinessSupplement): Market {
   if (!market.isHistorical || !supplement) return market;
-  const result = { ...market, historicalBusinessNote: supplement.note, backendData: { ...market.backendData! } };
+  const result = { ...market, historicalBusinessNote: supplement.note, historicalBusinessState: supplement.state, backendData: { ...market.backendData! } };
   if (supplement.metrics) {
     const metrics = supplement.metrics;
     for (const field of ['grossVolume', 'netVolume', 'traderCount', 'pnl', 'washRatio'] as const) {
@@ -2466,6 +2468,8 @@ export default function Home() {
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
   const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
   const [archiveBusiness, setArchiveBusiness] = useState<Record<string, ArchiveBusinessSupplement>>({});
+  const archiveCache = useRef(new Map<string, ArchiveBusinessSupplement>());
+  const archiveRefresh = useRef(refreshTick);
   const [reviewSource, setReviewSource] = useState<ReviewSourceState>({
     mode: "loading",
     payload: null,
@@ -2575,7 +2579,7 @@ export default function Home() {
   );
   const reviewMarkets = filterReviewMarkets([...historicalMarkets, ...currentMarkets], reviewDates, Date.now());
   const historicalDisplayMarkets = useMemo(() => historicalMarkets.map(market =>
-    withHistoricalBusiness(market, archiveBusiness[`${market.id}:${market.snapshotAt}:${timeframe}`])), [historicalMarkets, archiveBusiness, timeframe]);
+    withHistoricalBusiness(market, archiveBusiness[historicalListKey(market, timeframe)])), [historicalMarkets, archiveBusiness, timeframe]);
   const scopeMarkets = workspaceView === "review" ? reviewMarkets : marketScope === "history" ? historicalDisplayMarkets : currentMarkets;
 
   const categoryMarkets = useMemo(() => {
@@ -2613,7 +2617,7 @@ export default function Home() {
   const visibleMarketBase = workspaceView === "review" || filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
-  const archiveKey = `${visibleMarketBase.id}:${visibleMarketBase.snapshotAt}:${timeframe}`;
+  const archiveTargets = JSON.stringify(historicalMarkets.map(({ id, snapshotAt, startAt }) => ({ id, snapshotAt, startAt })));
   const visibleMarketWithRealtime = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketMetrics(
     visibleMarketBase,
     singleMarketMetrics[visibleMarketBase.id],
@@ -2624,38 +2628,37 @@ export default function Home() {
   );
 
   useEffect(() => {
-    if (!hasMarkets || !visibleMarketBase.isHistorical || dataSource.mode !== 'api' || workspaceView !== 'realtime') return;
+    if (marketScope !== 'history' || dataSource.mode !== 'api' || workspaceView !== 'realtime') return;
     const controller = new AbortController();
-    const snapshot = visibleMarketBase.snapshotAt ? Date.parse(visibleMarketBase.snapshotAt) : NaN;
-    if (!Number.isFinite(snapshot)) {
-      setArchiveBusiness(current => ({ ...current, [archiveKey]: { note: '快照时间缺失，无法补充同一时刻的业务数据' } }));
-      return;
-    }
-    async function loadHistoricalBusiness() {
-      setArchiveBusiness(current => ({ ...current, [archiveKey]: { note: '正在读取结束时的历史业务数据' } }));
-      try {
-        const params = new URLSearchParams({ condition_id: visibleMarketBase.id, as_of: String(Math.floor(snapshot / 1000)), market_start: String(Math.floor(timestamp(visibleMarketBase.startAt) / 1000)), window: timeframe });
+    const refresh = archiveRefresh.current !== refreshTick;
+    archiveRefresh.current = refreshTick;
+    void loadHistoricalList<ArchiveBusinessSupplement>(JSON.parse(archiveTargets) as HistoricalListTarget[], {
+      timeframe, signal: controller.signal, cache: archiveCache.current, refresh,
+      onStart: key => setArchiveBusiness(current => ({ ...current, [key]: { ...current[key], state: 'loading', note: '正在读取结束时的历史业务数据' } })),
+      onResult: (key, value) => setArchiveBusiness(current => ({ ...current, [key]: value })),
+      onError: key => setArchiveBusiness(current => ({ ...current, [key]: { ...current[key], state: 'error', note: '历史业务数据读取失败；保留策略快照，可点击刷新重试' } })),
+      load: async target => {
+        const snapshot = target.snapshotAt ? Date.parse(target.snapshotAt) : NaN;
+        if (!Number.isFinite(snapshot)) return { state: 'error', note: '快照时间缺失，无法补充同一时刻的业务数据' };
+        const params = new URLSearchParams({ condition_id: target.id, as_of: String(Math.floor(snapshot / 1000)), market_start: String(Math.floor(timestamp(target.startAt) / 1000)), window: timeframe });
         const response = await fetch(`/api/dashboard/historical-business?${params}`, {
           cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(40_000)]),
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json() as SingleMarketRealtimePayload & { as_of: number; notes: string[]; history: SingleMarketHistoryPayload | null };
-        if (payload.data?.condition_id !== visibleMarketBase.id) throw new Error('Market identity mismatch');
+        if (payload.data?.condition_id !== target.id) throw new Error('Market identity mismatch');
         const metrics = mapSingleMarketMetrics(payload) ?? undefined;
         const history = payload.history ? mapSingleMarketHistory(payload.history) ?? undefined : undefined;
         if (history) {
-          history.series = history.series.filter(point => (point.ts ?? 0) >= timestamp(visibleMarketBase.startAt));
-          history.historyData.coveredFrom = Math.max(history.historyData.coveredFrom, timestamp(visibleMarketBase.startAt));
+          history.series = history.series.filter(point => (point.ts ?? 0) >= timestamp(target.startAt));
+          history.historyData.coveredFrom = Math.max(history.historyData.coveredFrom, timestamp(target.startAt));
         }
         const note = `历史补充截至 ${new Date(payload.as_of * 1000).toLocaleString('zh-CN', { hour12: false })}（完整分钟）；成交额及人数为累计值，PnL 为 API 账户按历史成交价估值。${payload.notes.join('；')}`;
-        if (!controller.signal.aborted) setArchiveBusiness(current => ({ ...current, [archiveKey]: { metrics, history, note } }));
-      } catch {
-        if (!controller.signal.aborted) setArchiveBusiness(current => ({ ...current, [archiveKey]: { note: '历史业务数据读取失败；保留策略快照，可点击刷新重试' } }));
-      }
-    }
-    void loadHistoricalBusiness();
+        return { metrics, history, note, state: 'ready' };
+      },
+    });
     return () => controller.abort();
-  }, [hasMarkets, dataSource.mode, workspaceView, archiveKey, visibleMarketBase.id, visibleMarketBase.isHistorical, visibleMarketBase.snapshotAt, visibleMarketBase.startAt, timeframe, refreshTick]);
+  }, [dataSource.mode, workspaceView, marketScope, archiveTargets, timeframe, refreshTick]);
 
   useEffect(() => {
     if (!hasVisibleMarkets || !visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
@@ -3430,9 +3433,9 @@ function MarketOverview({
               </div>
               <p>{marketItem.market} · {compactIdentifier(marketItem.id)}</p>
               <div className="market-row-metrics">
-                <span>{marketItem.backendData?.grossVolume === false ? marketItem.isHistorical ? "成交额未读取" : "成交额待接入" : currency(marketItem.grossVolume)}</span>
+                <span>{marketItem.backendData?.grossVolume === false ? marketItem.isHistorical ? historicalMissingLabel("成交额", marketItem.historicalBusinessState) : "成交额待接入" : currency(marketItem.grossVolume)}</span>
                 <span className={marketItem.backendData?.pnl === false ? "" : marketItem.pnl >= 0 ? "positive" : "negative"}>
-                  {marketItem.backendData?.pnl === false ? marketItem.isHistorical ? "PnL 未读取" : "PnL 待接入" : signedCurrency(marketItem.pnl)}
+                  {marketItem.backendData?.pnl === false ? marketItem.isHistorical ? historicalMissingLabel("PnL ", marketItem.historicalBusinessState) : "PnL 待接入" : signedCurrency(marketItem.pnl)}
                 </span>
                 <span>
                   {marketItem.isHistorical && marketItem.snapshotAt
