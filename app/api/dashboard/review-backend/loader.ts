@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { openApiConfig, pathWithSortedQuery, signedHeaders } from '../openapi.ts';
-import { map, rows, type Fact } from '../../../review-facts.ts';
+import { epochMs, map, rows, type Fact } from '../../../review-facts.ts';
+import { isEndedReviewMarket } from '../../../review-market-scope.ts';
 import { buildBackendReview, type BackendReview, type BackendSource } from '../../../review-backend.ts';
 
 const MAX_PAGES = 8;
@@ -60,11 +61,17 @@ export async function readBackendPages(api: Api, path: string, query: Record<str
   return result;
 }
 
-export async function loadBackendReview(conditionId: string, asOf?:number): Promise<BackendReview> {
+export function backendMarketEnded(detail: Fact, now: number): boolean {
+  const market=map(detail.market), event=map(detail.event);
+  const end=epochMs(market.market_end_date)??epochMs(event.end_date);
+  return isEndedReviewMarket({id:String(market.condition_id??''),endAt:end===null?'':new Date(end).toISOString(),lifecycle:{closed:market.closed===true,settlementPhase:String(market.settlement_phase??'none')}},now);
+}
+
+export async function loadBackendReview(conditionId: string, asOf?:number, endedOnly=false): Promise<BackendReview> {
   const config = openApiConfig();
   if (!config) throw new Error('OpenAPI credentials are not configured');
   const identity = createHash('sha256').update(`${config.baseUrl}|${config.apiKey}|${config.apiSecret}`).digest('hex');
-  const key = `${identity}:${conditionId}:${asOf??'latest'}`;
+  const key = `${identity}:${conditionId}:${asOf??'latest'}:${endedOnly}`;
   const cached = cache.get(key);
   if (cached && cached.expires > Date.now()) return cached.value;
   const active = pending.get(key);
@@ -80,6 +87,7 @@ export async function loadBackendReview(conditionId: string, asOf?:number): Prom
     };
     const market = await api('/openapi/v1/markets', { condition_id: conditionId });
     if (map(market.market).condition_id !== conditionId) throw new Error('Market identity mismatch');
+    if (endedOnly && !backendMarketEnded(market,now)) throw new Error('Market has not ended; excluded from offline Review');
     const to = String(now / 1000);
     // Read the two histories sequentially: no bursts or unbounded all-market fan-out.
     const fills = await readBackendPages(api, `/openapi/v1/dashboard/markets/${conditionId}/fills`, {to}, 'fills');

@@ -41,7 +41,7 @@ Preview 服务部署在策略 Preview 主机：
 
 该发布给 Dashboard 容器设置 768 MiB 内存上限和 Node 512 MiB 堆上限。该限制不作用于 MM 服务。回退时停止新容器，启动上述旧容器即可恢复同一 localhost:3001 端口；避免同时启动占用同一端口。
 
-后续阶段聚合版本发布目录为 `/opt/mm-dashboard-review-phases-20260911`，沿用上述凭据、依赖及内存限制。候选在 localhost:3002 验证后切到3001，保留前一版容器为 `mm-dashboard-preview-before-phases-20260911`。部署时核对容器 revision 标签和 Mounts；阶段 PnL 只在用户主动开始时顺序聚合，不设置定时全市场任务。实际发布状态以 PR 验证评论为准。
+后续阶段聚合版本发布目录为 `/opt/mm-dashboard-review-phases-20260911`，沿用上述凭据、依赖及内存限制。候选在 localhost:3002 验证后切到3001，保留前一版容器为 `mm-dashboard-preview-before-phases-20260911`。部署时核对容器 revision 标签和 Mounts。新版阶段 PnL 在进入 Review 时自动顺序读取已结束市场的离线汇总，不设置定时全市场任务。实际发布状态以 PR 验证评论为准。
 
 `dashboard.env` 至少包含以下变量，文件不得提交：
 
@@ -51,6 +51,7 @@ STRATEGY_DASHBOARD_HISTORY_API  # 可选；默认由 realtime 地址推导
 OPENAPI_BASE_URL
 OPENAPI_API_KEY
 OPENAPI_API_SECRET
+REVIEW_SUMMARY_DIR  # Preview 必填，例如 /data/review-summaries；必须挂载主机持久目录
 ```
 
 部署前执行：
@@ -73,10 +74,22 @@ npm run build
 - `/api/dashboard/review?condition_id=<condition_id>`
 - `/api/dashboard/review-facts?condition_id=<condition_id>`（第 7 条采样聚合）
 - `/api/dashboard/review-backend?condition_id=<condition_id>`（后端撮合、账本与结算归因）
+- `/api/dashboard/review-portfolio?condition_id=<condition_id>`（已结束市场的持久化阶段汇总）
 - 实时看板的类别和状态筛选
 - Review 的市场搜索、类别筛选及单市场切换
 
 当前主机最初由文件同步部署。交接后应让 `/opt/mm-dashboard` 成为 `preview` 的 Git checkout；迁移时保留 `dashboard.env`，不要覆盖或提交该文件。
+
+### 离线 PnL 汇总保存
+
+- 挂载 `/opt/mm-dashboard/review-summaries:/data/review-summaries` 并设置 `REVIEW_SUMMARY_DIR=/data/review-summaries`。容器替换时复用此目录，不放入发布目录或临时容器层。
+- 每市场、每 OpenAPI 凭据身份仅保存一个小型 JSON，最多 64 KB；不保存成交原始列表、订单簿或私钥。文件名使用身份与 condition 的哈希，文件权限 0600。写入临时文件后原子替换。
+- 首次读取从现有后端历史接口顺序聚合并保存；24 小时内直接读盘。页面刷新或再次进入不要求用户重新点击计算。
+- 24 小时后在下一次访问时更新；手动更新有 60 秒复用窗口。盘后结算仍会变化，因此不是把到期未结算 PnL 永久冻结，也不是按当前盘口实时估值。
+- 上游失败/分页不完整保留旧记录并显示警告；冷启动失败不落盘假零。磁盘写失败明确提示未保存。没有配置目录时接口报错，不静默使用进程内存冒充持久化。
+- 前端顺序读取，服务端同键合并请求、全局最多两个聚合请求；原后端每市场 8 页、45 秒等限制保留。没有常驻全市场扫描任务。
+- 汇总各行可以有不同历史截止时间，UI 展示范围及每行截止时间；不能宣称“统一实时截止”。只有已结束市场进入此面板，暂停或做市任务停止本身不算市场结束。
+- 本目录每市场一个文件，市场数量持续增长时由运维按业务留存要求归档；本版本不自动删除历史汇总。
 
 ## Vercel Mock 部署
 

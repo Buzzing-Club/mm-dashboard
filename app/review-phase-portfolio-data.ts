@@ -1,5 +1,5 @@
 import type { PhaseValuation } from './review-backend';
-export type PortfolioMarket = {id:string;name:string;valuations:PhaseValuation[];spread:Array<{phase:string;spread:number|null;exposure?:number|null}>;error?:string};
+export type PortfolioMarket = {id:string;name:string;valuations:PhaseValuation[];spread:Array<{phase:string;spread:number|null;exposure?:number|null}>;error?:string;asOf?:string;savedAt?:string;warning?:string;storage?:'disk'|'unsaved'};
 export function phasePortfolioTotals(rows:PortfolioMarket[],phase:string) {
   const covered=rows.flatMap(row=>row.valuations.filter(value=>value.phase===phase && value.phasePnl!==null));
   const spreads=rows.flatMap(row=>row.spread.filter(value=>value.phase===phase && value.spread!==null));
