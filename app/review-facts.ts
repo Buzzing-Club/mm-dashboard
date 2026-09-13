@@ -10,6 +10,7 @@ export type ReviewFactsPayload = {
   condition_id: string;
   section_seven: SectionSevenData;
   order_flow?: { sampleCount:number; candidateCount:number; averageScore:number|null; favorableRate:number|null; distribution:Array<{kind:string;count:number;color:string}>; note:string };
+  order_flow_error?: string;
   coverage: { decisionCount: number; fillCount: number; from: number | null; through: number | null; notes: string[] };
 };
 

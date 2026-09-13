@@ -3,6 +3,8 @@ import { buildReviewFacts, epochMs, map, rows, selectReviewJob, type FactSource,
 import { mergeReviewObservations } from "../../../review-observations";
 import { validConditionId } from "../openapi";
 import { hasReviewBounds, recoverReviewContext } from "../../../review-history-context";
+import { readOrderFlow } from '../../../review-order-flow';
+import { savedOrderFlow } from './order-flow-store';
 
 export const runtime = "nodejs";
 let cached: { key: string; expires: number; data: ReviewFacts } | undefined;
@@ -78,6 +80,30 @@ export async function GET(request: Request) {
         if (!observations) throw new Error('upstream unavailable');
         mergeReviewObservations(payload,observations,job,{start:epochMs(market.start_time)??epochMs(market.create_time),end:epochMs(market.end_time)});
       } catch {payload.coverage.notes.push('策略增量观测暂不可用，保留已有历史采样。');}
+    }
+    try {
+      if (!process.env.REVIEW_SUMMARY_DIR) throw new Error('订单流离线汇总存储未配置');
+      payload.order_flow = await savedOrderFlow({
+        directory:process.env.REVIEW_SUMMARY_DIR,
+        identity:`${key}|${secret ?? ''}|${job?.job_id}|${job?.account_id}|${job?.revision}`,
+        conditionId,
+        load:()=>readOrderFlow(conditionId,async cursor=>{
+          const url = new URL('/api/dashboard/review-order-flow',source);
+          url.searchParams.set('condition_id',conditionId);
+          url.searchParams.set('limit','100');
+          if(cursor) url.searchParams.set('cursor',cursor);
+          const response = await fetch(url,{headers,redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(8_000)});
+          if(!response.ok) throw new Error(`订单流历史接口 HTTP ${response.status}`);
+          const body = await response.text();
+          if(body.length>256_000) throw new Error('订单流分页响应过大');
+          return JSON.parse(body);
+        }),
+      });
+    } catch(error) {
+      const reason = error instanceof Error ? error.message : '订单流历史读取失败';
+      payload.coverage.notes.push(reason);
+      payload.order_flow = undefined;
+      payload.order_flow_error = reason;
     }
     return NextResponse.json(payload, { headers: { "cache-control": "no-store" } });
   } catch {

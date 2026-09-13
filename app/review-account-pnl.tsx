@@ -40,7 +40,7 @@ export function ReviewAccountPnl({ markets, refreshKey, enabled }: { markets: Ar
   const totals = snapshot ? accountPnlTotals(snapshot) : null;
   const names = new Map(markets.map(row => [row.id.toLowerCase(), row.event]));
   return <div className="review-account-pnl">
-    <h3>账户 PnL · 当前及历史市场</h3>
+    <h3>账户 PnL · 所选日期内已结束市场</h3>
     <p className="review-data-coverage" title="当前后端 API Key 账户；按 condition_id 去重后汇总，包含看板已加载的历史市场。不是所有用户收益，也不保证覆盖账户在看板外的其他市场。各批次为本次读取的最新值，不是原子快照。">
       {snapshot ? `${snapshot.rows.length} / ${snapshot.expected} 个市场已覆盖${snapshot.missing.length ? " · 部分汇总" : ""} · USDB · ${new Date(snapshot.observedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} (UTC+8)` : "正在读取账户 PnL"}
       {current?.error ? ` · ${current.error}` : ""}

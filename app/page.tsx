@@ -5,7 +5,8 @@ import { ReviewStageMetrics, ReviewPnlAnalysis } from "./review-section-seven";
 import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
 import type { BackendReview } from "./review-backend";
-import { endedReviewMarkets } from "./review-market-scope";
+import { currentReviewWeek, filterReviewMarkets, type ReviewDateFilter } from "./review-market-scope";
+import { ReviewDateSelector } from "./review-date-filter";
 import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
 import {
   Activity,
@@ -2460,6 +2461,7 @@ export default function Home() {
   const [liveClock, setLiveClock] = useState("--:--:--");
   const [activeBoard, setActiveBoard] = useState<BoardId>("macro");
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("realtime");
+  const [reviewDates, setReviewDates] = useState<ReviewDateFilter>(() => ({ mode: 'week', ...currentReviewWeek(Date.now()) }));
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
   const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
   const [archiveBusiness, setArchiveBusiness] = useState<Record<string, ArchiveBusinessSupplement>>({});
@@ -2570,7 +2572,7 @@ export default function Home() {
     () => markets.filter((marketItem) => !historicalIds.has(marketItem.id)),
     [historicalIds, markets],
   );
-  const reviewMarkets = endedReviewMarkets([...historicalMarkets, ...currentMarkets], Date.now());
+  const reviewMarkets = filterReviewMarkets([...historicalMarkets, ...currentMarkets], reviewDates, Date.now());
   const historicalDisplayMarkets = useMemo(() => historicalMarkets.map(market =>
     withHistoricalBusiness(market, archiveBusiness[`${market.id}:${market.snapshotAt}:${timeframe}`])), [historicalMarkets, archiveBusiness, timeframe]);
   const scopeMarkets = workspaceView === "review" ? reviewMarkets : marketScope === "history" ? historicalDisplayMarkets : currentMarkets;
@@ -2821,8 +2823,9 @@ export default function Home() {
         </div>
       </section>
 
+      {workspaceView === "review" && <ReviewDateSelector value={reviewDates} onChange={setReviewDates} now={Date.now()} />}
       {workspaceView === "review" ? (
-        !hasVisibleMarkets ? <section className="chart-empty" role="status">暂无已结束的市场</section> :
+        !hasVisibleMarkets ? <section className="chart-empty" role="status">所选日期范围内暂无已结束的市场</section> :
         <ReviewDashboard
           markets={scopeMarkets}
           visibleMarket={visibleMarket}
@@ -3236,7 +3239,7 @@ function ReviewDashboard({
                   <Bar dataKey="count" name="成交笔数" radius={[3, 3, 0, 0]}>{review.toxicity.map((item) => <Cell key={item.kind} fill={item.color} />)}</Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </div></> : <ReviewUnavailable title="订单流毒性暂无样本" detail="已接历史做市成交与公允价采样；当前没有能匹配成交后60至90秒价格的有效样本。" />}
+            </div></> : <ReviewUnavailable title={reviewSource.payload?.order_flow_error ? "订单流历史读取失败" : "订单流毒性暂无有效样本"} detail={reviewSource.payload?.order_flow_error ?? reviewSource.payload?.order_flow?.note ?? "尚未取得完整的单市场成交与公允价历史，不能判定为没有成交。"} />}
             {reviewSource.payload?.order_flow && <p className="review-data-coverage">{reviewSource.payload.order_flow.note} · {reviewSource.payload.order_flow.sampleCount} / {reviewSource.payload.order_flow.candidateCount} 笔已匹配</p>}
           </div>
         {reviewSource.payload?.condition_id === visibleMarket.id && <p className="review-data-coverage">{reviewSource.payload.coverage.decisionCount} 条决策 · {reviewSource.payload.coverage.fillCount} 笔做市成交 · {reviewSource.payload.coverage.notes.join("；")}</p>}
