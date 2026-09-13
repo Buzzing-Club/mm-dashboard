@@ -21,7 +21,7 @@ export const stageMetrics: Array<{ id: string; phase: string; range: string; goa
     { id: "levelsConsumed", name: "用户单笔吃单的平均档位数", unit: "档", definition: "使用后端 consumed_levels，按 user_ref + order_ref 将撮合归为一个用户 taker 订单，每单只计一次；按首笔撮合归入阶段。仅统计完整读取、wash_flag=none 且未排除出 net volume 的用户订单。level_index 是撮合序号，不是价格档位。", source: "市场 fills 的 consumed_levels、order_fill_count、level_index 与成交分类版本" },
     { id: "recross", name: "回摆率", unit: "%", definition: "成交后 60 秒内公允价回穿成交价的成交笔数 / 已完成完整观察窗的成交笔数，按买入、卖出方向拆分。未满观察窗的成交不进入分母。", source: "on_my_fill 成交价、方向 + 公允价逐 tick 观察" },
     { id: "followLatency", name: "盘口跟随延迟", unit: "ms P95", definition: "公允价变化至新报价确认生效的耗时分布，拆分策略层、对账层、挂撤层。authority_age/account_snapshot_age 是新鲜度，只作辅助，不等同于跟随延迟。", source: "公允价变更链路 + operation_duration_seconds" },
-    { id: "supplyConversion", name: "供给有效性", unit: "%", definition: "同市场、同阶段的确认做市成交笔数 / 完整做市计划挂单计数，按 market-maker role 过滤；按档位展示成交分布。MM 当前计划计数在语义变化时增加；最近审计有条数上限且可能丢弃，不能直接代替该阶段完整计数。一张订单多次成交按多笔计，不是唯一订单成交率。", example: "同期 1000 笔计划挂单、30 笔确认成交，则为 3%。", source: "同市场阶段 strategy_planned_orders_total + fills_total 增量，排除 TradeVolume" },
+    { id: "supplyConversion", name: "供给有效性", unit: "%", definition: "同市场、同阶段捕获区间内的确认做市成交笔数 / 真实做市路径计划挂单次数。计划包含本地拒绝，排除模拟、Flash 和刷量任务；重复发出的计划分别计数，与决策审计是否变化无关。修复前漏记的历史计划不能反推补回。一张订单多次成交按多笔计，不是唯一订单成交率。", example: "同期 1000 笔计划挂单、30 笔确认成交，则为 3%。", source: "同市场阶段 strategy_planned_orders_total + fills_total 增量，排除 TradeVolume" },
   ] },
   { id: "postmarket", phase: "尾盘 / 盘后", range: "80–100%", goal: "低风险流动性、避免长尾反转、反转时控险", metrics: [
     { id: "reversals", name: "反转次数", unit: "次", definition: "尾盘公允价穿越 0.5 的事件数，按向上、向下拆分；连续停留于 0.5 不重复计数。", source: "公允价逐 tick 变化 + 尾盘阶段判定" },

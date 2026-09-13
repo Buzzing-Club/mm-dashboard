@@ -48,7 +48,7 @@ export function mergeReviewObservations(payload: ReviewFactsPayload, raw: unknow
       areas.map((value, i) => ({label:`${names[i]}风险面积`, value, unit:'sh·min'})));
     payload.section_seven.metrics.exposureTime!.exposureSeries = exposureSeries;
   }
-  add('supplyConversion',finite(data[1].supply_conversion_pct),series('supply_conversion_pct'),'捕获区间 MM_QUOTE maker 成交数 / 语义变化时记录的计划挂单数；不冒充完整历史。','供给转化 (%)',data.flatMap((row,i)=>[{label:`${names[i]} 计划数`,value:finite(row.planned_orders),unit:'笔'},{label:`${names[i]} 成交数`,value:finite(row.fills),unit:'笔'}]));
+  add('supplyConversion',finite(data[1].supply_conversion_pct),series('supply_conversion_pct'),'捕获区间 MM_QUOTE maker 成交数 / 真实做市路径计划挂单次数（含本地拒绝，不含模拟、Flash 或刷量）；修复前漏记的历史计划不可补回，不冒充完整历史。','供给转化 (%)',data.flatMap((row,i)=>[{label:`${names[i]} 计划数`,value:finite(row.planned_orders),unit:'笔'},{label:`${names[i]} 成交数`,value:finite(row.fills),unit:'笔'}]));
   for(const [id,kind,index] of [['requoteLatency','requote',0],['followLatency','follow',1]] as const) {
     const stats=data.map(row=>map(row[kind]));
     const samples=stats.flatMap((row,i)=>['p50_ms','p95_ms'].flatMap(field=>finite(row[field])===null?[]:[{label:`${names[i]} ${field.slice(0,3).toUpperCase()}`,value:finite(row[field])!}]));
