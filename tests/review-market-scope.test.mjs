@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { endedReviewMarkets, isEndedReviewMarket } from '../app/review-market-scope.ts';
+import { currentReviewWeek, filterReviewMarkets, reviewDateBounds, endedReviewMarkets, isEndedReviewMarket } from '../app/review-market-scope.ts';
 
 const now = Date.parse('2026-09-13T01:00:00Z');
 const market = { id: 'test', endAt: '2026-09-13T02:00:00Z', lifecycle: { closed: false, settlementPhase: 'none' } };
@@ -35,4 +35,35 @@ test('review selector and portfolio share a deduplicated ended-only scope', () =
   assert.deepEqual(endedReviewMarkets(rows,now),[ended]);
   assert.equal(rows.length,3);
   assert.deepEqual(endedReviewMarkets([market],now),[]);
+});
+
+test('business week starts Monday midnight UTC+8, including year rollover', () => {
+  assert.deepEqual(currentReviewWeek(Date.parse('2026-09-13T15:59:59Z')), {from:'2026-09-07',to:'2026-09-13'});
+  assert.deepEqual(currentReviewWeek(Date.parse('2026-09-13T16:00:00Z')), {from:'2026-09-14',to:'2026-09-20'});
+  assert.deepEqual(currentReviewWeek(Date.parse('2027-01-01T00:00:00Z')), {from:'2026-12-28',to:'2027-01-03'});
+});
+
+test('range admits by source end, retaining full long-running market data', () => {
+  const old = {...market,id:'old',endAt:'2026-09-06T15:59:59Z'};
+  const first = {...market,id:'first',startAt:'2026-08-01T00:00:00Z',endAt:'2026-09-06T16:00:00Z',series:[{at:'2026-08-01T00:00:00Z'}]};
+  const last = {...market,id:'last',endAt:'2026-09-13T15:59:59Z'};
+  const next = {...market,id:'next',endAt:'2026-09-13T16:00:00Z'};
+  const rows = [old,first,last,next];
+  const selected = filterReviewMarkets(rows,{mode:'custom',from:'2026-09-07',to:'2026-09-13'},Date.parse('2026-09-15T00:00:00Z'));
+  assert.deepEqual(selected,[first,last]);
+  assert.strictEqual(selected[0],first);
+  assert.equal(selected[0].series.length,1);
+  assert.equal(rows.length,4);
+});
+
+test('empty/invalid ranges fail closed; all history is not deleted by date selection', () => {
+  for (const [from,to] of [['','2026-09-13'],['2026-02-30','2026-09-13'],['2026-09-14','2026-09-13']]) {
+    assert.equal(reviewDateBounds({mode:'custom',from,to},now),null);
+  }
+  const old = {...market,endAt:'2025-01-01T00:00:00Z'};
+  assert.deepEqual(filterReviewMarkets([old],{mode:'week',from:'',to:''},now),[]);
+  assert.deepEqual(filterReviewMarkets([old],{mode:'all',from:'',to:''},now),[old]);
+  const unknown = {...market,reviewEndAt:null,lifecycle:{closed:true,settlementPhase:'none'}};
+  assert.deepEqual(filterReviewMarkets([unknown],{mode:'week',from:'',to:''},now),[]);
+  assert.deepEqual(filterReviewMarkets([unknown],{mode:'all',from:'',to:''},now),[unknown]);
 });
