@@ -2429,11 +2429,15 @@ function withHistoricalBusiness(market: Market, supplement?: ArchiveBusinessSupp
   const result = { ...market, historicalBusinessNote: supplement.note, historicalBusinessState: supplement.state, backendData: { ...market.backendData! } };
   if (supplement.metrics) {
     const metrics = supplement.metrics;
-    for (const field of ['grossVolume', 'netVolume', 'traderCount', 'pnl', 'washRatio'] as const) {
+    for (const field of ['grossVolume', 'netVolume', 'traderCount', 'pnl', 'washRatio', 'avgSlippage'] as const) {
       if (market.backendData?.[field] === false && metrics.backendData[field]) {
         Object.assign(result, { [field]: metrics[field] });
         result.backendData[field] = true;
       }
+    }
+    if (!market.backendData?.slippageDistribution && metrics.backendData.slippageDistribution) {
+      result.slippageBuckets = metrics.slippageBuckets;
+      result.backendData.slippageDistribution = true;
     }
   }
   if (supplement.history) {
@@ -3520,7 +3524,7 @@ function overviewMetricValue(marketItem: Market, metric: OverviewRankMetric) {
 function overviewMetricLabel(value: number, metric: OverviewRankMetric) {
   if (value < 0) return "待接入";
   if (metric === "grossVolume") return currency(value);
-  if (metric === "avgSlippage") return `${value.toFixed(1)}%`;
+  if (metric === "avgSlippage") return `${formatReviewNumber(value)}%`;
   return `${Math.round(value)} 次`;
 }
 
@@ -3567,10 +3571,11 @@ function MarketOverviewSummary({
           {rankings.map((marketItem, index) => {
             const value = overviewMetricValue(marketItem, rankMetric);
             return (
-              <button key={marketItem.id} type="button" onClick={() => setActiveId(marketItem.id)}>
+              <button key={marketItem.id} type="button" title={marketItem.isHistorical ? marketItem.historicalBusinessNote : undefined} onClick={() => setActiveId(marketItem.id)}>
                 <span>{index + 1}</span>
                 <strong>{marketItem.event}</strong>
-                <em>{overviewMetricLabel(value, rankMetric)}</em>
+                <em>{value < 0 && marketItem.isHistorical && (rankMetric === 'avgSlippage' || rankMetric === 'grossVolume')
+                  ? historicalMissingLabel('', marketItem.historicalBusinessState) : overviewMetricLabel(value, rankMetric)}</em>
               </button>
             );
           })}
@@ -3832,7 +3837,7 @@ function ExperienceBoard({
             <small>true trades</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Avg Slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : `${visibleMarket.avgSlippage.toFixed(1)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
+            <TinyStat label="Avg Slippage" value={visibleMarket.avgSlippage === null ? visibleMarket.isHistorical ? historicalMissingLabel('', visibleMarket.historicalBusinessState) : "no_trade" : `${formatReviewNumber(visibleMarket.avgSlippage)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
             <TinyStat label="Spread Now" value={visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "missing"} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
             <TinyStat label="Ask K" value={visibleMarket.askSlope?.toFixed(1) ?? "insufficient"} tone={visibleMarket.askSlope ? "ok" : "bad"} />
             <TinyStat label="Bid K" value={visibleMarket.bidSlope?.toFixed(1) ?? "insufficient"} tone={visibleMarket.bidSlope ? "ok" : "bad"} />
@@ -4243,7 +4248,7 @@ const tinyStatDescriptions: Record<string, string> = {
   "Mid Freq": "中间档位插入的实际触发频率，按观测窗口折算为每小时次数。",
   "L1 Distance": "闪单生成价格相对当前订单簿一档位置的距离；策略端尚未提供时显示 missing。",
   "Max Live Pairs": "同一市场同一时刻允许存在的最大 Bot 挂单对数，用于控制并发挂单和保证金占用。",
-  "Avg Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
+  "Avg Slippage": "净成交相对同一 taker 订单最优成交档位的不利绝对价差，按撮合笔数平均；买单取最低成交价，卖单取最高成交价。0.01 显示为 1%，不是相对 mid 的百分比。历史市场统计到历史截止时刻，排除内部流量，无样本不补零。",
   "Spread Now": "当前选中市场最优 ask 与最优 bid 的实时价差，数值越小成交体验通常越好。",
   "Ask K": "买入 YES 方向的盘口冲击斜率，衡量吃 ask 时价格随成交量上移的速度。",
   "Bid K": "卖出 YES 方向的盘口冲击斜率，衡量吃 bid 时价格随成交量下移的速度。",
