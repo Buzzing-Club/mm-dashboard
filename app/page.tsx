@@ -3655,32 +3655,31 @@ function incidentMetricText(metric: ExperienceIncidentMetric | undefined) {
 }
 
 function ExperienceIncidentTimeline({ market }: { market: Market }) {
-  const start = timestamp(market.startAt);
-  const end = timestamp(market.endAt);
-  const duration = Math.max(1, end - start);
-  const incidents = market.experienceQuality?.incidents ?? [];
+  const incidents = [...(market.experienceQuality?.incidents ?? [])].sort((a, b) => a.ts - b.ts);
   return (
     <div className="experience-incident-panel panel">
       <div className="panel-title">
         <span><Activity size={16} /> 体验异常时间轴</span>
-        <small>{incidents.length ? `${incidents.length} events` : "等待策略埋点"}</small>
+        <small>{incidents.length} events</small>
       </div>
-      <div className="experience-incident-timeline">
-        <div className="experience-incident-boundary">
-          <span>{formatAxisTime(start, market.startAt, market.endAt)}</span>
-          <span>{formatAxisTime(end, market.startAt, market.endAt)}</span>
-        </div>
+      <div className="experience-incident-timeline" role="region" aria-label="异常事件时间轴，按发生顺序排列" tabIndex={incidents.length ? 0 : undefined} key={market.id}>
+        {incidents.length ? <div className="experience-incident-track" style={{ gridTemplateColumns: `repeat(${incidents.length}, minmax(168px, 1fr))`, minWidth: `${incidents.length * 168}px` }}>
         {incidents.map((incident, index) => (
           <div
             key={`${incident.kind}-${incident.ts}-${index}`}
             className={`experience-incident-node ${incident.kind} ${index % 2 === 0 ? "label-top" : "label-bottom"}`}
-            style={{ left: `${Math.min(94, Math.max(5, ((incident.ts - start) / duration) * 100))}%` }}
-            title={`${experienceIncidentLabels[incident.kind]} · 持续 ${incident.durationSeconds}s${incident.valuePct ? ` · ${incident.valuePct.toFixed(2)}%` : ""}`}
+            tabIndex={0}
+            title={`${new Date(incident.ts).toLocaleString('zh-CN', { hour12: false })} · ${experienceIncidentLabels[incident.kind]} · 持续 ${formatReviewNumber(incident.durationSeconds)}s${incident.valuePct != null ? ` · ${formatReviewNumber(incident.valuePct)}%` : ""}`}
           >
             <span />
-            <strong>{experienceIncidentLabels[incident.kind]}</strong>
+            <div className="experience-incident-label">
+              <strong>{experienceIncidentLabels[incident.kind]}</strong>
+              <time dateTime={new Date(incident.ts).toISOString()}>{new Date(incident.ts).toLocaleTimeString('zh-CN', { hour12: false })}</time>
+              <small>{formatReviewNumber(incident.durationSeconds)}s</small>
+            </div>
           </div>
         ))}
+        </div> : <div className="experience-incident-empty">{market.experienceQuality ? '暂无异常记录' : '异常记录暂不可用'}</div>}
       </div>
     </div>
   );

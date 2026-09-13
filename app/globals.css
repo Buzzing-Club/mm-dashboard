@@ -1295,40 +1295,45 @@ h3 {
 
 .experience-incident-panel {
   margin-top: 10px;
+  min-width: 0;
 }
 
 .experience-incident-timeline {
-  position: relative;
-  min-height: 116px;
-  overflow: hidden;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-color: #626b78 #171b21;
+  scrollbar-width: thin;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #0b0d11;
-  padding: 12px 16px;
 }
 
-.experience-incident-timeline::before {
+.experience-incident-timeline::-webkit-scrollbar { height: 8px; }
+.experience-incident-timeline::-webkit-scrollbar-track { background: #171b21; }
+.experience-incident-timeline::-webkit-scrollbar-thumb { background: #626b78; border-radius: 4px; }
+
+.experience-incident-track {
+  display: grid;
+  position: relative;
+  width: 100%;
+  height: 180px;
+}
+
+.experience-incident-track::before {
   position: absolute;
-  top: 55px;
-  right: 18px;
-  left: 18px;
+  top: 90px;
+  right: 0;
+  left: 0;
   height: 1px;
   background: rgba(126, 135, 150, 0.32);
   content: "";
 }
 
-.experience-incident-boundary {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 10px;
-}
-
 .experience-incident-node {
-  position: absolute;
-  top: 55px;
-  width: min(140px, 22%);
+  position: relative;
+  min-width: 0;
   color: var(--amber);
 }
 
@@ -1338,7 +1343,8 @@ h3 {
 
 .experience-incident-node > span {
   position: absolute;
-  top: -5px;
+  top: 85px;
+  left: calc(50% - 5px);
   width: 10px;
   height: 10px;
   border: 2px solid #0b0d11;
@@ -1347,24 +1353,47 @@ h3 {
   box-shadow: 0 0 0 1px currentColor;
 }
 
-.experience-incident-node strong {
+.experience-incident-label {
   position: absolute;
-  left: -8px;
-  overflow: hidden;
-  width: max-content;
-  max-width: 140px;
+  left: 12px;
+  right: 12px;
+  display: grid;
+  gap: 4px;
+  text-align: center;
+}
+
+.experience-incident-node strong {
   color: var(--foreground);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.experience-incident-label time, .experience-incident-label small {
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 14px;
 }
 
-.experience-incident-node.label-top strong {
-  bottom: 15px;
+.experience-incident-node.label-top .experience-incident-label {
+  bottom: 106px;
 }
 
-.experience-incident-node.label-bottom strong {
-  top: 18px;
+.experience-incident-node.label-bottom .experience-incident-label {
+  top: 106px;
+}
+
+.experience-incident-timeline:focus-visible, .experience-incident-node:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -3px;
+}
+
+.experience-incident-empty {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
 }
 
 .meter-stack {
