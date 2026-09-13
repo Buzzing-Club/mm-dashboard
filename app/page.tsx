@@ -8,6 +8,7 @@ import type { BackendReview } from "./review-backend";
 import { currentReviewWeek, filterReviewMarkets, type ReviewDateFilter } from "./review-market-scope";
 import { ReviewDateSelector } from "./review-date-filter";
 import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
+import { DEFAULT_L1_DISTANCE_THRESHOLD, L1_DISTANCE_DESCRIPTION, l1DistanceLabel } from "./l1-distance-label";
 import {
   Activity,
   AlertTriangle,
@@ -1257,7 +1258,7 @@ function withMockExperienceQuality(marketItem: Market, index: number): Market {
         time: formatAxisTime(ts, marketItem.startAt, marketItem.endAt),
         kind: spec.kind,
         durationSeconds: Math.max(3, Math.round(spec.duration / Math.max(1, spec.count))),
-        valuePct: spec.kind === "l1_distance_exceeded" ? Number((1.1 + (index % 5) * 0.24).toFixed(2)) : null,
+        valuePct: spec.kind === "l1_distance_exceeded" ? Number((11 + (index % 5) * 0.24).toFixed(2)) : null,
       } satisfies ExperienceIncident;
     })
   ));
@@ -1285,7 +1286,7 @@ function withMockExperienceQuality(marketItem: Market, index: number): Market {
     slippageNotionalBuckets: buildSlippageNotionalBuckets(avgSlippage, marketItem, index),
     experienceQuality: {
       observedDurationSeconds,
-      l1DistanceThresholdPct: 0.01,
+      l1DistanceThresholdPct: DEFAULT_L1_DISTANCE_THRESHOLD,
       singleSidedEmpty: metric(singleCount, singleDuration),
       doubleSidedEmpty: metric(doubleCount, doubleDuration),
       l1DistanceExceeded: metric(distanceCount, distanceDuration),
@@ -3543,7 +3544,7 @@ function MarketOverviewSummary({
         <TinyStat label={marketScope === "history" ? "Historical Markets" : "Live Markets"} value={`${markets.length}`} tone="ok" />
         <TinyStat label={marketScope === "history" ? "Snapshot Risks" : "Attention Markets"} value={`${abnormalMarkets.length}`} tone={abnormalMarkets.length ? "warn" : "ok"} />
         <TinyStat label="Single-side Empty" value={`${singleSidedEvents} 次`} tone={singleSidedEvents ? "warn" : "ok"} />
-        <TinyStat label="L1 Distance > 1%" value={`${l1DistanceEvents} 次`} tone={l1DistanceEvents ? "bad" : "ok"} />
+        <TinyStat label={l1DistanceLabel(markets.flatMap(market => market.experienceQuality ? [market.experienceQuality.l1DistanceThresholdPct] : []))} value={`${l1DistanceEvents} 次`} tone={l1DistanceEvents ? "bad" : "ok"} />
       </div>
       <div className="overview-ranking">
         <div className="overview-ranking-head">
@@ -3799,7 +3800,7 @@ function ExperienceBoard({
           <div className="micro-grid experience-quality-grid">
             <TinyStat label="Single-side Empty" value={incidentMetricText(visibleMarket.experienceQuality?.singleSidedEmpty)} tone={(visibleMarket.experienceQuality?.singleSidedEmpty.count ?? 0) > 0 ? "warn" : "ok"} />
             <TinyStat label="Double-side Empty" value={incidentMetricText(visibleMarket.experienceQuality?.doubleSidedEmpty)} tone={(visibleMarket.experienceQuality?.doubleSidedEmpty.count ?? 0) > 0 ? "bad" : "ok"} />
-            <TinyStat label="L1 Distance > 1%" value={incidentMetricText(visibleMarket.experienceQuality?.l1DistanceExceeded)} tone={(visibleMarket.experienceQuality?.l1DistanceExceeded.count ?? 0) > 0 ? "bad" : "ok"} />
+            <TinyStat label={l1DistanceLabel(visibleMarket.experienceQuality ? [visibleMarket.experienceQuality.l1DistanceThresholdPct] : [])} value={incidentMetricText(visibleMarket.experienceQuality?.l1DistanceExceeded)} tone={(visibleMarket.experienceQuality?.l1DistanceExceeded.count ?? 0) > 0 ? "bad" : "ok"} />
           </div>
         </div>
 
@@ -4227,7 +4228,6 @@ const tinyStatDescriptions: Record<string, string> = {
   "Attention Markets": "当前风控状态不是正常摆单，或数据新鲜度异常的市场数量。",
   "Single-side Empty": "观察窗口内 YES 或 NO 仅一侧订单簿为空的次数、累计持续秒数，以及占市场已运行时长的比例。",
   "Double-side Empty": "观察窗口内 YES 与 NO 两侧订单簿同时为空的次数、累计持续秒数，以及占市场已运行时长的比例。",
-  "L1 Distance > 1%": "闪单价格与当时订单簿一档价格距离超过 1% 的次数、累计持续秒数，以及占市场已运行时长的比例。",
   "Gross Volume": "当前选中市场的累计双边成交额，用于观察这个市场本身的交易规模。",
   "Net Volume": "当前选中市场按后端分类剔除自成交、双边内部流量后的成交额；缺失不补零。",
   "Trader Count": "净成交双边真实用户去重数，排除内部账户和 API 调用账户；历史市场按标注的历史截止时间统计，不包含访问或点击。",
@@ -4247,7 +4247,8 @@ const tinyStatDescriptions: Record<string, string> = {
 };
 
 function TinyStat({ label, value, tone }: { label: string; value: string; tone: "ok" | "warn" | "bad" }) {
-  const description = tinyStatDescriptions[label];
+  const description = label.startsWith('L1 Distance >') || label === 'L1 Distance · 多阈值'
+    ? L1_DISTANCE_DESCRIPTION : tinyStatDescriptions[label];
 
   return (
     <div className={`tiny-stat ${tone}`}>
