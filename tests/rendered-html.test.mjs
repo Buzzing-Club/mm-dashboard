@@ -221,8 +221,8 @@ test("keeps dashboard code wired to the strategy and backend contracts", async (
   assert.match(page, /无样本区间保留为空/);
   assert.match(page, /market-realtime-batch/);
   assert.match(page, /market-history/);
-  assert.match(page, /等待后端提供真实成交滑点分布/);
-  assert.match(page, /等待后端提供成交时刻基准价与滑点时序/);
+  assert.match(page, /当前区间无有效净成交样本/);
+  assert.match(page, /当前区间无有效滑点或交易冲击样本/);
   assert.match(route, /STRATEGY_DASHBOARD_API/);
   assert.match(route, /CF_ACCESS_CLIENT_ID/);
   assert.match(route, /CF-Access-Client-Secret/);
