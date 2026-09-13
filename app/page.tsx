@@ -6,7 +6,7 @@ import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
 import type { BackendReview } from "./review-backend";
 import { recentReviewDates, filterReviewMarkets, type ReviewDateFilter } from "./review-market-scope";
-import { historicalListKey, historicalMissingLabel, loadHistoricalList, type HistoricalListTarget, type HistoricalLoadState } from "./historical-list-loader";
+import { historicalMissingLabel, type HistoricalLoadState } from "./historical-list-loader";
 import { ReviewDateSelector } from "./review-date-filter";
 import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
 import { DEFAULT_L1_DISTANCE_THRESHOLD, L1_DISTANCE_DESCRIPTION, l1DistanceLabel } from "./l1-distance-label";
@@ -226,6 +226,8 @@ type DashboardRealtimePayload = {
 };
 
 type DashboardRealtimeItem = {
+  dashboard_archive?: { storage: string; book_at?: number | null; book_status?: string; note: string;
+    business?: (SingleMarketRealtimePayload & { as_of: number; notes?: string[]; history?: SingleMarketHistoryPayload | null }) | null };
   identity?: {
     condition_id?: string;
     event_id?: string | number;
@@ -2418,7 +2420,17 @@ function mapDashboardHistoryPayload(payload: DashboardHistoryPayload): Market[] 
   if (payload.contract_version !== "mm-dashboard-history.v1") return [];
   return (payload.items ?? [])
     .filter(hasReadableDashboardTitle)
-    .map((item, index) => mapDashboardItem(item, index, true))
+    .map((item, index) => {
+      const market = mapDashboardItem(item, index, true);
+      if (!market) return null;
+      const archive = item.dashboard_archive, payload = archive?.business;
+      const note = archive ? `${archive.note}${archive.book_at ? ` 盘口采样：${new Date(archive.book_at).toLocaleString('zh-CN', { hour12: false })}。` : ''} ${(payload?.notes ?? []).join('；')}` : '完整看板快照未留存，仅有策略归档';
+      return withHistoricalBusiness(market, {
+        metrics: payload ? mapSingleMarketMetrics(payload) ?? undefined : undefined,
+        history: payload?.history ? mapSingleMarketHistory(payload.history) ?? undefined : undefined,
+        note, state: 'ready',
+      });
+    })
     .filter((marketItem): marketItem is Market => Boolean(marketItem));
 }
 
@@ -2429,17 +2441,25 @@ function withHistoricalBusiness(market: Market, supplement?: ArchiveBusinessSupp
   const result = { ...market, historicalBusinessNote: supplement.note, historicalBusinessState: supplement.state, backendData: { ...market.backendData! } };
   if (supplement.metrics) {
     const metrics = supplement.metrics;
-    for (const field of ['grossVolume', 'netVolume', 'traderCount', 'pnl', 'washRatio'] as const) {
+    for (const field of ['grossVolume', 'netVolume', 'traderCount', 'pnl', 'washRatio', 'avgSlippage'] as const) {
       if (market.backendData?.[field] === false && metrics.backendData[field]) {
         Object.assign(result, { [field]: metrics[field] });
         result.backendData[field] = true;
       }
     }
+    if (!market.backendData?.slippageDistribution && metrics.backendData.slippageDistribution) {
+      result.slippageBuckets = metrics.slippageBuckets;
+      result.backendData.slippageDistribution = true;
+    }
+    if (!market.slippageNotionalBuckets?.length && metrics.slippageNotionalBuckets?.length) result.slippageNotionalBuckets = metrics.slippageNotionalBuckets;
   }
   if (supplement.history) {
     result.series = supplement.history.series;
     result.historyData = supplement.history.historyData;
     result.backendData.businessTrend = true;
+    if (result.experienceQuality && supplement.history.experienceHistory.length) {
+      result.experienceQuality = { ...result.experienceQuality, history: supplement.history.experienceHistory };
+    }
   }
   return result;
 }
@@ -2467,9 +2487,6 @@ export default function Home() {
   const [reviewDates, setReviewDates] = useState<ReviewDateFilter>(() => ({ mode: 'week', ...recentReviewDates(Date.now()) }));
   const [singleMarketMetrics, setSingleMarketMetrics] = useState<Record<string, SingleMarketMetrics>>({});
   const [singleMarketHistory, setSingleMarketHistory] = useState<Record<string, SingleMarketHistoryMetrics>>({});
-  const [archiveBusiness, setArchiveBusiness] = useState<Record<string, ArchiveBusinessSupplement>>({});
-  const archiveCache = useRef(new Map<string, ArchiveBusinessSupplement>());
-  const archiveRefresh = useRef(refreshTick);
   const [reviewSource, setReviewSource] = useState<ReviewSourceState>({
     mode: "loading",
     payload: null,
@@ -2551,6 +2568,18 @@ export default function Home() {
           setDataSource({mode:'api',label:'API',detail:'刷新暂不可用，保留上次读取的真实数据与结束快照'});
           return;
         }
+        try {
+          const response = await fetch('/api/dashboard/history?limit=500', { cache: 'no-store' });
+          if (response.ok) {
+            const payload = await response.json() as DashboardHistoryPayload;
+            const saved = mapDashboardHistoryPayload(payload);
+            if (saved.length && !cancelled) {
+              setMarkets([]); setHistoricalMarkets(saved); setMarketScope('history');
+              setDataSource({ mode: 'api', label: 'HISTORY SNAPSHOT', detail: '实时服务不可用，读取磁盘历史归档' });
+              return;
+            }
+          }
+        } catch { /* No usable archive; retain the explicit mock fallback below. */ }
         setMarkets(mockCurrentMarkets);
         setHistoricalMarkets(mockHistoricalMarkets);
         setActiveId((current) => mockCurrentMarkets.some((marketItem) => marketItem.id === current) ? current : mockCurrentMarkets[0].id);
@@ -2578,8 +2607,13 @@ export default function Home() {
     [historicalIds, markets],
   );
   const reviewMarkets = filterReviewMarkets([...historicalMarkets, ...currentMarkets], reviewDates, Date.now());
-  const historicalDisplayMarkets = useMemo(() => historicalMarkets.map(market =>
-    withHistoricalBusiness(market, archiveBusiness[historicalListKey(market, timeframe)])), [historicalMarkets, archiveBusiness, timeframe]);
+  const historicalDisplayMarkets = useMemo(() => historicalMarkets.map(market => {
+    const through = market.historyData?.coveredThrough ?? timestamp(market.snapshotAt ?? market.endAt);
+    const from = Math.max(timestamp(market.startAt), through - (timeframe === '15m' ? 900_000 : timeframe === '4h' ? 14_400_000 : 3_600_000));
+    return { ...market, series: market.series.filter(point => (point.ts ?? 0) >= from),
+      historyData: market.historyData ? { ...market.historyData, coveredFrom: Math.max(market.historyData.coveredFrom, from) } : undefined,
+      experienceQuality: market.experienceQuality ? { ...market.experienceQuality, history: market.experienceQuality.history.filter(point => point.ts >= from) } : undefined };
+  }), [historicalMarkets, timeframe]);
   const scopeMarkets = workspaceView === "review" ? reviewMarkets : marketScope === "history" ? historicalDisplayMarkets : currentMarkets;
 
   const categoryMarkets = useMemo(() => {
@@ -2617,7 +2651,6 @@ export default function Home() {
   const visibleMarketBase = workspaceView === "review" || filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
     ? activeMarket
     : filteredMarkets[0] ?? activeMarket;
-  const archiveTargets = JSON.stringify(historicalMarkets.map(({ id, snapshotAt, startAt }) => ({ id, snapshotAt, startAt })));
   const visibleMarketWithRealtime = visibleMarketBase.isHistorical ? visibleMarketBase : applySingleMarketMetrics(
     visibleMarketBase,
     singleMarketMetrics[visibleMarketBase.id],
@@ -2626,39 +2659,6 @@ export default function Home() {
     visibleMarketWithRealtime,
     singleMarketHistory[visibleMarketBase.id],
   );
-
-  useEffect(() => {
-    if (marketScope !== 'history' || dataSource.mode !== 'api' || workspaceView !== 'realtime') return;
-    const controller = new AbortController();
-    const refresh = archiveRefresh.current !== refreshTick;
-    archiveRefresh.current = refreshTick;
-    void loadHistoricalList<ArchiveBusinessSupplement>(JSON.parse(archiveTargets) as HistoricalListTarget[], {
-      timeframe, signal: controller.signal, cache: archiveCache.current, refresh,
-      onStart: key => setArchiveBusiness(current => ({ ...current, [key]: { ...current[key], state: 'loading', note: '正在读取结束时的历史业务数据' } })),
-      onResult: (key, value) => setArchiveBusiness(current => ({ ...current, [key]: value })),
-      onError: key => setArchiveBusiness(current => ({ ...current, [key]: { ...current[key], state: 'error', note: '历史业务数据读取失败；保留策略快照，可点击刷新重试' } })),
-      load: async target => {
-        const snapshot = target.snapshotAt ? Date.parse(target.snapshotAt) : NaN;
-        if (!Number.isFinite(snapshot)) return { state: 'error', note: '快照时间缺失，无法补充同一时刻的业务数据' };
-        const params = new URLSearchParams({ condition_id: target.id, as_of: String(Math.floor(snapshot / 1000)), market_start: String(Math.floor(timestamp(target.startAt) / 1000)), window: timeframe });
-        const response = await fetch(`/api/dashboard/historical-business?${params}`, {
-          cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(40_000)]),
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json() as SingleMarketRealtimePayload & { as_of: number; notes: string[]; history: SingleMarketHistoryPayload | null };
-        if (payload.data?.condition_id !== target.id) throw new Error('Market identity mismatch');
-        const metrics = mapSingleMarketMetrics(payload) ?? undefined;
-        const history = payload.history ? mapSingleMarketHistory(payload.history) ?? undefined : undefined;
-        if (history) {
-          history.series = history.series.filter(point => (point.ts ?? 0) >= timestamp(target.startAt));
-          history.historyData.coveredFrom = Math.max(history.historyData.coveredFrom, timestamp(target.startAt));
-        }
-        const note = `历史补充截至 ${new Date(payload.as_of * 1000).toLocaleString('zh-CN', { hour12: false })}（完整分钟）；成交额及人数为累计值，PnL 为 API 账户按历史成交价估值。${payload.notes.join('；')}`;
-        return { metrics, history, note, state: 'ready' };
-      },
-    });
-    return () => controller.abort();
-  }, [dataSource.mode, workspaceView, marketScope, archiveTargets, timeframe, refreshTick]);
 
   useEffect(() => {
     if (!hasVisibleMarkets || !visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
@@ -3520,7 +3520,7 @@ function overviewMetricValue(marketItem: Market, metric: OverviewRankMetric) {
 function overviewMetricLabel(value: number, metric: OverviewRankMetric) {
   if (value < 0) return "待接入";
   if (metric === "grossVolume") return currency(value);
-  if (metric === "avgSlippage") return `${value.toFixed(1)}%`;
+  if (metric === "avgSlippage") return `${formatReviewNumber(value)}%`;
   return `${Math.round(value)} 次`;
 }
 
@@ -3567,10 +3567,11 @@ function MarketOverviewSummary({
           {rankings.map((marketItem, index) => {
             const value = overviewMetricValue(marketItem, rankMetric);
             return (
-              <button key={marketItem.id} type="button" onClick={() => setActiveId(marketItem.id)}>
+              <button key={marketItem.id} type="button" title={marketItem.isHistorical ? marketItem.historicalBusinessNote : undefined} onClick={() => setActiveId(marketItem.id)}>
                 <span>{index + 1}</span>
                 <strong>{marketItem.event}</strong>
-                <em>{overviewMetricLabel(value, rankMetric)}</em>
+                <em>{value < 0 && marketItem.isHistorical && (rankMetric === 'avgSlippage' || rankMetric === 'grossVolume')
+                  ? historicalMissingLabel('', marketItem.historicalBusinessState) : overviewMetricLabel(value, rankMetric)}</em>
               </button>
             );
           })}
@@ -3793,6 +3794,7 @@ function ExperienceBoard({
     <>
       <BoardChartToolbar title="Experience Quality" timeframe={timeframe} setTimeframe={setTimeframe} />
       <MarketLifecycle market={visibleMarket} />
+      {visibleMarket.isHistorical && <div className="chart-source-note">{visibleMarket.historicalBusinessNote ?? '历史快照未留存'}</div>}
 
       <div className="detail-grid experience-detail-grid">
         <div className="panel experience-quality-panel">
@@ -3832,10 +3834,10 @@ function ExperienceBoard({
             <small>true trades</small>
           </div>
           <div className="micro-grid">
-            <TinyStat label="Avg Slippage" value={visibleMarket.avgSlippage === null ? "no_trade" : `${visibleMarket.avgSlippage.toFixed(1)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
-            <TinyStat label="Spread Now" value={visibleMarket.spread ? `${(visibleMarket.spread * 100).toFixed(1)}c` : "missing"} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
-            <TinyStat label="Ask K" value={visibleMarket.askSlope?.toFixed(1) ?? "insufficient"} tone={visibleMarket.askSlope ? "ok" : "bad"} />
-            <TinyStat label="Bid K" value={visibleMarket.bidSlope?.toFixed(1) ?? "insufficient"} tone={visibleMarket.bidSlope ? "ok" : "bad"} />
+            <TinyStat label="Avg Slippage" value={visibleMarket.avgSlippage === null ? visibleMarket.isHistorical ? historicalMissingLabel('', visibleMarket.historicalBusinessState) : "no_trade" : `${formatReviewNumber(visibleMarket.avgSlippage)}%`} tone={(visibleMarket.avgSlippage ?? 99) < 4 ? "ok" : "bad"} />
+            <TinyStat label={visibleMarket.isHistorical ? 'Snapshot Spread' : 'Spread Now'} value={visibleMarket.spread !== null ? `${formatReviewNumber(visibleMarket.spread * 100)}c` : visibleMarket.isHistorical ? '未留存' : "missing"} tone={visibleMarket.spread && visibleMarket.spread < 0.06 ? "ok" : "warn"} />
+            <TinyStat label="Ask K" value={visibleMarket.askSlope?.toFixed(1) ?? (visibleMarket.isHistorical ? '未留存有效值' : "insufficient")} tone={visibleMarket.askSlope ? "ok" : "bad"} />
+            <TinyStat label="Bid K" value={visibleMarket.bidSlope?.toFixed(1) ?? (visibleMarket.isHistorical ? '未留存有效值' : "insufficient")} tone={visibleMarket.bidSlope ? "ok" : "bad"} />
           </div>
         </div>
 
@@ -3860,7 +3862,7 @@ function ExperienceBoard({
                   ))}
                 </Bar>
               </BarChart>
-            </ResponsiveContainer> : <div className="chart-empty">等待后端提供真实成交滑点分布</div>}
+            </ResponsiveContainer> : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存滑点分布或无有效净成交样本' : '等待后端提供真实成交滑点分布'}</div>}
           </div>
         </div>
       </div>
@@ -3871,7 +3873,7 @@ function ExperienceBoard({
         <div className="panel chart-panel">
           <div className="panel-title">
             <span><LineChart size={16} /> 滑点与交易冲击变化</span>
-            <small>{visibleMarket.experienceQuality?.history.length ? timeframe : "等待时序数据"}</small>
+            <small>{visibleMarket.experienceQuality?.history.length ? timeframe : visibleMarket.isHistorical ? '归档无有效时序' : "等待时序数据"}</small>
           </div>
           <div className="chart-frame compact-chart">
             {visibleMarket.experienceQuality?.history.length ? (
@@ -3897,7 +3899,7 @@ function ExperienceBoard({
                   <Line type="monotone" dataKey="impactPct" name="交易冲击" stroke="#4cc9f0" strokeWidth={2} dot={false} connectNulls={false} />
                 </ComposedChart>
               </ResponsiveContainer>
-            ) : <div className="chart-empty">等待后端提供成交时刻基准价与滑点时序</div>}
+            ) : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存时序或所选区间无有效样本' : '等待后端提供成交时刻基准价与滑点时序'}</div>}
           </div>
           {visibleMarket.historyData ? (
             <div className="chart-source-note">
@@ -3909,7 +3911,7 @@ function ExperienceBoard({
         <div className="panel chart-panel">
           <div className="panel-title">
             <span><TimerReset size={16} /> 按单笔金额分层滑点</span>
-            <small>{visibleMarket.slippageNotionalBuckets?.length ? "notional buckets" : "等待后端数据"}</small>
+            <small>{visibleMarket.slippageNotionalBuckets?.length ? "notional buckets" : visibleMarket.isHistorical ? '归档无有效分层样本' : "等待后端数据"}</small>
           </div>
           <div className="chart-frame compact-chart">
             {visibleMarket.slippageNotionalBuckets?.length ? (
@@ -3926,7 +3928,7 @@ function ExperienceBoard({
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            ) : <div className="chart-empty">等待后端按成交金额区间返回滑点分布</div>}
+            ) : <div className="chart-empty">{visibleMarket.isHistorical ? '归档未留存金额分层或无有效净成交样本' : '等待后端按成交金额区间返回滑点分布'}</div>}
           </div>
         </div>
       </div>
@@ -4243,7 +4245,8 @@ const tinyStatDescriptions: Record<string, string> = {
   "Mid Freq": "中间档位插入的实际触发频率，按观测窗口折算为每小时次数。",
   "L1 Distance": "闪单生成价格相对当前订单簿一档位置的距离；策略端尚未提供时显示 missing。",
   "Max Live Pairs": "同一市场同一时刻允许存在的最大 Bot 挂单对数，用于控制并发挂单和保证金占用。",
-  "Avg Slippage": "当前选中市场真实成交相对成交前盘口中间价的平均滑点。",
+  "Avg Slippage": "净成交相对同一 taker 订单最优成交档位的不利绝对价差，按撮合笔数平均；买单取最低成交价，卖单取最高成交价。0.01 显示为 1%，不是相对 mid 的百分比。历史市场统计到历史截止时刻，排除内部流量，无样本不补零。",
+  "Snapshot Spread": "结束前最后有效盘口的买卖价差；采样时间单独标注。若当时未保存有效盘口，不使用今天盘口重建。",
   "Spread Now": "当前选中市场最优 ask 与最优 bid 的实时价差，数值越小成交体验通常越好。",
   "Ask K": "买入 YES 方向的盘口冲击斜率，衡量吃 ask 时价格随成交量上移的速度。",
   "Bid K": "卖出 YES 方向的盘口冲击斜率，衡量吃 bid 时价格随成交量下移的速度。",

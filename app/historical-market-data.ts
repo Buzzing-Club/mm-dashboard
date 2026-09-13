@@ -1,5 +1,6 @@
 import { finite, map, rows, type Fact } from './review-facts.ts';
 import { orderedFacts, raw6, type BackendSource } from './review-backend.ts';
+import { historicalSlippage } from './historical-slippage.ts';
 
 export function historicalQuery(asOf: string | null, window: string | null, now = Date.now(), marketStart: string | null = null) {
   if (!asOf || !/^\d+$/.test(asOf)) throw new Error('as_of Unix seconds is required');
@@ -47,8 +48,10 @@ export function historicalBusiness(conditionId: string, end: number, history: Fa
   const quality = map(history?.quality);
   const pnl = atCutoff && quality.pnl_included === true && quality.truncated !== true ? raw6(last.current_pnl) : null;
   const traderCount = historicalTraderCount(fills, end);
+  const slippage = historicalSlippage(fills, end);
   const washRatio = gross !== null && net !== null && gross > 0 && net >= 0 && net <= gross ? (gross - net) / gross : null;
   const notes = [];
+  notes.push(slippage.note);
   if (!atCutoff) notes.push('结束时刻历史桶未读取到');
   if (pnl === null) notes.push('历史 PnL 未返回或账本历史不完整');
   if (traderCount === null) notes.push(fills.complete ? '用户身份或成交分类不完整' : '成交历史未完整读取，人数不补零');
@@ -62,6 +65,7 @@ export function historicalBusiness(conditionId: string, end: number, history: Fa
         wash_ratio: washRatio, trader_count: traderCount,
       },
       pnl: { current_pnl: pnl === null ? null : last!.current_pnl },
+      slippage,
     },
     history: valid ? { code: 0, data: { ...history, points, covered_through: String(end) } } : null,
   };

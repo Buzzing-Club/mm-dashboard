@@ -1,0 +1,10 @@
+[Unit]
+Description=Checkpoint Preview dashboard market snapshots
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=60s
+Unit=mm-dashboard-archive.service
+
+[Install]
+WantedBy=timers.target
