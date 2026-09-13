@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const conditionId = validConditionId(incoming.searchParams.get('condition_id'));
   if (!conditionId) return NextResponse.json({ error: 'valid condition_id is required' }, { status: 400 });
   let query: ReturnType<typeof historicalQuery>;
-  try { query = historicalQuery(incoming.searchParams.get('as_of'), incoming.searchParams.get('window')); }
+  try { query = historicalQuery(incoming.searchParams.get('as_of'), incoming.searchParams.get('window'), Date.now(), incoming.searchParams.get('market_start')); }
   catch { return NextResponse.json({ error: 'valid historical as_of is required' }, { status: 400 }); }
   const config = openApiConfig();
   if (!config) return NextResponse.json({ error: 'OpenAPI credentials are not configured' }, { status: 503 });
