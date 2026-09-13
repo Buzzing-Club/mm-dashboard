@@ -5,6 +5,7 @@ import { ReviewStageMetrics, ReviewPnlAnalysis } from "./review-section-seven";
 import { buildSectionSevenDemo } from "./review-section-seven-demo";
 import type { ReviewFactsPayload } from "./review-facts";
 import type { BackendReview } from "./review-backend";
+import { endedReviewMarkets } from "./review-market-scope";
 import {
   Activity,
   AlertTriangle,
@@ -130,6 +131,7 @@ type Market = {
   liquidity: number;
   startAt: string;
   endAt: string;
+  reviewEndAt?: string | null;
   reviewWindow?: { startAt: string; endAt: string } | null;
   endInMinutes: number;
   lifecycle?: MarketLifecycleInfo;
@@ -2340,6 +2342,7 @@ function mapDashboardItem(item: DashboardRealtimeItem, index: number, isHistoric
     startAt,
     endAt,
     reviewWindow: reviewStartAt && reviewEndAt ? { startAt: reviewStartAt, endAt: reviewEndAt } : null,
+    reviewEndAt,
     endInMinutes: endMinutes(endAt),
     lifecycle: {
       settlementPhase: phase,
@@ -2566,7 +2569,7 @@ export default function Home() {
     () => markets.filter((marketItem) => !historicalIds.has(marketItem.id)),
     [historicalIds, markets],
   );
-  const reviewMarkets = useMemo(() => [...new Map([...historicalMarkets, ...currentMarkets].map(market => [market.id, market])).values()], [historicalMarkets, currentMarkets]);
+  const reviewMarkets = endedReviewMarkets([...historicalMarkets, ...currentMarkets], Date.now());
   const historicalDisplayMarkets = useMemo(() => historicalMarkets.map(market =>
     withHistoricalBusiness(market, archiveBusiness[`${market.id}:${market.snapshotAt}:${timeframe}`])), [historicalMarkets, archiveBusiness, timeframe]);
   const scopeMarkets = workspaceView === "review" ? reviewMarkets : marketScope === "history" ? historicalDisplayMarkets : currentMarkets;
@@ -2600,6 +2603,7 @@ export default function Home() {
   }, [categoryMarkets, effectiveRiskStatusFilter, query]);
 
   const hasMarkets = markets.length > 0 || historicalMarkets.length > 0;
+  const hasVisibleMarkets = workspaceView === 'review' ? reviewMarkets.length > 0 : hasMarkets;
   // The placeholder keeps hook inputs stable; it is never rendered for an empty API result.
   const activeMarket = scopeMarkets.find((marketItem) => marketItem.id === activeId) ?? scopeMarkets[0] ?? currentMarkets[0] ?? historicalMarkets[0] ?? mockCurrentMarkets[0];
   const visibleMarketBase = workspaceView === "review" || filteredMarkets.some((marketItem) => marketItem.id === activeMarket.id)
@@ -2650,7 +2654,7 @@ export default function Home() {
   }, [hasMarkets, dataSource.mode, workspaceView, archiveKey, visibleMarketBase.id, visibleMarketBase.isHistorical, visibleMarketBase.snapshotAt, visibleMarketBase.startAt, timeframe, refreshTick]);
 
   useEffect(() => {
-    if (!hasMarkets || !visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
+    if (!hasVisibleMarkets || !visibleMarketBase?.id || visibleMarketBase.isHistorical) return undefined;
     const controller = new AbortController();
 
     async function loadSingleMarketMetrics() {
@@ -2697,11 +2701,11 @@ export default function Home() {
 
     loadSingleMarketMetrics();
     return () => controller.abort();
-  }, [hasMarkets, marketScope, refreshTick, timeframe, visibleMarketBase?.id, visibleMarketBase?.isHistorical]);
+  }, [hasVisibleMarkets, marketScope, refreshTick, timeframe, visibleMarketBase?.id, visibleMarketBase?.isHistorical]);
 
   const reviewIsDemo = buildSectionSevenDemo(visibleMarketBase, []) !== null;
   useEffect(() => {
-    if (!hasMarkets || workspaceView !== "review" || !visibleMarketBase?.id) return undefined;
+    if (!hasVisibleMarkets || workspaceView !== "review" || !visibleMarketBase?.id) return undefined;
     const controller = new AbortController();
 
     async function loadReview() {
@@ -2760,14 +2764,14 @@ export default function Home() {
 
     loadReview();
     return () => controller.abort();
-  }, [hasMarkets, refreshTick, visibleMarketBase?.id, workspaceView, reviewIsDemo]);
+  }, [hasVisibleMarkets, refreshTick, visibleMarketBase?.id, workspaceView, reviewIsDemo]);
 
   const inventoryUsed = Math.min(100, (Math.abs(visibleMarket.inventory) / visibleMarket.qMax) * 100);
   const lossUsed = Math.min(100, (Math.abs(visibleMarket.worstCasePnl) / visibleMarket.maxLossBudget) * 100);
   const displayedSource = workspaceView === "review"
     ? {
       mode: reviewSource.mode,
-      label: reviewSource.mode === "api" ? "REVIEW API" : reviewSource.mode === "loading" ? "REVIEW LOADING" : reviewSource.mode === "error" ? "REVIEW UNAVAILABLE" : "REVIEW MOCK",
+      label: !hasVisibleMarkets ? "REVIEW EMPTY" : reviewSource.mode === "api" ? "REVIEW API" : reviewSource.mode === "loading" ? "REVIEW LOADING" : reviewSource.mode === "error" ? "REVIEW UNAVAILABLE" : "REVIEW MOCK",
       detail: reviewSource.detail,
     }
     : marketScope === "history"
@@ -2817,12 +2821,13 @@ export default function Home() {
       </section>
 
       {workspaceView === "review" ? (
+        !hasVisibleMarkets ? <section className="chart-empty" role="status">暂无已结束的市场</section> :
         <ReviewDashboard
           markets={scopeMarkets}
           visibleMarket={visibleMarket}
           setActiveId={setActiveId}
           reviewSource={reviewSource}
-          accountMarkets={[...new Map([...historicalMarkets, ...markets].map(market => [market.id, market])).values()]}
+          accountMarkets={reviewMarkets}
           refreshKey={refreshTick}
         />
       ) : (
