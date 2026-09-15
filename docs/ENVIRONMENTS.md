@@ -52,7 +52,19 @@ OPENAPI_BASE_URL
 OPENAPI_API_KEY
 OPENAPI_API_SECRET
 REVIEW_SUMMARY_DIR  # Preview 必填，例如 /data/review-summaries；必须挂载主机持久目录
+MIXPANEL_SA_USER     # 可选；Review 行为漏斗。值同主机 /root/.mixpanel_sa
+MIXPANEL_SA_SECRET
+MIXPANEL_PROJECT_ID
+MIXPANEL_ENVIRONMENT # 可选，默认 preview；只统计该环境的埋点
 ```
+
+### Review 行为漏斗（Mixpanel）
+
+`GET /api/dashboard/review-engagement?condition_id=<condition_id>`：先经 OpenAPI `/openapi/v1/markets` 把 condition_id 解析成埋点里的 `market_id`，再用一次 Raw Export 取该市场在创建→结束窗口（最长 31 天）内的 `market_detail_enter` / `market_trade_panel_enter` / `bet_option_click` / `market_order_submit`，按去重用户输出「进入市场 → 交易互动 → 尝试报价 → 提交订单」。
+
+- 所有环境共用一个 Mixpanel project，Service Account 也能读 prod；环境按 `environment` → `env_mode` → `api_env` 逐条判定，判不出的计入 `unattributed`，不并入漏斗。
+- Raw Export 限额约 60 次/小时且与其他查询共用，本服务每小时最多 30 次；已结束市场缓存 6 小时，未结束 10 分钟。超限返回 503，页面显示原因，不回退演示数据。
+- 试价金额分布仍未接入（埋点只有价格没有金额）。
 
 部署前执行：
 
