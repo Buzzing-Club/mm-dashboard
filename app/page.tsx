@@ -11,6 +11,7 @@ import { ReviewDateSelector } from "./review-date-filter";
 import { formatReviewNumber, formatReviewTooltip } from "./review-number-format";
 import { chartWindow, sampledSlippage } from './chart-window';
 import { abnormalRiskEvents } from './risk-events';
+import type { ReviewEngagement } from './review-engagement';
 import { DEFAULT_L1_DISTANCE_THRESHOLD, L1_DISTANCE_DESCRIPTION, l1DistanceLabel } from "./l1-distance-label";
 import {
   Activity,
@@ -2731,7 +2732,7 @@ export default function Home() {
       setReviewSource({ mode: "loading", payload: null, detail: "正在请求单市场 Review API" });
       try {
         const params = new URLSearchParams({ condition_id: visibleMarketBase.id });
-        const [facts, backend] = await Promise.allSettled([
+        const [facts, backend, engagement] = await Promise.allSettled([
           fetch(`/api/dashboard/review-facts?${params.toString()}`, {cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(40_000)])}).then(async response => {
             if (!response.ok) throw new Error(`Review API ${response.status}`);
             return await response.json() as ReviewApiPayload;
@@ -2740,6 +2741,12 @@ export default function Home() {
             if (!response.ok) throw new Error(`Backend Review API ${response.status}`);
             const value = await response.json() as BackendReview;
             if (value.conditionId !== visibleMarketBase.id) throw new Error('Backend market mismatch');
+            return value;
+          }),
+          fetch(`/api/dashboard/review-engagement?${params.toString()}`, {cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(60_000)])}).then(async response => {
+            const value = await response.json() as ReviewEngagement & { error?: string };
+            if (!response.ok) throw new Error(value.error ?? `Engagement API ${response.status}`);
+            if (value.conditionId !== visibleMarketBase.id) throw new Error('Engagement market mismatch');
             return value;
           }),
         ]);
@@ -2758,6 +2765,8 @@ export default function Home() {
             payload.section_seven.unavailable = {...payload.section_seven.unavailable,levelsConsumed:reason};
           }
         } else payload.coverage.notes.push('后端 Review 接口暂不可用，账户账本及成交归因未加载。');
+        if (engagement.status === 'fulfilled') payload.engagement = engagement.value;
+        else payload.engagementError = engagement.reason instanceof Error ? engagement.reason.message : 'Engagement unavailable';
         if (!mapReviewApiPayload(payload)) throw new Error("Review API contract mismatch");
         if (payload.condition_id !== visibleMarketBase.id) throw new Error("Review market mismatch");
         if (!controller.signal.aborted) {
@@ -2954,7 +2963,8 @@ export default function Home() {
 }
 
 type ReviewData = {
-  availability: { marketEngagement: boolean; toxicity: boolean };
+  availability: { marketEngagement: boolean; quoteAttempts: boolean; toxicity: boolean };
+  engagementNote?: string;
   funnel: Array<{ stage: string; count: number; conversion: number }>;
   toxicity: Array<{ kind: string; count: number; color: string }>;
   quoteAttempts: Array<{ bucket: string; count: number }>;
@@ -2962,7 +2972,7 @@ type ReviewData = {
   favorableRate: number;
 };
 
-type ReviewApiPayload = ReviewFactsPayload;
+type ReviewApiPayload = ReviewFactsPayload & { engagement?: ReviewEngagement | null; engagementError?: string };
 
 type ReviewSourceState = {
   mode: "loading" | "api" | "mock" | "error";
@@ -2984,7 +2994,7 @@ function buildReviewData(market: Market): ReviewData {
   const favorable = Math.round(completed * (0.46 + (seed % 5) / 100));
   const adverse = Math.round(completed * (0.27 + (seed % 6) / 100));
   return {
-    availability: { marketEngagement: true, toxicity: true },
+    availability: { marketEngagement: true, quoteAttempts: true, toxicity: true },
     funnel: [
       { stage: "进入市场", count: visits, conversion: 100 },
       { stage: "交易互动", count: interactions, conversion: interactions / visits * 100 },
@@ -3009,9 +3019,19 @@ function buildReviewData(market: Market): ReviewData {
 
 function emptyReviewData(): ReviewData {
   return {
-    availability: { marketEngagement: false, toxicity: false },
+    availability: { marketEngagement: false, quoteAttempts: false, toxicity: false },
     funnel: [], toxicity: [], quoteAttempts: [], averageScore: 0, favorableRate: 0,
   };
+}
+
+function mapEngagement(review: ReviewData, engagement: ReviewEngagement | null | undefined, error: string | undefined) {
+  if (!engagement) {
+    review.engagementNote = error ? `行为数据暂不可用：${error}` : undefined;
+    return;
+  }
+  review.availability.marketEngagement = true;
+  review.funnel = engagement.stages.map((stage) => ({ stage: stage.stage, count: stage.users, conversion: stage.conversion }));
+  review.engagementNote = [`Mixpanel · ${engagement.environment} · 去重用户`, ...engagement.notes].join("；");
 }
 
 function mapReviewApiPayload(payload: ReviewApiPayload): ReviewData | null {
@@ -3023,6 +3043,7 @@ function mapReviewApiPayload(payload: ReviewApiPayload): ReviewData | null {
     review.averageScore=Number(flow.averageScore.toFixed(3));
     review.favorableRate=Number(flow.favorableRate.toFixed(1));
   }
+  mapEngagement(review,payload.engagement?.conditionId===payload.condition_id?payload.engagement:null,payload.engagementError);
   return review;
 }
 
@@ -3178,7 +3199,7 @@ function ReviewDashboard({
         </div>
 
         <div className="review-summary-grid review-summary-activity">
-          <ReviewMetric label="访问到成交" value={review.availability.marketEngagement ? `${formatReviewNumber(review.funnel.at(-1)?.conversion ?? NaN)}%` : "待接入"} note={review.availability.marketEngagement ? `${review.funnel[0].count} 次访问 / ${completedTrades} 笔成交` : "需要前端行为事件与后端成交"} tone={review.availability.marketEngagement ? "ok" : "warn"} />
+          <ReviewMetric label={`访问到${review.funnel.at(-1)?.stage.slice(-2) ?? "成交"}`} value={review.availability.marketEngagement ? `${formatReviewNumber(review.funnel.at(-1)?.conversion ?? NaN)}%` : "待接入"} note={review.availability.marketEngagement ? `${review.funnel[0].count} 访问 / ${completedTrades} ${review.funnel.at(-1)?.stage}` : "需要前端行为事件与后端成交"} tone={review.availability.marketEngagement ? "ok" : "warn"} />
           <ReviewMetric label="取消率" value={review.availability.marketEngagement ? `${formatReviewNumber(cancellationRate)}%` : "待接入"} note={review.availability.marketEngagement ? "尝试报价后未提交订单" : "需要尝试报价与提交订单事件"} tone={review.availability.marketEngagement && cancellationRate <= 35 ? "ok" : "warn"} />
         </div>
 
@@ -3186,13 +3207,13 @@ function ReviewDashboard({
           <div className="panel review-panel">
             <div className="panel-title">
               <span><BarChart3 size={16} /> 市场活跃度与成交漏斗</span>
-              <small>需要前端行为埋点</small>
+              <small>{review.engagementNote ?? "需要前端行为埋点"}</small>
             </div>
             {review.availability.marketEngagement ? <div className="review-funnel">
               {review.funnel.map((item) => (
                 <div key={item.stage}>
                   <span>{item.stage}</span>
-                  <div><i style={{ width: `${item.conversion}%` }} /></div>
+                  <div><i style={{ width: `${Math.min(100, item.conversion)}%` }} /></div>
                   <strong>{item.count}</strong>
                   <em>{formatReviewNumber(item.conversion)}%</em>
                 </div>
@@ -3205,7 +3226,7 @@ function ReviewDashboard({
               <span><Gauge size={16} /> 试价金额分布</span>
               <small>quote attempts</small>
             </div>
-            {review.availability.marketEngagement ? <div className="review-bar-frame">
+            {review.availability.quoteAttempts ? <div className="review-bar-frame">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={review.quoteAttempts} margin={{ top: 12, right: 12, bottom: 4, left: 0 }} barCategoryGap="28%" maxBarSize={40}>
                   <CartesianGrid stroke="#252a33" vertical={false} />
@@ -3216,7 +3237,7 @@ function ReviewDashboard({
                 </BarChart>
               </ResponsiveContainer>
             </div> : <ReviewUnavailable title="试价分布待接入" detail="需要前端或后端按市场提供 quote attempt 金额与结果。" />}
-            {review.availability.marketEngagement ? <p className="review-footnote">大额试价需结合用户余额分层判断，不能直接视为异常。</p> : null}
+            {review.availability.quoteAttempts ? <p className="review-footnote">大额试价需结合用户余额分层判断，不能直接视为异常。</p> : null}
           </div>
         </div>
       </section>
