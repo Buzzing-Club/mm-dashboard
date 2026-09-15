@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildEngagement, eventEnvironment, mixpanelDate } from '../app/review-engagement.ts';
+import { buildEngagement, eventEnvironment, exportDate } from '../app/review-engagement.ts';
 import { engagementWindow, parseExportLines, takeExportBudget } from '../app/api/dashboard/review-engagement/loader.ts';
 
 const cid = `0x${'b'.repeat(64)}`;
@@ -58,9 +58,11 @@ test('hourly export budget refuses excess calls and frees up after an hour', () 
   assert.equal(takeExportBudget(now + 3600_001, calls, 2), true);
 });
 
-test('export parsing and Mixpanel project-day boundaries', () => {
+test('export parsing and Raw Export UTC day boundaries', () => {
   assert.equal(parseExportLines('{"event":"a","properties":{}}\n\n{"event":"b","properties":{}}\n').length, 2);
   assert.throws(() => parseExportLines('not json'));
-  assert.equal(mixpanelDate(Date.parse('2026-09-14T16:00:00Z')), '2026-09-15');
-  assert.equal(mixpanelDate(Date.parse('2026-09-14T15:59:59Z')), '2026-09-14');
+  // An 18:48Z event lives in that UTC day; a Shanghai date would skip it and could exceed Mixpanel's "today".
+  assert.equal(exportDate(Date.parse('2026-09-14T18:48:00Z')), '2026-09-14');
+  assert.equal(exportDate(Date.parse('2026-09-14T23:59:59Z')), '2026-09-14');
+  assert.equal(exportDate(Date.parse('2026-09-15T00:00:00Z')), '2026-09-15');
 });

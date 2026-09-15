@@ -1,7 +1,7 @@
 import { openApiConfig, pathWithSortedQuery, signedHeaders } from '../openapi.ts';
 import { readBoundedJson } from '../review-backend/loader.ts';
 import { epochMs, map } from '../../../review-facts.ts';
-import { buildEngagement, ENGAGEMENT_STAGES, mixpanelDate, type EngagementEnvironment, type ReviewEngagement } from '../../../review-engagement.ts';
+import { buildEngagement, ENGAGEMENT_STAGES, exportDate, type EngagementEnvironment, type ReviewEngagement } from '../../../review-engagement.ts';
 
 const MAX_WINDOW_MS = 31 * 86_400_000;
 const MAX_EXPORT_BYTES = 20_000_000;
@@ -87,8 +87,8 @@ export async function loadReviewEngagement(conditionId: string): Promise<ReviewE
     if (!takeExportBudget(now)) throw new Error('Mixpanel hourly query budget reached; retry later');
     const query = new URLSearchParams({
       project_id: mixpanel.projectId,
-      from_date: mixpanelDate(window.fromMs),
-      to_date: mixpanelDate(window.throughMs),
+      from_date: exportDate(window.fromMs),
+      to_date: exportDate(window.throughMs),
       event: JSON.stringify(ENGAGEMENT_STAGES.map((stage) => stage.event)),
       where: `string(properties["market_id"]) == "${marketId}"`,
     });

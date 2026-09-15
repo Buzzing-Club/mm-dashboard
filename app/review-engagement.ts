@@ -96,7 +96,8 @@ export function buildEngagement(input: {
   };
 }
 
-// Mixpanel project 时区是 Asia/Shanghai，from_date/to_date 按该时区切天。
-export function mixpanelDate(ms: number) {
-  return new Date(ms + 8 * 3600_000).toISOString().slice(0, 10);
+// Raw Export 的 from_date/to_date 按 UTC 切天（不是 project 时区 Asia/Shanghai），且 to_date 不能晚于 UTC 今天，否则 400。
+// 2026-09-16 实测：UTC 18:48 的事件只出现在前一个 UTC 日期里。
+export function exportDate(ms: number) {
+  return new Date(ms).toISOString().slice(0, 10);
 }
